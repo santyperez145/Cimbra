@@ -62,6 +62,32 @@ test('el SDK lista y recupera recursos usando cursores y rutas versionadas', asy
   assert.equal(customer.data.name, 'Comercio Sur');
 });
 
+test('el SDK auto-pagina bajo demanda y respeta la señal de retry del servidor', async () => {
+  const urls: string[] = [];
+  const fetcher: typeof fetch = async (input) => {
+    const url = String(input);
+    urls.push(url);
+    if (url.includes('cursor=page_2')) return Response.json({ data: [{ id: 'cus_2' }], hasMore: false, nextCursor: null });
+    return Response.json({ data: [{ id: 'cus_1' }], hasMore: true, nextCursor: 'page_2' });
+  };
+  const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', fetch: fetcher });
+  const ids: string[] = [];
+  for await (const customer of client.customers.listAll({ limit: 1 })) ids.push(customer.id);
+  assert.deepEqual(ids, ['cus_1', 'cus_2']);
+  assert.equal(urls[1], 'https://api.test/api/v1/customers?limit=1&cursor=page_2');
+
+  let retryCalls = 0;
+  const noRetry = new Cimbra({
+    apiKey: 'cim_sk_test_example', maxRetries: 2, sleep: async () => undefined,
+    fetch: async () => {
+      retryCalls += 1;
+      return Response.json({ error: 'No reintentar' }, { status: 500, headers: { 'Cimbra-Should-Retry': 'false' } });
+    },
+  });
+  await assert.rejects(noRetry.ledger.retrieve(), CimbraApiError);
+  assert.equal(retryCalls, 1);
+});
+
 test('el SDK verifica firma, timestamp, cuerpo crudo y antigüedad del webhook', async () => {
   const secret = 'whsec_test_secret';
   const timestamp = '1787941200';

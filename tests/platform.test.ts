@@ -3,6 +3,7 @@ import test from 'node:test';
 import { apiKeyPrefix, createApiKey, decryptPlatformSecret, encryptPlatformSecret, hashApiKey, signWebhook, verifyApiKey, verifyWebhookSignature } from '../app/lib/platform/crypto.ts';
 import { decodePageCursor, encodePageCursor, pageLimit, paginatedResponse } from '../app/lib/platform/pagination.ts';
 import { isPrivateAddress, normalizeWebhookUrl } from '../app/lib/platform/webhook-url.ts';
+import { versionedApi } from '../app/lib/platform/versioned-api.ts';
 
 process.env.CIMBRA_ENCRYPTION_KEY = '3ea72fc13c567057870342c6ebd34d88f58f6d80b1dba61c4be4e1c2f1406afb';
 
@@ -52,4 +53,16 @@ test('pagina colecciones con cursores opacos y límites acotados', () => {
   assert.equal(decodePageCursor('invalid'), undefined);
   assert.equal(pageLimit('101'), null);
   assert.equal(pageLimit('25'), 25);
+});
+
+test('la API v1 informa replay y política de reintento en headers', async () => {
+  const replay = await versionedApi(new Request('https://api.test/api/v1/test'), () =>
+    Response.json({ ok: true, replayed: true }));
+  assert.equal(replay.headers.get('idempotent-replayed'), 'true');
+  const retry = await versionedApi(new Request('https://api.test/api/v1/test'), () =>
+    Response.json({ error: 'Temporal' }, { status: 503 }));
+  assert.equal(retry.headers.get('cimbra-should-retry'), 'true');
+  const reject = await versionedApi(new Request('https://api.test/api/v1/test'), () =>
+    Response.json({ error: 'Inválido' }, { status: 400 }));
+  assert.equal(reject.headers.get('cimbra-should-retry'), 'false');
 });

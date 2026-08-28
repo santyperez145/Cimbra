@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Cimbra API v1
   version: 2026-08-28
-  description: Versioned financial infrastructure API backed by a persistent double-entry ledger, scoped S2S API keys and signed durable webhooks. This deployment is a sandbox and does not move real funds. Every response includes X-Request-Id and Cimbra-Version; API-key responses also expose X-RateLimit-Limit, X-RateLimit-Remaining and X-RateLimit-Reset.
+  description: Versioned financial infrastructure API backed by a persistent double-entry ledger, scoped S2S API keys and signed durable webhooks. This deployment is a sandbox and does not move real funds. Every response includes X-Request-Id and Cimbra-Version; API-key responses also expose X-RateLimit-Limit, X-RateLimit-Remaining and X-RateLimit-Reset. Mutations replayed from an idempotency key include Idempotent-Replayed, while error responses may include Cimbra-Should-Retry so official SDKs can make safe retry decisions.
   license:
     name: Proprietary
     identifier: LicenseRef-Proprietary

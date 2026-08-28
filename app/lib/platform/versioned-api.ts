@@ -15,6 +15,15 @@ function versionHeaders(response: Response, requestId: string) {
   response.headers.set('X-Request-Id', requestId);
   response.headers.set('Cimbra-Version', '2026-08-28');
   response.headers.set('Cache-Control', response.headers.get('Cache-Control') ?? 'no-store');
+  if (response.status === 408 || response.status === 429 || response.status >= 500) response.headers.set('Cimbra-Should-Retry', 'true');
+  else if (response.status >= 400) response.headers.set('Cimbra-Should-Retry', 'false');
+  return response;
+}
+
+async function replayHeader(response: Response) {
+  if (!response.ok || !response.headers.get('content-type')?.includes('application/json')) return response;
+  const body = await response.clone().json().catch(() => null) as { replayed?: unknown; hold?: { replayed?: unknown } } | null;
+  if (body?.replayed === true || body?.hold?.replayed === true) response.headers.set('Idempotent-Replayed', 'true');
   return response;
 }
 
@@ -23,7 +32,7 @@ export async function versionedApi(request: Request, handler: () => RouteResult)
   try {
     const response = await handler();
     if (response.status < 400 || !response.headers.get('content-type')?.includes('application/json')) {
-      return versionHeaders(response, requestId);
+      return versionHeaders(await replayHeader(response), requestId);
     }
     const body = await response.json().catch(() => null) as { error?: unknown; code?: unknown } | null;
     const message = typeof body?.error === 'string' ? body.error : 'La solicitud no pudo completarse.';
@@ -32,10 +41,10 @@ export async function versionedApi(request: Request, handler: () => RouteResult)
     headers.set('X-Request-Id', requestId);
     headers.set('Cimbra-Version', '2026-08-28');
     headers.set('Cache-Control', 'no-store');
-    return Response.json({ error: { type: 'cimbra_api_error', code, message, requestId } }, { status: response.status, headers });
+    return versionHeaders(Response.json({ error: { type: 'cimbra_api_error', code, message, requestId } }, { status: response.status, headers }), requestId);
   } catch {
-    return Response.json({
+    return versionHeaders(Response.json({
       error: { type: 'cimbra_api_error', code: 'internal_error', message: 'Ocurrió un error interno.', requestId },
-    }, { status: 500, headers: { 'X-Request-Id': requestId, 'Cimbra-Version': '2026-08-28', 'Cache-Control': 'no-store' } });
+    }, { status: 500, headers: { 'X-Request-Id': requestId, 'Cimbra-Version': '2026-08-28', 'Cache-Control': 'no-store' } }), requestId);
   }
 }

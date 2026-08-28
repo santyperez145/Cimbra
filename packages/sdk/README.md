@@ -29,6 +29,16 @@ const next = page.data.nextCursor
   : null;
 ```
 
+Para recorrer toda una colección sin administrar cursores manualmente, el SDK ofrece un iterador asíncrono con carga bajo demanda:
+
+```ts
+for await (const customer of cimbra.customers.listAll({ limit: 100 })) {
+  console.log(customer.id);
+}
+```
+
+La API responde `Idempotent-Replayed: true` al devolver una mutación previa y `Cimbra-Should-Retry` cuando puede determinar si un error admite reintento. El SDK respeta esa señal antes de aplicar backoff exponencial.
+
 Cada recurso puede recuperarse directamente por su identificador:
 
 ```ts
