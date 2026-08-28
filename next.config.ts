@@ -16,7 +16,7 @@ const contentSecurityPolicy = [
 
 const nextConfig: NextConfig = {
   agentRules: false,
-  output: 'standalone',
+  ...(process.env.VERCEL === '1' ? {} : { output: 'standalone' as const }),
   poweredByHeader: false,
   experimental: {
     serverActions: {
