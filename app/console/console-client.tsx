@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { FormEvent, useState } from 'react';
+import { FormEvent, useState, useSyncExternalStore } from 'react';
 import type { DashboardData } from '@/db/runtime';
 import DevelopersPanel from './developers-panel';
 import SecurityPanel from './security-panel';
@@ -26,6 +26,7 @@ export default function ConsoleClient({ data, user }: {
   user: { displayName: string; email: string; emailVerified: boolean; mfaEnabled: boolean; recoveryCodeCount: number };
 }) {
   const router = useRouter();
+  const mounted = useSyncExternalStore(() => () => undefined, () => true, () => false);
   const [active, setActive] = useState('Vista general');
   const [transferOpen, setTransferOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
@@ -34,6 +35,8 @@ export default function ConsoleClient({ data, user }: {
   const [transferCurrency, setTransferCurrency] = useState('ARS');
   const [paymentDirection, setPaymentDirection] = useState<'cash_in' | 'cash_out'>('cash_in');
   const primaryBalance = data.balances.find((balance) => balance.currency === 'ARS') ?? data.balances[0];
+
+  if (!mounted) return <main className="app-shell" aria-busy="true" aria-label="Cargando consola" />;
 
   async function signOut() {
     await fetch('/api/auth/logout', { method: 'POST' });
