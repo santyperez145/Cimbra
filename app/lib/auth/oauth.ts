@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createRemoteJWKSet, importPKCS8, jwtVerify, SignJWT } from 'jose';
-import { ensureDatabase, getD1 } from '@/db/runtime';
+import { ensureDatabase, getDatabase } from '@/db/runtime';
 import { appleConfig, googleConfig, providerIsAvailable, publicOrigin, safeReturnTo } from './config';
 import { findOrCreateOAuthUser } from './accounts';
 import { randomToken, sha256 } from './crypto';
@@ -35,12 +35,13 @@ export async function startOAuth(provider: OAuthProvider, request: Request) {
   const origin = publicOrigin(request);
   const callback = `${origin}/api/auth/oauth/${provider}/callback`;
   const now = new Date();
-  await getD1().batch([
-    getD1().prepare(
+  const db = getDatabase();
+  await db.batch([
+    db.prepare(
       `INSERT INTO oauth_states (state_hash, provider, code_verifier, nonce, return_to, expires_at, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
     ).bind(await sha256(state), provider, verifier, nonce, returnTo, new Date(now.getTime() + 10 * 60 * 1000).toISOString(), now.toISOString()),
-    getD1().prepare('DELETE FROM oauth_states WHERE expires_at <= ?').bind(now.toISOString()),
+    db.prepare('DELETE FROM oauth_states WHERE expires_at <= ?').bind(now.toISOString()),
   ]);
 
   let authorization: URL;
@@ -106,11 +107,11 @@ export async function finishOAuth(provider: OAuthProvider, request: Request, val
     if (!code || !state || !cookieState || state !== cookieState) return errorRedirect(request, 'La solicitud de acceso venció o no es válida.');
     await ensureDatabase();
     const stateHash = await sha256(state);
-    const saved = await getD1().prepare(
+    const saved = await getDatabase().prepare(
       `SELECT code_verifier AS codeVerifier, nonce, return_to AS returnTo, expires_at AS expiresAt
        FROM oauth_states WHERE state_hash = ? AND provider = ? LIMIT 1`,
     ).bind(stateHash, provider).first<{ codeVerifier: string; nonce: string; returnTo: string; expiresAt: string }>();
-    await getD1().prepare('DELETE FROM oauth_states WHERE state_hash = ?').bind(stateHash).run();
+    await getDatabase().prepare('DELETE FROM oauth_states WHERE state_hash = ?').bind(stateHash).run();
     if (!saved || saved.expiresAt <= new Date().toISOString()) return errorRedirect(request, 'La solicitud de acceso venció o no es válida.');
 
     const origin = publicOrigin(request);

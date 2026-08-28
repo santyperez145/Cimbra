@@ -1,7 +1,7 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { NextResponse } from 'next/server';
-import { ensureDatabase, getD1 } from '@/db/runtime';
+import { ensureDatabase, getDatabase } from '@/db/runtime';
 import { randomToken, sha256 } from './crypto';
 import { safeReturnTo } from './config';
 import type { AuthUser } from './types';
@@ -42,7 +42,7 @@ export async function getCurrentUser(request?: Request): Promise<AuthUser | null
   if (!token) return null;
   await ensureDatabase();
   const tokenHash = await sha256(token);
-  const row = await getD1().prepare(
+  const row = await getDatabase().prepare(
     `SELECT u.id AS userId, u.username, u.display_name AS displayName, u.email,
       u.email_verified AS emailVerified
      FROM auth_sessions s JOIN users u ON u.id = s.user_id
@@ -64,9 +64,10 @@ export async function createSession(userId: string, request: Request, response: 
   const token = randomToken(32);
   const now = new Date();
   const expires = new Date(now.getTime() + SESSION_SECONDS * 1000);
-  await getD1().batch([
-    getD1().prepare('DELETE FROM auth_sessions WHERE expires_at <= ?').bind(now.toISOString()),
-    getD1().prepare(
+  const db = getDatabase();
+  await db.batch([
+    db.prepare('DELETE FROM auth_sessions WHERE expires_at <= ?').bind(now.toISOString()),
+    db.prepare(
       'INSERT INTO auth_sessions (token_hash, user_id, expires_at, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?)',
     ).bind(await sha256(token), userId, expires.toISOString(), now.toISOString(), now.toISOString()),
   ]);
@@ -83,7 +84,7 @@ export async function destroySession(request: Request, response: NextResponse) {
   const token = await sessionToken(request);
   if (token) {
     await ensureDatabase();
-    await getD1().prepare('DELETE FROM auth_sessions WHERE token_hash = ?').bind(await sha256(token)).run();
+    await getDatabase().prepare('DELETE FROM auth_sessions WHERE token_hash = ?').bind(await sha256(token)).run();
   }
   for (const name of COOKIE_NAMES) response.cookies.set(name, '', { httpOnly: true, secure: name.startsWith('__Host-'), sameSite: 'lax', path: '/', maxAge: 0 });
 }

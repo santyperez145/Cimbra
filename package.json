@@ -6,39 +6,32 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "dev": "vinext dev",
-    "build": "vinext build",
-    "start": "vinext start",
-    "deploy": "vinext-cloudflare deploy",
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "deploy": "npx vercel@latest --prod",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
-    "db:generate": "drizzle-kit generate"
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate"
   },
   "dependencies": {
+    "@vercel/blob": "^2.3.0",
     "drizzle-orm": "0.45.2",
     "jose": "^6.1.0",
     "next": "16.3.3",
+    "postgres": "^3.4.7",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },
   "devDependencies": {
-    "@cloudflare/vite-plugin": "1.54.2",
-    "@cloudflare/workers-types": "5.20260828.1",
-    "@tailwindcss/postcss": "4.2.1",
     "@types/node": "22.19.19",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
-    "@vinext/cloudflare": "^1.0.0-beta.6",
-    "@vitejs/plugin-react": "6.1.1",
-    "@vitejs/plugin-rsc": "0.5.34",
     "drizzle-kit": "0.31.10",
     "eslint": "9.39.4",
     "eslint-config-next": "16.3.3",
-    "react-server-dom-webpack": "19.2.8",
-    "tailwindcss": "4.2.1",
-    "typescript": "5.9.3",
-    "vinext": "1.0.0-beta.8",
-    "vite": "8.2.2",
-    "wrangler": "4.127.1"
+    "typescript": "5.9.3"
   },
   "overrides": {
     "@esbuild-kit/core-utils": {

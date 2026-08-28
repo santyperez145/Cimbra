@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { ensureDatabase, getD1 } from '@/db/runtime';
+import { ensureDatabase, getDatabase } from '@/db/runtime';
 import { mutationAllowed } from '@/app/lib/auth/http';
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -16,10 +16,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Revisá los campos requeridos.' }, { status: 400 });
   }
   await ensureDatabase();
-  const db = getD1();
+  const db = getDatabase();
   const duplicate = await db.prepare(
-    `SELECT id FROM leads WHERE email = ? AND created_at > datetime('now', '-5 minutes') LIMIT 1`,
-  ).bind(email).first();
+    'SELECT id FROM leads WHERE email = ? AND created_at > ? LIMIT 1',
+  ).bind(email, new Date(Date.now() - 5 * 60 * 1000).toISOString()).first();
   if (!duplicate) {
     await db.prepare(
       'INSERT INTO leads (id, name, company, email, volume, message, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',

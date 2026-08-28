@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/app/lib/auth/session';
 import { mutationAllowed } from '@/app/lib/auth/http';
-import { ensureDatabase, getD1, getOrCreateOrganization, recordAuditEvent } from '@/db/runtime';
+import { ensureDatabase, getDatabase, getOrCreateOrganization, recordAuditEvent } from '@/db/runtime';
 
 const currencies = new Set(['ARS', 'USD', 'MXN', 'COP', 'BRL', 'CLP', 'PEN']);
 
@@ -16,7 +16,7 @@ export async function POST(request: Request) {
   if (!customerId || !currencies.has(currency) || !['AR', 'MX', 'CO', 'BR', 'CL', 'PE'].includes(country)) return NextResponse.json({ error: 'Datos de cuenta inválidos.' }, { status: 400 });
   await ensureDatabase();
   const organizationId = await getOrCreateOrganization(user);
-  const db = getD1();
+  const db = getDatabase();
   const customer = await db.prepare('SELECT id FROM customers WHERE id = ? AND organization_id = ? LIMIT 1').bind(customerId, organizationId).first();
   if (!customer) return NextResponse.json({ error: 'El cliente no pertenece a esta organización.' }, { status: 404 });
   const id = crypto.randomUUID();

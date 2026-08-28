@@ -34,24 +34,26 @@ npm run lint
 npm run build
 ```
 
-La identidad de Cimbra usa PBKDF2-HMAC-SHA-256, sesiones opacas revocables en D1, cookies `HttpOnly`, protección de origen y límites de intentos. Los tokens y secretos OAuth nunca se guardan en el cliente ni en el repositorio.
+La identidad de Cimbra usa PBKDF2-HMAC-SHA-256 con 600.000 iteraciones, sesiones opacas revocables en PostgreSQL, cookies `HttpOnly`, protección de origen y límites de intentos. Los tokens y secretos OAuth nunca se guardan en el cliente ni en el repositorio.
 
 ## Infraestructura y despliegue
 
-La aplicación corre de forma nativa sobre Cloudflare Workers, con D1 para datos relacionales y R2 para documentos privados.
+La aplicación corre sobre Next.js en Vercel, PostgreSQL administrado y Vercel Blob privado. La capa de datos acepta una URL PostgreSQL estándar y no acopla el dominio a un proveedor concreto.
 
-1. Creá una base D1 y un bucket R2 en tu cuenta de Cloudflare.
-2. Copiá `wrangler.example.jsonc` a `wrangler.jsonc` y reemplazá el ID de D1 y el dominio.
-3. Cargá secretos con `wrangler secret put GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `APPLE_CLIENT_ID`, `APPLE_TEAM_ID`, `APPLE_KEY_ID` y `APPLE_PRIVATE_KEY`.
-4. Configurá `NEXT_PUBLIC_CIMBRA_PUBLIC_URL` en el entorno de build con el mismo dominio.
-5. Ejecutá `npm run build` y `npm run deploy`.
+1. Importá este repositorio como un proyecto de Vercel.
+2. Agregá una integración PostgreSQL desde Vercel Marketplace y verificá que exponga `DATABASE_URL`.
+3. Creá un Blob store privado y vinculalo al proyecto para obtener `BLOB_READ_WRITE_TOKEN`.
+4. Cargá `CIMBRA_PUBLIC_URL` y `NEXT_PUBLIC_CIMBRA_PUBLIC_URL` con el dominio público HTTPS.
+5. Cargá las credenciales de Google y Apple indicadas en `.env.example`.
+6. Ejecutá `npm run db:migrate` una vez por ambiente; el runtime también crea de manera idempotente las tablas faltantes en un entorno nuevo.
+7. Desplegá con la integración Git o mediante `npm run deploy`.
 
 Redirect URIs a registrar:
 
 - Google: `https://TU_DOMINIO/api/auth/oauth/google/callback`
 - Apple: `https://TU_DOMINIO/api/auth/oauth/apple/callback`
 
-Apple requiere un Services ID asociado a una app habilitada para Sign in with Apple, además de Team ID, Key ID y una clave privada `.p8`. Para desarrollo local copiá `.dev.vars.example` a `.dev.vars`; esos archivos están ignorados por Git.
+Apple requiere un Services ID asociado a una app habilitada para Sign in with Apple, además de Team ID, Key ID y una clave privada `.p8`. Para desarrollo local copiá `.env.example` a `.env.local`; el archivo local está ignorado por Git.
 
 ## Documentos de dirección
 

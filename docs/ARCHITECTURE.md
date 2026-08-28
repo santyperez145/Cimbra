@@ -11,9 +11,9 @@
 
 ## Arquitectura del MVP alojado
 
-La versión de este repositorio usa React 19, TypeScript, Vinext/Vite, Cloudflare Workers, D1 y R2. La identidad es propia y se resuelve en servidor: credenciales PBKDF2-HMAC-SHA-256, sesiones opacas revocables y OAuth 2.0/OIDC con Google y Apple. D1 guarda usuarios, identidades externas, sesiones, organizaciones, miembros, objetos sandbox, transacciones, leads, documentos y eventos; R2 guarda únicamente los bytes de evidencia.
+La versión de este repositorio usa Next.js 16, React 19 y TypeScript sobre Vercel Functions. PostgreSQL administrado guarda usuarios, identidades externas, sesiones, organizaciones, miembros, objetos sandbox, transacciones, leads, metadata documental y eventos; Vercel Blob privado conserva únicamente los bytes de evidencia. La identidad es propia y se resuelve en servidor: credenciales PBKDF2-HMAC-SHA-256, sesiones opacas revocables y OAuth 2.0/OIDC con Google y Apple.
 
-Los flujos OAuth usan Authorization Code, `state`, nonce, PKCE en Google y validación de firma/issuer/audience contra JWKS. Los secretos viven sólo como bindings cifrados del entorno. Las sesiones viajan en cookies `HttpOnly`, `Secure` y `SameSite`, mientras D1 conserva únicamente el hash SHA-256 del token.
+Los flujos OAuth usan Authorization Code, `state`, nonce, PKCE en Google y validación de firma, issuer y audience contra JWKS. Los secretos viven sólo en variables cifradas del entorno. Las sesiones viajan en cookies `HttpOnly`, `Secure` y `SameSite`, mientras PostgreSQL conserva únicamente el hash SHA-256 del token. Las restricciones únicas, claves foráneas, transacciones e idempotency keys protegen la integridad de los datos.
 
 Cada request operativo:
 

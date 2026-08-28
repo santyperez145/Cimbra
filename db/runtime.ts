@@ -1,5 +1,5 @@
-import { env } from 'cloudflare:workers';
 import type { AuthUser } from '@/app/lib/auth/types';
+import { getDatabaseClient } from './client';
 
 export type DashboardTransaction = {
   id: string; counterparty: string; description: string; amount: number; currency: string;
@@ -14,14 +14,8 @@ export type DashboardData = {
 
 let schemaReady: Promise<void> | null = null;
 
-export function getD1(): D1Database {
-  if (!env.DB) throw new Error('D1 binding DB is unavailable');
-  return env.DB;
-}
-
-export function getFilesBucket(): R2Bucket {
-  if (!env.FILES) throw new Error('R2 binding FILES is unavailable');
-  return env.FILES;
+export function getDatabase() {
+  return getDatabaseClient();
 }
 
 export function ensureDatabase(): Promise<void> {
@@ -30,7 +24,7 @@ export function ensureDatabase(): Promise<void> {
 }
 
 async function createSchema() {
-  const db = getD1();
+  const db = getDatabase();
   await db.batch([
     db.prepare(`CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, email TEXT NOT NULL UNIQUE, display_name TEXT NOT NULL,
@@ -38,11 +32,11 @@ async function createSchema() {
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL
     )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS oauth_identities (
-      id TEXT PRIMARY KEY, user_id TEXT NOT NULL, provider TEXT NOT NULL, provider_subject TEXT NOT NULL,
+      id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, provider TEXT NOT NULL, provider_subject TEXT NOT NULL,
       provider_email TEXT, created_at TEXT NOT NULL, UNIQUE(provider, provider_subject)
     )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS auth_sessions (
-      token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires_at TEXT NOT NULL,
+      token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, expires_at TEXT NOT NULL,
       created_at TEXT NOT NULL, last_seen_at TEXT NOT NULL
     )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS oauth_states (
@@ -58,13 +52,14 @@ async function createSchema() {
       country TEXT NOT NULL DEFAULT 'AR', status TEXT NOT NULL DEFAULT 'sandbox', created_at TEXT NOT NULL
     )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS members (
-      id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, external_user_id TEXT NOT NULL UNIQUE,
+      id TEXT PRIMARY KEY, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      external_user_id TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
       email TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'owner', created_at TEXT NOT NULL
     )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS transactions (
-      id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, idempotency_key TEXT NOT NULL,
+      id TEXT PRIMARY KEY, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, idempotency_key TEXT NOT NULL,
       type TEXT NOT NULL, counterparty TEXT NOT NULL, description TEXT NOT NULL,
-      amount REAL NOT NULL, currency TEXT NOT NULL DEFAULT 'ARS', status TEXT NOT NULL DEFAULT 'pending',
+      amount DOUBLE PRECISION NOT NULL, currency TEXT NOT NULL DEFAULT 'ARS', status TEXT NOT NULL DEFAULT 'pending',
       risk_score INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, UNIQUE(organization_id, idempotency_key)
     )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS leads (
@@ -72,25 +67,29 @@ async function createSchema() {
       volume TEXT NOT NULL, message TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'new', created_at TEXT NOT NULL
     )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS customers (
-      id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, type TEXT NOT NULL, name TEXT NOT NULL,
+      id TEXT PRIMARY KEY, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, type TEXT NOT NULL, name TEXT NOT NULL,
       country TEXT NOT NULL, tax_id_last4 TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL
     )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS accounts (
-      id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, customer_id TEXT NOT NULL, currency TEXT NOT NULL,
-      country TEXT NOT NULL, account_reference TEXT NOT NULL, balance REAL NOT NULL DEFAULT 0,
+      id TEXT PRIMARY KEY, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE RESTRICT, currency TEXT NOT NULL,
+      country TEXT NOT NULL, account_reference TEXT NOT NULL, balance DOUBLE PRECISION NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL
     )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS cards (
-      id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, account_id TEXT NOT NULL, customer_id TEXT NOT NULL,
+      id TEXT PRIMARY KEY, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT,
+      customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
       product TEXT NOT NULL, format TEXT NOT NULL, last4 TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL
     )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS compliance_documents (
-      id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, object_key TEXT NOT NULL,
+      id TEXT PRIMARY KEY, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, object_key TEXT NOT NULL,
       file_name TEXT NOT NULL, content_type TEXT NOT NULL, size INTEGER NOT NULL,
-      status TEXT NOT NULL DEFAULT 'received', uploaded_by TEXT NOT NULL, created_at TEXT NOT NULL
+      status TEXT NOT NULL DEFAULT 'received', uploaded_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT, created_at TEXT NOT NULL
     )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS audit_events (
-      id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, actor_id TEXT NOT NULL,
+      id TEXT PRIMARY KEY, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      actor_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
       action TEXT NOT NULL, resource_type TEXT NOT NULL, resource_id TEXT NOT NULL,
       payload TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL
     )`),
@@ -117,12 +116,11 @@ async function createSchema() {
     db.prepare('CREATE INDEX IF NOT EXISTS idx_compliance_org_created ON compliance_documents(organization_id, created_at)'),
     db.prepare('CREATE INDEX IF NOT EXISTS idx_audit_org_created ON audit_events(organization_id, created_at)'),
   ]);
-  await db.prepare('PRAGMA optimize').run();
 }
 
 export async function getOrCreateOrganization(user: AuthUser) {
   await ensureDatabase();
-  const db = getD1();
+  const db = getDatabase();
   const member = await db.prepare('SELECT organization_id AS organizationId FROM members WHERE external_user_id = ? LIMIT 1')
     .bind(user.userId).first<{ organizationId: string }>();
   if (member) return member.organizationId;
@@ -140,7 +138,7 @@ export async function getOrCreateOrganization(user: AuthUser) {
 }
 
 async function seedTransactions(organizationId: string) {
-  const db = getD1();
+  const db = getDatabase();
   const rows = [
     ['Pago QR · Mercado Uno', 'Cobro QR interoperable', 82450, 'ARS', 'settled', 4],
     ['Transferencia CVU', 'Ingreso desde cuenta bancaria', 210000, 'ARS', 'settled', 8],
@@ -150,15 +148,15 @@ async function seedTransactions(organizationId: string) {
   ] as const;
   const now = Date.now();
   await db.batch(rows.map((row, index) => db.prepare(
-    `INSERT OR IGNORE INTO transactions
+    `INSERT INTO transactions
       (id, organization_id, idempotency_key, type, counterparty, description, amount, currency, status, risk_score, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (organization_id, idempotency_key) DO NOTHING`,
   ).bind(crypto.randomUUID(), organizationId, `seed-${index}`, row[2] >= 0 ? 'credit' : 'debit', row[0], row[1], row[2], row[3], row[4], row[5], new Date(now - index * 2_700_000).toISOString())));
 }
 
 export async function getDashboardData(user: AuthUser): Promise<DashboardData> {
   const organizationId = await getOrCreateOrganization(user);
-  const db = getD1();
+  const db = getDatabase();
   const organization = await db.prepare('SELECT name, status FROM organizations WHERE id = ? LIMIT 1')
     .bind(organizationId).first<{ name: string; status: string }>();
   const transactionResult = await db.prepare(
@@ -184,7 +182,7 @@ export async function recordAuditEvent(input: {
   organizationId: string; actorId: string; action: string; resourceType: string;
   resourceId: string; payload?: Record<string, unknown>;
 }) {
-  await getD1().prepare(
+  await getDatabase().prepare(
     `INSERT INTO audit_events (id, organization_id, actor_id, action, resource_type, resource_id, payload, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   ).bind(crypto.randomUUID(), input.organizationId, input.actorId, input.action, input.resourceType,

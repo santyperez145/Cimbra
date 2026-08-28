@@ -1,4 +1,4 @@
-import { ensureDatabase, getD1 } from '@/db/runtime';
+import { ensureDatabase, getDatabase } from '@/db/runtime';
 import { hashPassword, randomToken, sha256, verifyPassword } from './crypto';
 import type { AuthUser, OAuthProvider } from './types';
 
@@ -39,7 +39,7 @@ export async function registerPasswordUser(input: { displayName: string; usernam
   const now = new Date().toISOString();
   const user: AuthUser = { userId: crypto.randomUUID(), username: input.username, displayName: input.displayName, email: input.email, emailVerified: false };
   try {
-    await getD1().prepare(
+    await getDatabase().prepare(
       `INSERT INTO users (id, username, email, display_name, password_hash, password_salt, password_iterations, email_verified, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
     ).bind(user.userId, user.username, user.email, user.displayName, password.hash, password.salt, password.iterations, now, now).run();
@@ -54,7 +54,7 @@ export async function registerPasswordUser(input: { displayName: string; usernam
 export async function authenticatePassword(identifier: string, password: string): Promise<AuthUser | null> {
   await ensureDatabase();
   const normalized = identifier.trim().toLowerCase().slice(0, 254);
-  const row = await getD1().prepare(
+  const row = await getDatabase().prepare(
     `SELECT id AS userId, username, display_name AS displayName, email, email_verified AS emailVerified,
       password_hash AS passwordHash, password_salt AS passwordSalt, password_iterations AS passwordIterations
      FROM users WHERE email = ? OR username = ? LIMIT 1`,
@@ -68,7 +68,9 @@ export async function authenticatePassword(identifier: string, password: string)
 }
 
 function requestIp(request: Request) {
-  return request.headers.get('cf-connecting-ip')?.trim() || 'unknown';
+  return request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+    || request.headers.get('x-real-ip')?.trim()
+    || 'unknown';
 }
 
 export async function authRateLimit(action: AuthAttempt['action'], identifier: string, request: Request) {
@@ -76,7 +78,7 @@ export async function authRateLimit(action: AuthAttempt['action'], identifier: s
   const identityHash = await sha256(`${action}:identity:${identifier.trim().toLowerCase()}`);
   const ipHash = await sha256(`${action}:ip:${requestIp(request)}`);
   const since = new Date(Date.now() - 15 * 60 * 1000).toISOString();
-  const counts = await getD1().prepare(
+  const counts = await getDatabase().prepare(
     `SELECT
       SUM(CASE WHEN identity_hash = ? AND success = 0 THEN 1 ELSE 0 END) AS identityFailures,
       SUM(CASE WHEN ip_hash = ? AND success = 0 THEN 1 ELSE 0 END) AS ipFailures
@@ -91,11 +93,12 @@ export async function authRateLimit(action: AuthAttempt['action'], identifier: s
 }
 
 export async function recordAuthAttempt(attempt: AuthAttempt, success: boolean) {
-  await getD1().batch([
-    getD1().prepare(
+  const db = getDatabase();
+  await db.batch([
+    db.prepare(
       'INSERT INTO auth_attempts (id, action, identity_hash, ip_hash, success, created_at) VALUES (?, ?, ?, ?, ?, ?)',
     ).bind(crypto.randomUUID(), attempt.action, attempt.identityHash, attempt.ipHash, success ? 1 : 0, new Date().toISOString()),
-    getD1().prepare('DELETE FROM auth_attempts WHERE created_at < ?').bind(new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()),
+    db.prepare('DELETE FROM auth_attempts WHERE created_at < ?').bind(new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()),
   ]);
 }
 
@@ -109,7 +112,7 @@ export async function findOrCreateOAuthUser(input: {
   provider: OAuthProvider; subject: string; email?: string; emailVerified: boolean; displayName?: string;
 }): Promise<AuthUser> {
   await ensureDatabase();
-  const db = getD1();
+  const db = getDatabase();
   const identity = await db.prepare(
     `SELECT u.id AS userId, u.username, u.display_name AS displayName, u.email, u.email_verified AS emailVerified,
       u.password_hash AS passwordHash, u.password_salt AS passwordSalt, u.password_iterations AS passwordIterations

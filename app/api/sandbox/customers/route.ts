@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/app/lib/auth/session';
 import { mutationAllowed } from '@/app/lib/auth/http';
-import { ensureDatabase, getD1, getOrCreateOrganization, recordAuditEvent } from '@/db/runtime';
+import { ensureDatabase, getDatabase, getOrCreateOrganization, recordAuditEvent } from '@/db/runtime';
 
 const countries = new Set(['AR', 'MX', 'CO', 'BR', 'CL', 'PE']);
 
@@ -18,7 +18,7 @@ export async function POST(request: Request) {
   await ensureDatabase();
   const organizationId = await getOrCreateOrganization(user);
   const customer = { id: crypto.randomUUID(), type, name, country, taxIdLast4: taxId.slice(-4), status: 'active', createdAt: new Date().toISOString() };
-  await getD1().prepare(
+  await getDatabase().prepare(
     'INSERT INTO customers (id, organization_id, type, name, country, tax_id_last4, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
   ).bind(customer.id, organizationId, customer.type, customer.name, customer.country, customer.taxIdLast4, customer.status, customer.createdAt).run();
   await recordAuditEvent({ organizationId, actorId: user.userId, action: 'customer.created', resourceType: 'customer', resourceId: customer.id, payload: { type, country } });

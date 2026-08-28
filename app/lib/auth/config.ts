@@ -1,8 +1,7 @@
-import { env } from 'cloudflare:workers';
 import type { OAuthProvider } from './types';
 
-function setting(name: keyof Cloudflare.Env): string | undefined {
-  const value = env[name];
+function setting(name: string): string | undefined {
+  const value = process.env[name];
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 

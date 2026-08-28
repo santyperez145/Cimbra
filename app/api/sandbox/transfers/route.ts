@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/app/lib/auth/session';
 import { mutationAllowed } from '@/app/lib/auth/http';
-import { ensureDatabase, getD1, getOrCreateOrganization, recordAuditEvent } from '@/db/runtime';
+import { ensureDatabase, getDatabase, getOrCreateOrganization, recordAuditEvent } from '@/db/runtime';
 
 const currencies = new Set(['ARS', 'USD', 'MXN', 'COP', 'BRL', 'CLP', 'PEN']);
 
@@ -19,7 +19,7 @@ export async function POST(request: Request) {
   }
   await ensureDatabase();
   const organizationId = await getOrCreateOrganization(user);
-  const db = getD1();
+  const db = getDatabase();
   const idempotencyKey = request.headers.get('idempotency-key')?.slice(0, 100) || crypto.randomUUID();
   const existing = await db.prepare(
     'SELECT id, status FROM transactions WHERE organization_id = ? AND idempotency_key = ? LIMIT 1',

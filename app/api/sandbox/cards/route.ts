@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/app/lib/auth/session';
 import { mutationAllowed } from '@/app/lib/auth/http';
-import { ensureDatabase, getD1, getOrCreateOrganization, recordAuditEvent } from '@/db/runtime';
+import { ensureDatabase, getDatabase, getOrCreateOrganization, recordAuditEvent } from '@/db/runtime';
 
 export async function POST(request: Request) {
   if (!mutationAllowed(request)) return NextResponse.json({ error: 'Origen de solicitud no permitido.' }, { status: 403 });
@@ -14,7 +14,7 @@ export async function POST(request: Request) {
   if (!accountId) return NextResponse.json({ error: 'accountId es requerido.' }, { status: 400 });
   await ensureDatabase();
   const organizationId = await getOrCreateOrganization(user);
-  const db = getD1();
+  const db = getDatabase();
   const account = await db.prepare('SELECT id, customer_id AS customerId FROM accounts WHERE id = ? AND organization_id = ? LIMIT 1').bind(accountId, organizationId).first<{ id: string; customerId: string }>();
   if (!account) return NextResponse.json({ error: 'La cuenta no pertenece a esta organización.' }, { status: 404 });
   const id = crypto.randomUUID();

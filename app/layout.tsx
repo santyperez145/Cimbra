@@ -1,6 +1,5 @@
 import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
-import { env } from 'cloudflare:workers';
 import './globals.css';
 
 const geistSans = Geist({
@@ -14,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export async function generateMetadata(): Promise<Metadata> {
-  const publicUrl = env.CIMBRA_PUBLIC_URL ?? process.env.NEXT_PUBLIC_CIMBRA_PUBLIC_URL ?? 'http://localhost:3000';
+  const publicUrl = process.env.CIMBRA_PUBLIC_URL ?? process.env.NEXT_PUBLIC_CIMBRA_PUBLIC_URL ?? 'http://localhost:3000';
   return {
     metadataBase: new URL(publicUrl),
     title: 'Cimbra — Infraestructura financiera para Latinoamérica',
@@ -44,9 +43,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="es">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
+      <body className={`${geistSans.variable} ${geistMono.variable}`}>
         {children}
       </body>
     </html>
