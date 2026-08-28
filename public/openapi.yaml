@@ -1,0 +1,121 @@
+openapi: 3.1.0
+info:
+  title: Cimbra Sandbox API
+  version: 2026-08-01
+  description: Authenticated sandbox endpoints. They do not move real funds.
+servers:
+  - url: /
+paths:
+  /api/health:
+    get:
+      summary: Platform health
+      responses:
+        '200': { description: Operational }
+  /api/sandbox/customers:
+    post:
+      summary: Create a customer
+      security: [{ session: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, country, taxId]
+              properties:
+                type: { type: string, enum: [individual, business] }
+                name: { type: string, minLength: 2 }
+                country: { type: string, enum: [AR, MX, CO, BR, CL, PE] }
+                taxId: { type: string, minLength: 4 }
+      responses:
+        '201': { description: Customer created }
+        '400': { description: Invalid payload }
+        '401': { description: Authentication required }
+  /api/sandbox/accounts:
+    post:
+      summary: Open an account
+      security: [{ session: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customerId, currency, country]
+              properties:
+                customerId: { type: string, format: uuid }
+                currency: { type: string, enum: [ARS, USD, MXN, COP, BRL, CLP, PEN] }
+                country: { type: string, enum: [AR, MX, CO, BR, CL, PE] }
+      responses:
+        '201': { description: Account opened }
+        '404': { description: Customer not found in tenant }
+  /api/sandbox/cards:
+    post:
+      summary: Issue a sandbox card
+      security: [{ session: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [accountId]
+              properties:
+                accountId: { type: string, format: uuid }
+                product: { type: string, enum: [debit, credit, prepaid] }
+                format: { type: string, enum: [virtual, physical] }
+      responses:
+        '201': { description: Card issued }
+        '404': { description: Account not found in tenant }
+  /api/sandbox/transfers:
+    post:
+      summary: Create an idempotent sandbox transfer
+      security: [{ session: [] }]
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          schema: { type: string, maxLength: 100 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [counterparty, description, amount, currency]
+              properties:
+                counterparty: { type: string, minLength: 2 }
+                description: { type: string, minLength: 2 }
+                amount: { type: number, exclusiveMinimum: 0, maximum: 10000000 }
+                currency: { type: string, enum: [ARS, USD, MXN, COP, BRL, CLP, PEN] }
+      responses:
+        '201': { description: Transfer created }
+        '200': { description: Idempotent replay }
+  /api/sandbox/events:
+    get:
+      summary: List recent audit events
+      security: [{ session: [] }]
+      responses:
+        '200': { description: Event list }
+  /api/compliance/documents:
+    post:
+      summary: Upload private compliance evidence
+      security: [{ session: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '201': { description: Document stored }
+        '400': { description: File must be PDF, JPG or PNG up to 5 MB }
+components:
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: __sites_local_auth
+      description: Managed hosted-session cookie. The name can differ outside local development.
