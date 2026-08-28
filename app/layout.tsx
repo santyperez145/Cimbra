@@ -13,8 +13,24 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL('https://cimbra-fintech.santyperez124.chatgpt.site'),
   title: 'Cimbra — Infraestructura financiera para Latinoamérica',
   description: 'Cuentas, pagos, tarjetas, crédito y compliance en una plataforma API-first para lanzar y escalar productos financieros.',
+  openGraph: {
+    title: 'Cimbra — Infraestructura financiera para Latinoamérica',
+    description: 'Cuentas, pagos, tarjetas, crédito y compliance en una plataforma API-first para lanzar y escalar productos financieros.',
+    url: 'https://cimbra-fintech.santyperez124.chatgpt.site',
+    siteName: 'Cimbra',
+    locale: 'es_419',
+    type: 'website',
+    images: [{ url: '/og.png', width: 1536, height: 804, alt: 'Cimbra — Infraestructura financiera para Latinoamérica' }],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Cimbra — Infraestructura financiera para Latinoamérica',
+    description: 'Cuentas, pagos, tarjetas, crédito y compliance en una plataforma API-first.',
+    images: ['/og.png'],
+  },
 };
 
 export default function RootLayout({
