@@ -90,10 +90,10 @@ export const PLATFORM_CAPABILITIES: readonly PlatformCapability[] = [
     interfaces: ['rest_api', 'webhooks', 'sdk', 'console'], regulatoryBoundary: 'Los modelos y reglas requieren datos representativos, monitoreo de sesgo y aprobación humana según impacto y regulación.',
   },
   {
-    id: 'reconciliation-settlement', name: 'Reconciliation', domain: 'operations', availability: 'sandbox', delivery: 'cimbra_native',
-    summary: 'Comparación de lotes contra el ledger, excepciones y resolución de diferencias.',
-    features: ['batch reconciliation', 'amount matching', 'exception queue', 'missing-entry detection', 'break resolution'],
-    interfaces: ['rest_api', 'webhooks', 'sdk', 'console'], regulatoryBoundary: 'La conciliación productiva depende de extractos oficiales de cada banco, cámara o red y segregación operativa.',
+    id: 'reconciliation-settlement', name: 'Reconciliation & Settlement', domain: 'operations', availability: 'sandbox', delivery: 'cimbra_native',
+    summary: 'Ingestión API/CSV, comparación contra el ledger, excepciones y ciclos de settlement sandbox.',
+    features: ['batch reconciliation', 'CSV ingestion', 'exception queue', 'missing-entry detection', 'scheduled settlement cycles'],
+    interfaces: ['rest_api', 'webhooks', 'sdk', 'files', 'console'], regulatoryBoundary: 'La conciliación productiva depende de extractos oficiales de cada banco, cámara o red y segregación operativa; el settlement sandbox no mueve fondos.',
   },
   {
     id: 'treasury', name: 'Treasury & Liquidity', domain: 'operations', availability: 'roadmap', delivery: 'cimbra_native',

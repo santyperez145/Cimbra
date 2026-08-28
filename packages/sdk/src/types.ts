@@ -31,8 +31,14 @@ export type RiskCase = {
 };
 export type ReconciliationRun = {
   id: string; name: string; source: 'bank' | 'clearing' | 'card_network' | 'cash_network' | 'internal'; currency: Currency;
+  ingestionMode: 'api' | 'csv'; fileName: string | null; fileSha256: string | null;
   periodStart: string; periodEnd: string; status: 'open' | 'completed'; expectedMinor: string; expected: number; actualMinor: string; actual: number;
   differenceMinor: string; difference: number; matchedCount: number; exceptionCount: number; createdAt: string; updatedAt: string;
+};
+export type SettlementCycle = {
+  id: string; reconciliationRunId: string; name: string; rail: ReconciliationRun['source']; currency: Currency;
+  periodStart: string; periodEnd: string; netMinor: string; net: number; differenceMinor: string; difference: number;
+  status: 'ready' | 'scheduled' | 'settled'; scheduledFor: string | null; settledAt: string | null; createdAt: string; updatedAt: string;
 };
 export type ReconciliationException = {
   id: string; runId: string; itemId: string; kind: 'amount_mismatch' | 'missing_internal' | 'missing_external'; status: 'open' | 'resolved' | 'accepted';
@@ -65,4 +71,9 @@ export type CreateReconciliationRunInput = {
   name: string; source: ReconciliationRun['source']; currency: Currency; periodStart: string; periodEnd: string;
   entries: Array<{ externalReference: string; transactionId?: string; direction: 'credit' | 'debit'; amount: string }>;
 };
+export type CreateReconciliationCsvImportInput = {
+  name: string; source: ReconciliationRun['source']; currency: Currency; periodStart: string; periodEnd: string;
+  csv: string; fileName?: string;
+};
+export type CreateSettlementCycleInput = { reconciliationRunId: string; name: string; scheduledFor?: string };
 export type CreateWebhookInput = { name: string; url: string; eventTypes: string[] };

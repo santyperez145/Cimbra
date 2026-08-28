@@ -33,7 +33,9 @@ El catálogo de capacidades propio expone por API, SDK y consola los dominios `c
 
 Risk & Fraud evalúa transferencias y payments dentro de la transacción que crea el movimiento. Combina umbrales regionales de sistema, velocity por contraparte y reglas activas por tenant; persiste score, decisión, reglas coincidentes y razones. `review` crea un caso y hold vinculados, y resolver el caso captura o libera la reserva mediante la misma semántica idempotente del ledger. `decline` conserva la evaluación y el caso sin crear un movimiento contable.
 
-Reconciliation toma un lote externo versionado por Idempotency-Key y lo compara con movimientos `settled/reversed` del mismo tenant, moneda y período. Cada partida queda como `matched`, `mismatch`, `missing_internal` o `missing_external`; las diferencias generan excepciones con resolución auditable. No modifica postings ni oculta breaks: una corrección financiera debe ingresar como operación compensatoria independiente. Los ciclos de settlement y la ingestión automática de extractos continúan como trabajo previo a dinero real.
+Reconciliation toma partidas API o un CSV UTF-8 versionado por Idempotency-Key y las compara con movimientos `settled/reversed` del mismo tenant, moneda y período. El archivo crudo se valida en memoria y se descarta; quedan checksum, nombre seguro y partidas normalizadas. Cada partida queda como `matched`, `mismatch`, `missing_internal` o `missing_external`; las diferencias generan excepciones con resolución auditable. No modifica postings ni oculta breaks: una corrección financiera debe ingresar como operación compensatoria independiente.
+
+Una conciliación `completed` puede originar un único ciclo de settlement sandbox. El ciclo conserva neto, diferencia, rail lógico, programación y ejecución idempotente; el dispatcher diario ejecuta ciclos vencidos y emite eventos mediante el mismo outbox. Es una confirmación operativa de sandbox: los settlement instructions, el intercambio de archivos con rieles y el movimiento de fondos permanecen fuera hasta homologar conectividad directa.
 
 Los deployments productivos de Vercel ejecutan las migraciones versionadas antes de compilar y publicar la nueva aplicación. Los previews no mutan la base compartida; ECS conserva una task definition de migración separada y el rollout exige su finalización correcta.
 
@@ -69,6 +71,7 @@ El sandbox ya impone:
 - prohibición de updates destructivos sobre asientos posteados;
 - decisiones de riesgo persistidas y explicables antes de contabilizar;
 - conciliaciones reproducibles con cola de excepciones y cierre explícito;
+- importaciones con checksum y settlement sandbox sin doble ejecución;
 
 Antes de dinero real todavía se requieren secuencia estable para extractos, conciliación independiente contra Cimbra, banco/cámara y settlement, cierres, snapshots, operación multi-región y controles regulatorios.
 

@@ -47,7 +47,7 @@ La comparación oficial muestra, sin embargo, una brecha deliberadamente visible
 
 Prioridad de producto resultante:
 
-1. Automatizar ingestión de extractos y archivos firmados, scheduling, cierre y settlement por riel directo.
+1. Evolucionar la ingestión CSV/checksum y el scheduling sandbox ya disponibles hacia intercambio firmado, cierre y settlement por riel directo.
 2. Agregar señales de dispositivo/identidad, listas, versionado de reglas, simulación, champion/challenger y métricas de falsos positivos.
 3. Añadir asignación, SLA, evidencia, comentarios y doble control a casos y excepciones.
 4. Publicar Postman, generación de SDKs adicionales, changelog y SLOs medidos; luego ejecutar homologación y certificaciones.
@@ -106,7 +106,9 @@ Una ronda pre-seed debe financiar 18 meses para cerrar el producto inicial, cont
 - https://developers.pismo.io/pismo-docs/docs/welcome
 - https://developers.pismo.io/pismo-docs/docs/anti-fraud-integration
 - https://developers.pismo.io/pismo-docs/changelog/6-march-2026
+- https://developers.pismo.io/pismo-docs/docs/file-based-check-processing-and-bulk-settlement
 - https://developers.pomelo.la/api-reference/processing/transactions
+- https://docs.pomelo.la/en/docs/cards/processing/reports/download-report
 - https://developers.pomelo.la/guides/solutions/processing/reports
 - https://developers.pomelo.la/api-reference/fraud/remedies/tx-remedy
 - https://www.wibond.co/

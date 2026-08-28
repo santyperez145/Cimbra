@@ -416,6 +416,31 @@ paths:
                   run: { $ref: '#/components/schemas/ReconciliationRun' }
                   replayed: { type: boolean }
         '200': { description: Idempotent replay }
+  /api/v1/reconciliation/imports:
+    post:
+      operationId: importReconciliationCsv
+      summary: Import a canonical UTF-8 CSV and reconcile it atomically
+      description: The raw file is parsed in memory and discarded. Cimbra persists its SHA-256 checksum, safe filename and normalized entries. Maximum size is 2 MB and 500 data rows.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [name, source, currency, periodStart, periodEnd, file]
+              properties:
+                name: { type: string, minLength: 2, maxLength: 100 }
+                source: { type: string, enum: [bank, clearing, card_network, cash_network, internal] }
+                currency: { type: string, enum: [ARS, USD, MXN, COP, BRL, CLP, PEN] }
+                periodStart: { type: string, format: date-time }
+                periodEnd: { type: string, format: date-time }
+                file: { type: string, format: binary }
+      responses:
+        '201': { description: CSV parsed and reconciliation persisted }
+        '200': { description: Idempotent replay }
+        '400': { description: 'Invalid CSV, metadata or entries' }
   /api/v1/reconciliation/runs/{id}:
     get:
       operationId: retrieveReconciliationRun
@@ -446,6 +471,64 @@ paths:
       responses:
         '200': { description: Exception resolved with actor and audit trail }
         '409': { description: Exception already resolved differently }
+  /api/v1/settlements:
+    get:
+      operationId: listSettlementCycles
+      summary: List tenant settlement cycles
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      responses:
+        '200':
+          description: Settlement cycles
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/SettlementCycle' } }
+    post:
+      operationId: createSettlementCycle
+      summary: Create one sandbox settlement cycle from a completed reconciliation
+      description: This records and schedules an operational acknowledgement. It does not move real funds or connect to a rail.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reconciliationRunId, name]
+              properties:
+                reconciliationRunId: { type: string, format: uuid }
+                name: { type: string, minLength: 2, maxLength: 100 }
+                scheduledFor: { type: string, format: date-time }
+      responses:
+        '201': { description: Settlement cycle created }
+        '200': { description: Idempotent replay }
+        '409': { description: Reconciliation is open or already has a cycle }
+  /api/v1/settlements/{id}:
+    get:
+      operationId: retrieveSettlementCycle
+      summary: Retrieve a tenant settlement cycle
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses:
+        '200':
+          description: Settlement cycle
+          content: { application/json: { schema: { $ref: '#/components/schemas/SettlementCycle' } } }
+        '404': { description: Cycle not found }
+  /api/v1/settlements/{id}/execute:
+    post:
+      operationId: executeSettlementCycle
+      summary: Execute a due sandbox settlement cycle idempotently
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200': { description: Cycle settled and webhook enqueued }
+        '409': { description: Cycle is not due or was already executed differently }
   /api/v1/transfers/{id}/reverse:
     post:
       operationId: reverseTransfer
@@ -558,7 +641,7 @@ paths:
                   type: array
                   minItems: 1
                   uniqueItems: true
-                  items: { type: string, enum: ['customers:read', 'customers:write', 'accounts:read', 'accounts:write', 'cards:read', 'cards:write', 'transfers:read', 'transfers:write', 'payments:read', 'payments:write', 'risk:read', 'risk:write', 'reconciliation:read', 'reconciliation:write', 'platform:read', 'ledger:read', 'events:read', 'compliance:write', 'webhooks:manage'] }
+                  items: { type: string, enum: ['customers:read', 'customers:write', 'accounts:read', 'accounts:write', 'cards:read', 'cards:write', 'transfers:read', 'transfers:write', 'payments:read', 'payments:write', 'risk:read', 'risk:write', 'reconciliation:read', 'reconciliation:write', 'settlements:read', 'settlements:write', 'platform:read', 'ledger:read', 'events:read', 'compliance:write', 'webhooks:manage'] }
                 expiresInDays: { type: integer, minimum: 1, maximum: 365 }
       responses:
         '201': { description: API key created and secret returned once }
@@ -700,12 +783,15 @@ components:
         createdAt: { type: string, format: date-time }
     ReconciliationRun:
       type: object
-      required: [id, name, source, currency, periodStart, periodEnd, status, expectedMinor, actualMinor, differenceMinor, matchedCount, exceptionCount]
+      required: [id, name, source, currency, ingestionMode, fileName, fileSha256, periodStart, periodEnd, status, expectedMinor, actualMinor, differenceMinor, matchedCount, exceptionCount]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
         source: { type: string, enum: [bank, clearing, card_network, cash_network, internal] }
         currency: { type: string }
+        ingestionMode: { type: string, enum: [api, csv] }
+        fileName: { type: [string, 'null'] }
+        fileSha256: { type: [string, 'null'] }
         periodStart: { type: string, format: date-time }
         periodEnd: { type: string, format: date-time }
         status: { type: string, enum: [open, completed] }
@@ -714,6 +800,24 @@ components:
         differenceMinor: { type: string }
         matchedCount: { type: integer }
         exceptionCount: { type: integer }
+    SettlementCycle:
+      type: object
+      required: [id, reconciliationRunId, name, rail, currency, periodStart, periodEnd, netMinor, differenceMinor, status, scheduledFor, settledAt, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        reconciliationRunId: { type: string, format: uuid }
+        name: { type: string }
+        rail: { type: string, enum: [bank, clearing, card_network, cash_network, internal] }
+        currency: { type: string }
+        periodStart: { type: string, format: date-time }
+        periodEnd: { type: string, format: date-time }
+        netMinor: { type: string }
+        differenceMinor: { type: string }
+        status: { type: string, enum: [ready, scheduled, settled] }
+        scheduledFor: { type: [string, 'null'], format: date-time }
+        settledAt: { type: [string, 'null'], format: date-time }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
     PlatformCapability:
       type: object
       required: [id, name, domain, summary, features, interfaces, availability, delivery, regulatoryBoundary]

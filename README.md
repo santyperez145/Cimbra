@@ -14,7 +14,7 @@ Superficies disponibles:
 - `/forgot-password`, `/reset-password` y `/verify-email` — ciclo de vida de cuenta con tokens opacos, expiración, uso único y respuestas anti-enumeración.
 - `/console` — consola protegida con sesiones de servidor, organización y datos propios.
 - `/api/health` — healthcheck sin caché.
-- `/api/v1/*` — API pública versionada para customers, accounts, cards, transfers, payments, riesgo, conciliación, holds, ledger, events, compliance y webhooks.
+- `/api/v1/*` — API pública versionada para customers, accounts, cards, transfers, payments, riesgo, conciliación CSV/API, settlement sandbox, holds, ledger, events, compliance y webhooks.
 - `/api/sandbox/*` — alias de compatibilidad deprecado; las integraciones nuevas deben usar v1.
 - `/api/platform/api-keys` — claves Bearer con scopes, vencimiento, rate limit, rotación y revocación inmediata.
 - `/api/platform/webhooks` — administración de compatibilidad; la superficie pública está en `/api/v1/webhooks`.
@@ -75,6 +75,7 @@ Apple requiere un Services ID asociado a una app habilitada para Sign in with Ap
 - escrituras financieras y auditoría dentro de la misma transacción.
 - evaluaciones de riesgo explicables vinculadas a cada movimiento, con reglas por tenant, casos y holds sincronizados;
 - conciliación exacta de lotes contra el ledger, faltantes en ambos sentidos y excepciones resolubles con idempotencia.
+- importación CSV UTF-8 con checksum y ciclos de settlement sandbox únicos, programables, auditados y emitidos por webhook.
 
 ## Garantías de integración
 

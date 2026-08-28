@@ -1,9 +1,10 @@
 import { CimbraApiError, CimbraConnectionError, CimbraTimeoutError } from './errors.ts';
 import type {
   Account, AuditEvent, Card, CimbraResult, CreateAccountInput, CreateCardInput, CreateCustomerInput, CreatePaymentInput,
-  CreateReconciliationRunInput, CreateRiskEvaluationInput, CreateRiskRuleInput, CreateTransferInput, CreateWebhookInput,
+  CreateReconciliationCsvImportInput, CreateReconciliationRunInput, CreateRiskEvaluationInput, CreateRiskRuleInput,
+  CreateSettlementCycleInput, CreateTransferInput, CreateWebhookInput,
   Customer, Hold, HoldResolution, LedgerBalance, LedgerJournal, ListOptions, Page, PlatformCapability,
-  ReconciliationException, ReconciliationRun, RequestOptions, RiskCase, RiskEvaluation, RiskRule, Transaction, WebhookOperationalState,
+  ReconciliationException, ReconciliationRun, RequestOptions, RiskCase, RiskEvaluation, RiskRule, SettlementCycle, Transaction, WebhookOperationalState,
 } from './types.ts';
 
 type Fetch = typeof globalThis.fetch;
@@ -117,10 +118,28 @@ export class Cimbra {
     state: (options?: RequestOptions) => this.request<{ data: { runs: ReconciliationRun[]; exceptions: ReconciliationException[] } }>('GET', '/api/v1/reconciliation', undefined, options),
     createRun: (input: CreateReconciliationRunInput, options?: RequestOptions) =>
       this.post<{ ok: true; run: ReconciliationRun; replayed: boolean }>('/api/v1/reconciliation/runs', input, options, true),
+    importCsv: (input: CreateReconciliationCsvImportInput, options?: RequestOptions) => {
+      const form = new FormData();
+      form.set('name', input.name); form.set('source', input.source); form.set('currency', input.currency);
+      form.set('periodStart', input.periodStart); form.set('periodEnd', input.periodEnd);
+      form.set('file', new Blob([input.csv], { type: 'text/csv' }), input.fileName ?? 'reconciliation.csv');
+      return this.postForm<{ ok: true; run: ReconciliationRun; replayed: boolean; import: { fileName: string; fileSha256: string; rowCount: number } }>(
+        '/api/v1/reconciliation/imports', form, options, true);
+    },
     retrieveRun: (id: string, options?: RequestOptions) =>
       this.request<ReconciliationRun & { items: Array<Record<string, unknown>> }>('GET', `/api/v1/reconciliation/runs/${encodeURIComponent(id)}`, undefined, options),
     resolveException: (id: string, input: { resolution: 'corrected' | 'accepted'; note: string }, options?: RequestOptions) =>
       this.post<{ ok: true; exception: { id: string; status: 'resolved' | 'accepted'; resolution: 'corrected' | 'accepted'; replayed: boolean } }>(`/api/v1/reconciliation/exceptions/${encodeURIComponent(id)}/resolve`, input, options, true),
+  };
+
+  readonly settlements = {
+    list: (options?: RequestOptions) => this.request<{ data: SettlementCycle[] }>('GET', '/api/v1/settlements', undefined, options),
+    create: (input: CreateSettlementCycleInput, options?: RequestOptions) =>
+      this.post<{ ok: true; cycle: SettlementCycle; replayed: boolean }>('/api/v1/settlements', input, options, true),
+    retrieve: (id: string, options?: RequestOptions) =>
+      this.request<SettlementCycle>('GET', `/api/v1/settlements/${encodeURIComponent(id)}`, undefined, options),
+    execute: (id: string, options?: RequestOptions) =>
+      this.post<{ ok: true; cycle: SettlementCycle; replayed: boolean }>(`/api/v1/settlements/${encodeURIComponent(id)}/execute`, undefined, options, true),
   };
 
   readonly holds = {
@@ -177,6 +196,11 @@ export class Cimbra {
     return this.request<T>('POST', path, body, { ...options, idempotencyKey });
   }
 
+  private postForm<T>(path: string, body: FormData, options: RequestOptions | undefined, retryable: boolean) {
+    const idempotencyKey = retryable ? options?.idempotencyKey ?? identifier('idem') : options?.idempotencyKey;
+    return this.request<T>('POST', path, body, { ...options, idempotencyKey });
+  }
+
   private async request<T>(method: Method, path: string, body?: unknown, options: RequestOptions = {}): Promise<CimbraResult<T>> {
     const requestId = options.requestId ?? identifier('req');
     const retryable = method === 'GET' || Boolean(options.idempotencyKey);
@@ -190,18 +214,19 @@ export class Cimbra {
       const timeout = setTimeout(() => controller.abort(new Error('cimbra_timeout')), this.timeoutMs);
       let response: Response | null = null;
       try {
+        const multipart = body instanceof FormData;
         const headers = new Headers({
           Accept: 'application/json',
           Authorization: `Bearer ${this.apiKey}`,
-          'Content-Type': 'application/json',
           'X-Request-Id': requestId,
           'X-Cimbra-SDK': 'typescript/0.1.0',
         });
+        if (!multipart) headers.set('Content-Type', 'application/json');
         if (options.idempotencyKey) headers.set('Idempotency-Key', options.idempotencyKey);
         response = await this.fetcher(`${this.baseUrl}${path}`, {
           method,
           headers,
-          body: body === undefined ? undefined : JSON.stringify(body),
+          body: body === undefined ? undefined : multipart ? body : JSON.stringify(body),
           signal: controller.signal,
         });
         if (response.ok) {

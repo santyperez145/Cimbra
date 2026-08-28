@@ -13,6 +13,8 @@ export const API_SCOPES = [
   'risk:write',
   'reconciliation:read',
   'reconciliation:write',
+  'settlements:read',
+  'settlements:write',
   'platform:read',
   'ledger:read',
   'events:read',

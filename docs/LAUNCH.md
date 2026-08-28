@@ -21,6 +21,7 @@
 - verificación de email, recuperación de contraseña con revocación de sesiones y MFA TOTP con recovery codes de un solo uso.
 - motor de riesgo propio con políticas regionales, reglas por tenant, velocity, evaluaciones, casos y resolución sincronizada con holds.
 - conciliación propia de lotes contra el ledger con matches, diferencias, faltantes, cola de excepciones y resolución idempotente.
+- importación CSV canónica y ciclos de settlement sandbox programables, únicos por conciliación y entregados por webhooks.
 
 ## Gate 1 — design partners
 

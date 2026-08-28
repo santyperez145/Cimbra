@@ -104,6 +104,36 @@ await cimbra.reconciliation.createRun({
 
 Cada corrida conserva partidas exactas, totales, faltantes en ambos lados y diferencias. Las excepciones se resuelven con nota, actor, timestamp e idempotencia.
 
+También podés importar el contrato CSV canónico sin construir el array manualmente:
+
+```ts
+const imported = await cimbra.reconciliation.importCsv({
+  name: 'Extracto banco diario',
+  source: 'bank',
+  currency: 'ARS',
+  periodStart: '2026-08-27T00:00:00.000Z',
+  periodEnd: '2026-08-28T00:00:00.000Z',
+  fileName: 'bank-2026-08-28.csv',
+  csv: 'external_reference,transaction_id,direction,amount\nBANK-1,,credit,1250.00',
+});
+```
+
+El SDK envía `multipart/form-data`; Cimbra descarta el archivo crudo después de validarlo y conserva el checksum SHA-256, el nombre seguro y las partidas normalizadas.
+
+## Settlement sandbox
+
+```ts
+const created = await cimbra.settlements.create({
+  reconciliationRunId: imported.data.run.id,
+  name: 'Liquidación banco diaria',
+  scheduledFor: '2026-08-29T03:00:00.000Z',
+});
+
+await cimbra.settlements.execute(created.data.cycle.id);
+```
+
+Sólo una conciliación `completed` puede generar un ciclo y cada corrida admite uno. El ciclo registra el neto, diferencia, programación, ejecución, auditoría y webhooks; en sandbox no ordena ni mueve fondos reales.
+
 Las escrituras financieras seguras generan automáticamente una clave de idempotencia y conservan el mismo `X-Request-Id` durante los reintentos. También se puede proporcionar una clave propia:
 
 ```ts

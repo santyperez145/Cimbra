@@ -7,6 +7,7 @@ import { versionedApi } from '../app/lib/platform/versioned-api.ts';
 import { CAPABILITY_AVAILABILITY, PLATFORM_CAPABILITIES, PLATFORM_SUMMARY } from '../app/lib/platform/capabilities.ts';
 import { matchReconciliationEntries } from '../app/lib/platform/reconciliation.ts';
 import { systemAmountRisk } from '../app/lib/platform/risk-engine.ts';
+import { csvObjects, CsvError } from '../app/lib/platform/csv.ts';
 
 process.env.CIMBRA_ENCRYPTION_KEY = '3ea72fc13c567057870342c6ebd34d88f58f6d80b1dba61c4be4e1c2f1406afb';
 
@@ -104,4 +105,14 @@ test('la conciliación detecta matches, diferencias y faltantes en ambos lados',
   assert.equal(items[1].differenceMinor, 500n);
   assert.equal(items[2].differenceMinor, 700n);
   assert.equal(items[3].transactionId, 'tx-3');
+});
+
+test('el importador CSV conserva comas escapadas y exige el contrato canónico', () => {
+  const rows = csvObjects('\uFEFFexternal_reference,transaction_id,direction,amount\r\n"BANCO,001",,credit,1250.50\r\nBANCO-002,,debit,500');
+  assert.deepEqual(rows, [
+    { external_reference: 'BANCO,001', transaction_id: '', direction: 'credit', amount: '1250.50' },
+    { external_reference: 'BANCO-002', transaction_id: '', direction: 'debit', amount: '500' },
+  ]);
+  assert.throws(() => csvObjects('reference,direction,amount\nA,credit,1'), CsvError);
+  assert.throws(() => csvObjects('external_reference,direction,amount\n"A,credit,1'), /sin cierre/);
 });

@@ -277,6 +277,7 @@ export const reconciliationRuns = pgTable('reconciliation_runs', {
   organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
   idempotencyKey: text('idempotency_key').notNull(), requestFingerprint: text('request_fingerprint').notNull(),
   name: text('name').notNull(), source: text('source').notNull(), currency: text('currency').notNull(),
+  ingestionMode: text('ingestion_mode').notNull().default('api'), fileName: text('file_name'), fileSha256: text('file_sha256'),
   periodStart: text('period_start').notNull(), periodEnd: text('period_end').notNull(), status: text('status').notNull().default('open'),
   expectedMinor: bigint('expected_minor', { mode: 'bigint' }).notNull().default(sql`0`), actualMinor: bigint('actual_minor', { mode: 'bigint' }).notNull().default(sql`0`),
   differenceMinor: bigint('difference_minor', { mode: 'bigint' }).notNull().default(sql`0`), matchedCount: integer('matched_count').notNull().default(0),
@@ -286,8 +287,32 @@ export const reconciliationRuns = pgTable('reconciliation_runs', {
   uniqueIndex('idx_reconciliation_runs_org_idempotency').on(table.organizationId, table.idempotencyKey),
   index('idx_reconciliation_runs_org_created').on(table.organizationId, table.createdAt),
   check('reconciliation_runs_source', sql`${table.source} IN ('bank', 'clearing', 'card_network', 'cash_network', 'internal')`),
+  check('reconciliation_runs_ingestion', sql`${table.ingestionMode} IN ('api', 'csv')`),
   check('reconciliation_runs_status', sql`${table.status} IN ('open', 'completed')`),
   check('reconciliation_runs_counts', sql`${table.matchedCount} >= 0 AND ${table.exceptionCount} >= 0`),
+]);
+
+export const settlementCycles = pgTable('settlement_cycles', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  reconciliationRunId: text('reconciliation_run_id').notNull().references(() => reconciliationRuns.id, { onDelete: 'restrict' }),
+  idempotencyKey: text('idempotency_key').notNull(), requestFingerprint: text('request_fingerprint').notNull(),
+  name: text('name').notNull(), rail: text('rail').notNull(), currency: text('currency').notNull(),
+  periodStart: text('period_start').notNull(), periodEnd: text('period_end').notNull(),
+  netMinor: bigint('net_minor', { mode: 'bigint' }).notNull().default(sql`0`),
+  differenceMinor: bigint('difference_minor', { mode: 'bigint' }).notNull().default(sql`0`),
+  status: text('status').notNull().default('ready'), scheduledFor: text('scheduled_for'),
+  executionIdempotencyKey: text('execution_idempotency_key'),
+  createdBy: text('created_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
+  settledBy: text('settled_by').references(() => users.id, { onDelete: 'restrict' }), settledAt: text('settled_at'),
+  createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_settlement_cycles_run').on(table.reconciliationRunId),
+  uniqueIndex('idx_settlement_cycles_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  uniqueIndex('idx_settlement_cycles_org_execution_idempotency').on(table.organizationId, table.executionIdempotencyKey),
+  index('idx_settlement_cycles_org_status_schedule').on(table.organizationId, table.status, table.scheduledFor),
+  check('settlement_cycles_rail', sql`${table.rail} IN ('bank', 'clearing', 'card_network', 'cash_network', 'internal')`),
+  check('settlement_cycles_status', sql`${table.status} IN ('ready', 'scheduled', 'settled')`),
 ]);
 
 export const reconciliationItems = pgTable('reconciliation_items', {

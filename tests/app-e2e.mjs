@@ -74,6 +74,13 @@ async function cleanup() {
       await transaction`DELETE FROM webhook_events WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM webhook_endpoints WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM api_keys WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM settlement_cycles WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM reconciliation_exceptions WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM reconciliation_items WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM reconciliation_runs WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM risk_cases WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM risk_evaluations WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM risk_rules WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM holds WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM ledger_postings WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM ledger_journals WHERE organization_id = ${organizationId} AND reversal_of IS NOT NULL`;
@@ -375,6 +382,42 @@ try {
   }), 422);
   assert.equal(insufficient.error.code, 'insufficient_funds');
 
+  const reconciliationStart = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+  const reconciliationEnd = new Date(Date.now() + 60_000).toISOString();
+  const reconciliation = await json(await request('/api/v1/reconciliation/runs', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-reconciliation-${runId}` },
+    body: JSON.stringify({ name: 'QA ledger close', source: 'internal', currency: 'ARS', periodStart: reconciliationStart, periodEnd: reconciliationEnd, entries: [] }),
+  }), 201);
+  const reconciliationState = (await json(await request('/api/v1/reconciliation'), 200)).data;
+  const runExceptions = reconciliationState.exceptions.filter((item) => item.runId === reconciliation.run.id && item.status === 'open');
+  assert.equal(runExceptions.length, reconciliation.run.exceptionCount);
+  for (const item of runExceptions) {
+    await json(await request(`/api/v1/reconciliation/exceptions/${item.id}/resolve`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-exception-${item.id}` },
+      body: JSON.stringify({ resolution: 'accepted', note: 'Aceptada por el E2E para cerrar el ciclo.' }),
+    }), 200);
+  }
+  const cycle = await json(await request('/api/v1/settlements', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-settlement-${runId}` },
+    body: JSON.stringify({ reconciliationRunId: reconciliation.run.id, name: 'QA settlement cycle' }),
+  }), 201);
+  assert.equal(cycle.cycle.status, 'ready');
+  const settled = await json(await request(`/api/v1/settlements/${cycle.cycle.id}/execute`, {
+    method: 'POST', headers: { 'Idempotency-Key': `qa-settlement-execute-${runId}` },
+  }), 200);
+  assert.equal(settled.cycle.status, 'settled');
+
+  const csv = new FormData();
+  csv.set('name', 'QA CSV import'); csv.set('source', 'bank'); csv.set('currency', 'ARS');
+  csv.set('periodStart', new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString());
+  csv.set('periodEnd', new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString());
+  csv.set('file', new File(['external_reference,transaction_id,direction,amount\nQA-BANK-1,,credit,10.00'], 'qa-bank.csv', { type: 'text/csv' }));
+  const imported = await json(await request('/api/v1/reconciliation/imports', {
+    method: 'POST', headers: { 'Idempotency-Key': `qa-import-${runId}` }, body: csv,
+  }), 201);
+  assert.equal(imported.import.rowCount, 1);
+  assert.equal(imported.run.ingestionMode, 'csv');
+
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');
   const form = new FormData();
   form.append('file', new File([png], 'qa-evidence.png', { type: 'image/png' }));
@@ -400,7 +443,7 @@ try {
 
   console.log(JSON.stringify({
     ok: true,
-    checks: ['auth', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'private-evidence', 'audit'],
+    checks: ['auth', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'reconciliation', 'csv-import', 'settlement', 'private-evidence', 'audit'],
   }));
 } finally {
   await cleanup();

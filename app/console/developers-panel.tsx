@@ -3,8 +3,8 @@
 import { FormEvent, useEffect, useState } from 'react';
 import Link from 'next/link';
 
-const scopes = ['customers:read', 'customers:write', 'accounts:read', 'accounts:write', 'cards:read', 'cards:write', 'transfers:read', 'transfers:write', 'payments:read', 'payments:write', 'risk:read', 'risk:write', 'reconciliation:read', 'reconciliation:write', 'platform:read', 'ledger:read', 'events:read', 'compliance:write', 'webhooks:manage'];
-const eventTypes = ['customer.created', 'account.created', 'card.created', 'transfer.created', 'transfer.reversed', 'hold.captured', 'hold.released', 'payment.created', 'risk.rule_created', 'risk.rule_disabled', 'risk.case_created', 'risk.case_resolved', 'reconciliation.run_created', 'reconciliation.exception_resolved', 'compliance.document_uploaded'];
+const scopes = ['customers:read', 'customers:write', 'accounts:read', 'accounts:write', 'cards:read', 'cards:write', 'transfers:read', 'transfers:write', 'payments:read', 'payments:write', 'risk:read', 'risk:write', 'reconciliation:read', 'reconciliation:write', 'settlements:read', 'settlements:write', 'platform:read', 'ledger:read', 'events:read', 'compliance:write', 'webhooks:manage'];
+const eventTypes = ['customer.created', 'account.created', 'card.created', 'transfer.created', 'transfer.reversed', 'hold.captured', 'hold.released', 'payment.created', 'risk.rule_created', 'risk.rule_disabled', 'risk.case_created', 'risk.case_resolved', 'reconciliation.run_created', 'reconciliation.exception_resolved', 'settlement.cycle_created', 'settlement.cycle_settled', 'compliance.document_uploaded'];
 
 type ApiKey = { id: string; name: string; prefix: string; scopes: string[]; status: string; rateLimitPerMinute: number; lastUsedAt: string | null; expiresAt: string | null; createdAt: string };
 type Endpoint = { id: string; name: string; url: string; eventTypes: string[]; status: string; secretRotatedAt: string; createdAt: string };

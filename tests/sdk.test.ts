@@ -129,6 +129,27 @@ test('el SDK crea reglas de riesgo y conciliaciones con idempotencia', async () 
   for (const call of calls) assert.match(call.idempotencyKey ?? '', /^idem_[a-f0-9]{32}$/);
 });
 
+test('el SDK importa CSV multipart y ejecuta ciclos de settlement', async () => {
+  const calls: Array<{ url: string; contentType: string | null; body: BodyInit | null | undefined }> = [];
+  const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async (input, init) => {
+    calls.push({ url: String(input), contentType: new Headers(init?.headers).get('content-type'), body: init?.body });
+    if (String(input).endsWith('/reconciliation/imports')) return Response.json({ ok: true, replayed: false,
+      run: { id: 'run_1', status: 'completed' }, import: { fileName: 'bank.csv', fileSha256: 'sha', rowCount: 1 } }, { status: 201 });
+    if (String(input).endsWith('/settlements')) return Response.json({ ok: true, replayed: false, cycle: { id: 'cycle_1', status: 'ready' } }, { status: 201 });
+    return Response.json({ ok: true, replayed: false, cycle: { id: 'cycle_1', status: 'settled' } });
+  } });
+  await client.reconciliation.importCsv({ name: 'Banco', source: 'bank', currency: 'ARS', periodStart: '2026-08-27T00:00:00.000Z',
+    periodEnd: '2026-08-28T00:00:00.000Z', fileName: 'bank.csv', csv: 'external_reference,transaction_id,direction,amount\nEXT-1,,credit,10.00' });
+  await client.settlements.create({ reconciliationRunId: '00000000-0000-4000-8000-000000000001', name: 'Liquidación banco' });
+  await client.settlements.execute('cycle_1');
+  assert.deepEqual(calls.map((call) => call.url), [
+    'https://api.test/api/v1/reconciliation/imports', 'https://api.test/api/v1/settlements', 'https://api.test/api/v1/settlements/cycle_1/execute',
+  ]);
+  assert.equal(calls[0].contentType, null);
+  assert.ok(calls[0].body instanceof FormData);
+  assert.equal((calls[0].body as FormData).get('name'), 'Banco');
+});
+
 test('el SDK verifica firma, timestamp, cuerpo crudo y antigüedad del webhook', async () => {
   const secret = 'whsec_test_secret';
   const timestamp = '1787941200';

@@ -8,6 +8,7 @@ export const WEBHOOK_EVENT_TYPES = [
   'customer.created', 'account.created', 'card.created', 'transfer.created', 'transfer.reversed',
   'hold.captured', 'hold.released', 'payment.created', 'risk.rule_created', 'risk.rule_disabled',
   'risk.case_created', 'risk.case_resolved', 'reconciliation.run_created', 'reconciliation.exception_resolved',
+  'settlement.cycle_created', 'settlement.cycle_settled',
   'compliance.document_uploaded',
 ] as const;
 

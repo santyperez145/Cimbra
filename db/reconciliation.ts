@@ -25,6 +25,7 @@ async function audit(database: DatabaseClient, input: {
 
 type RunRow = {
   id: string; name: string; source: ReconciliationSource; currency: Currency; periodStart: string; periodEnd: string; status: string;
+  ingestionMode: 'api' | 'csv'; fileName: string | null; fileSha256: string | null;
   expectedMinor: string; actualMinor: string; differenceMinor: string; matchedCount: number; exceptionCount: number; createdAt: string; updatedAt: string;
 };
 
@@ -38,17 +39,19 @@ function serializeRun(run: RunRow) {
 
 export async function createReconciliationRun(input: {
   organizationId: string; actor: AuthUser; idempotencyKey: string; name: string; source: ReconciliationSource; currency: Currency;
-  periodStart: string; periodEnd: string; entries: ReconciliationEntry[];
+  periodStart: string; periodEnd: string; entries: ReconciliationEntry[]; ingestionMode?: 'api' | 'csv'; fileName?: string | null; fileSha256?: string | null;
 }) {
   const canonicalEntries = [...input.entries].sort((a, b) => a.externalReference.localeCompare(b.externalReference))
     .map((entry) => ({ externalReference: entry.externalReference, transactionId: entry.transactionId, actualMinor: entry.actualMinor.toString() }));
   const fingerprint = await sha256(JSON.stringify({ name: input.name, source: input.source, currency: input.currency,
-    periodStart: input.periodStart, periodEnd: input.periodEnd, entries: canonicalEntries }));
+    periodStart: input.periodStart, periodEnd: input.periodEnd, ingestionMode: input.ingestionMode ?? 'api', fileName: input.fileName ?? null,
+    fileSha256: input.fileSha256 ?? null, entries: canonicalEntries }));
   return getDatabaseClient().transaction(async (database) => {
     await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
       .bind(`${input.organizationId}:reconciliation:${input.idempotencyKey}`).first();
     const existing = await database.prepare(
-      `SELECT id, request_fingerprint AS "requestFingerprint", name, source, currency, period_start AS "periodStart", period_end AS "periodEnd",
+      `SELECT id, request_fingerprint AS "requestFingerprint", name, source, currency, ingestion_mode AS "ingestionMode",
+        file_name AS "fileName", file_sha256 AS "fileSha256", period_start AS "periodStart", period_end AS "periodEnd",
         status, expected_minor::text AS "expectedMinor", actual_minor::text AS "actualMinor", difference_minor::text AS "differenceMinor",
         matched_count AS "matchedCount", exception_count AS "exceptionCount", created_at AS "createdAt", updated_at AS "updatedAt"
        FROM reconciliation_runs WHERE organization_id = ? AND idempotency_key = ? LIMIT 1`,
@@ -72,10 +75,11 @@ export async function createReconciliationRun(input: {
     const runStatus = exceptionCount === 0 ? 'completed' : 'open';
     await database.prepare(
       `INSERT INTO reconciliation_runs
-        (id, organization_id, idempotency_key, request_fingerprint, name, source, currency, period_start, period_end, status,
+        (id, organization_id, idempotency_key, request_fingerprint, name, source, currency, ingestion_mode, file_name, file_sha256, period_start, period_end, status,
          expected_minor, actual_minor, difference_minor, matched_count, exception_count, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).bind(runId, input.organizationId, input.idempotencyKey, fingerprint, input.name, input.source, input.currency, input.periodStart, input.periodEnd,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).bind(runId, input.organizationId, input.idempotencyKey, fingerprint, input.name, input.source, input.currency, input.ingestionMode ?? 'api',
+      input.fileName ?? null, input.fileSha256 ?? null, input.periodStart, input.periodEnd,
       runStatus, expectedMinor.toString(), actualMinor.toString(), (actualMinor - expectedMinor).toString(), matchedCount, exceptionCount,
       input.actor.userId, now, now).run();
     for (const item of items) {
@@ -97,7 +101,8 @@ export async function createReconciliationRun(input: {
     await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId, action: 'reconciliation.run_created',
       resourceType: 'reconciliation_run', resourceId: runId, payload: { source: input.source, currency: input.currency, matchedCount, exceptionCount } });
     return { run: serializeRun({ id: runId, name: input.name, source: input.source, currency: input.currency, periodStart: input.periodStart,
-      periodEnd: input.periodEnd, status: runStatus, expectedMinor: expectedMinor.toString(), actualMinor: actualMinor.toString(),
+      periodEnd: input.periodEnd, status: runStatus, ingestionMode: input.ingestionMode ?? 'api', fileName: input.fileName ?? null,
+      fileSha256: input.fileSha256 ?? null, expectedMinor: expectedMinor.toString(), actualMinor: actualMinor.toString(),
       differenceMinor: (actualMinor - expectedMinor).toString(), matchedCount, exceptionCount, createdAt: now, updatedAt: now }), replayed: false };
   });
 }
@@ -106,7 +111,8 @@ export async function listReconciliationState(organizationId: string) {
   const database = getDatabaseClient();
   const [runs, exceptions] = await Promise.all([
     database.prepare(
-      `SELECT id, name, source, currency, period_start AS "periodStart", period_end AS "periodEnd", status,
+      `SELECT id, name, source, currency, ingestion_mode AS "ingestionMode", file_name AS "fileName", file_sha256 AS "fileSha256",
+        period_start AS "periodStart", period_end AS "periodEnd", status,
         expected_minor::text AS "expectedMinor", actual_minor::text AS "actualMinor", difference_minor::text AS "differenceMinor",
         matched_count AS "matchedCount", exception_count AS "exceptionCount", created_at AS "createdAt", updated_at AS "updatedAt"
        FROM reconciliation_runs WHERE organization_id = ? ORDER BY created_at DESC LIMIT 100`,
@@ -130,7 +136,8 @@ export async function listReconciliationState(organizationId: string) {
 export async function retrieveReconciliationRun(organizationId: string, id: string) {
   const database = getDatabaseClient();
   const run = await database.prepare(
-    `SELECT id, name, source, currency, period_start AS "periodStart", period_end AS "periodEnd", status,
+    `SELECT id, name, source, currency, ingestion_mode AS "ingestionMode", file_name AS "fileName", file_sha256 AS "fileSha256",
+      period_start AS "periodStart", period_end AS "periodEnd", status,
       expected_minor::text AS "expectedMinor", actual_minor::text AS "actualMinor", difference_minor::text AS "differenceMinor",
       matched_count AS "matchedCount", exception_count AS "exceptionCount", created_at AS "createdAt", updated_at AS "updatedAt"
      FROM reconciliation_runs WHERE id = ? AND organization_id = ? LIMIT 1`,
