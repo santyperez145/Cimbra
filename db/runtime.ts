@@ -37,6 +37,10 @@ export type DashboardData = {
     status: string;
     createdAt: string;
   }>;
+  accounts: Array<{
+    id: string; customerId: string; currency: Currency; country: string; accountReference: string;
+    balance: number; balanceMinor: string; status: string; createdAt: string;
+  }>;
   documents: Array<{
     id: string;
     fileName: string;
@@ -142,9 +146,20 @@ export async function getDashboardData(user: AuthUser): Promise<DashboardData> {
   const accountCount = await database.prepare(
     "SELECT COUNT(*)::int AS count FROM accounts WHERE organization_id = ? AND status = 'active'",
   ).bind(organizationId).first<{ count: number }>();
-  const [balances, holds, cardRows, documentRows, journalSummary] = await Promise.all([
+  const [balances, holds, accountRows, cardRows, documentRows, journalSummary] = await Promise.all([
     getLedgerBalances(organizationId),
     listActiveHolds(organizationId),
+    database.prepare(
+      `SELECT a.id, a.customer_id AS "customerId", a.currency, a.country, a.account_reference AS "accountReference",
+        COALESCE(SUM(CASE WHEN p.direction = f.normal_balance THEN p.amount_minor ELSE -p.amount_minor END), 0)::text AS "balanceMinor",
+        a.status, a.created_at AS "createdAt"
+       FROM accounts a JOIN financial_accounts f ON f.id = a.ledger_account_id
+       LEFT JOIN ledger_postings p ON p.account_id = f.id
+       WHERE a.organization_id = ? GROUP BY a.id, f.normal_balance ORDER BY a.created_at DESC LIMIT 100`,
+    ).bind(organizationId).all<{
+      id: string; customerId: string; currency: Currency; country: string; accountReference: string;
+      balanceMinor: string; status: string; createdAt: string;
+    }>(),
     database.prepare(
       `SELECT id, product, format, last4, status, created_at AS "createdAt"
        FROM cards WHERE organization_id = ? ORDER BY created_at DESC LIMIT 25`,
@@ -174,6 +189,7 @@ export async function getDashboardData(user: AuthUser): Promise<DashboardData> {
     riskAlerts: holds.length,
     journalCount: Number(journalSummary?.count ?? 0),
     cards: cardRows.results,
+    accounts: accountRows.results.map((account) => ({ ...account, balance: minorToMajorNumber(account.balanceMinor, account.currency) })),
     documents: documentRows.results,
     balances,
     holds,

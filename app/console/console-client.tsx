@@ -8,7 +8,7 @@ import DevelopersPanel from './developers-panel';
 import SecurityPanel from './security-panel';
 
 const nav = [
-  ['▦', 'Vista general'], ['↔', 'Movimientos'], ['◉', 'Cuentas'], ['▰', 'Tarjetas'],
+  ['▦', 'Vista general'], ['↔', 'Movimientos'], ['⇄', 'Payments'], ['◉', 'Cuentas'], ['▰', 'Tarjetas'],
   ['◇', 'Riesgo'], ['✓', 'Compliance'], ['⌁', 'Developers'], ['⌾', 'Seguridad'],
 ];
 
@@ -28,9 +28,11 @@ export default function ConsoleClient({ data, user }: {
   const router = useRouter();
   const [active, setActive] = useState('Vista general');
   const [transferOpen, setTransferOpen] = useState(false);
+  const [paymentOpen, setPaymentOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState('');
   const [transferCurrency, setTransferCurrency] = useState('ARS');
+  const [paymentDirection, setPaymentDirection] = useState<'cash_in' | 'cash_out'>('cash_in');
   const primaryBalance = data.balances.find((balance) => balance.currency === 'ARS') ?? data.balances[0];
 
   async function signOut() {
@@ -49,6 +51,22 @@ export default function ConsoleClient({ data, user }: {
     const result = await response.json() as { error?: string; transaction?: { status: string } };
     if (!response.ok) setFeedback(result.error ?? 'No pudimos crear la transferencia.');
     else { setFeedback(result.transaction?.status === 'review' ? 'Transferencia creada y enviada a revisión.' : 'Transferencia liquidada en sandbox.'); router.refresh(); }
+    setBusy(false);
+  }
+
+  async function createPayment(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setBusy(true); setFeedback('');
+    const form = new FormData(event.currentTarget);
+    const account = data.accounts.find((item) => item.id === form.get('accountId'));
+    const response = await fetch('/api/v1/payments', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
+      body: JSON.stringify({ accountId: account?.id, direction: paymentDirection, counterparty: form.get('counterparty'),
+        description: form.get('description'), amount: form.get('amount'), currency: account?.currency }),
+    });
+    const result = await response.json() as { error?: { message?: string } | string; payment?: { status: string } };
+    const error = typeof result.error === 'string' ? result.error : result.error?.message;
+    if (!response.ok) setFeedback(error ?? 'No pudimos procesar el payment.');
+    else { setFeedback(result.payment?.status === 'review' ? 'Cash-out enviado a revisión.' : 'Payment contabilizado correctamente.'); setPaymentOpen(false); router.refresh(); }
     setBusy(false);
   }
 
@@ -103,17 +121,19 @@ export default function ConsoleClient({ data, user }: {
             </article>
             <aside className="risk-card"><div className="card-head"><div><h2>Control de riesgo</h2><p>Reservas persistidas del sandbox</p></div><span className="risk-live">● ACTIVO</span></div><div className="risk-score"><div><strong>{data.riskAlerts}</strong><span>reservas abiertas</span></div><div><strong>{data.journalCount}</strong><span>journals posteados</span></div></div>{data.holds.slice(0,1).map((hold)=><div className="risk-item" key={hold.id}><i className="coral-dot">!</i><span><strong>Fondos reservados</strong><small>{hold.counterparty} · {money(hold.amount,hold.currency)}</small></span><b>Revisar</b></div>)}<div className="risk-item"><i>✓</i><span><strong>Integridad del ledger</strong><small>Débitos y créditos validados en PostgreSQL</small></span><b className="normal">Activo</b></div><button className="risk-button" onClick={() => setActive('Riesgo')}>Abrir centro de riesgo →</button></aside>
           </div>
-          </> : active === 'Seguridad' ? <SecurityPanel user={user} /> : <SecondaryConsoleView active={active} data={data} busy={busy} feedback={feedback} onTransfer={() => setTransferOpen(true)} onReverse={reverseTransaction} onHold={resolveReview} />}
+          </> : active === 'Seguridad' ? <SecurityPanel user={user} /> : <SecondaryConsoleView active={active} data={data} busy={busy} feedback={feedback} onTransfer={() => setTransferOpen(true)} onPayment={() => setPaymentOpen(true)} onReverse={reverseTransaction} onHold={resolveReview} />}
         </div>
       </section>
 
       {transferOpen && <div className="drawer-backdrop" onMouseDown={() => setTransferOpen(false)}><aside className="transfer-drawer" onMouseDown={(e) => e.stopPropagation()}><div className="drawer-head"><div><small>SANDBOX</small><h2>Nueva transferencia</h2></div><button onClick={() => setTransferOpen(false)} aria-label="Cerrar">×</button></div><p>Simulá una transferencia. Las operaciones de alto monto pasan automáticamente por revisión de riesgo.</p><form onSubmit={createTransfer}><label>Destinatario<input name="counterparty" placeholder="Ej. Proveedor Andino" required minLength={2} /></label><label>Concepto<input name="description" placeholder="Ej. Pago de servicios" required minLength={2} /></label><div className="form-split"><label>Monto<input name="amount" type="number" min={transferCurrency==='CLP'?'1':'0.01'} max="10000000" step={transferCurrency==='CLP'?'1':'0.01'} placeholder="250000" required /></label><label>Moneda<select name="currency" value={transferCurrency} onChange={(event)=>setTransferCurrency(event.target.value)}><option>ARS</option><option>USD</option><option>MXN</option><option>COP</option><option>BRL</option><option>CLP</option><option>PEN</option></select></label></div>{feedback && <div className="form-feedback">{feedback}</div>}<button className="drawer-submit" disabled={busy}>{busy ? 'Procesando…' : 'Crear transferencia →'}</button></form><small className="drawer-note">Esta es una operación de sandbox. No mueve fondos reales.</small></aside></div>}
+      {paymentOpen && <div className="drawer-backdrop" onMouseDown={() => setPaymentOpen(false)}><aside className="transfer-drawer" onMouseDown={(e) => e.stopPropagation()}><div className="drawer-head"><div><small>PAYMENT METHODS · SANDBOX</small><h2>Nuevo payment</h2></div><button onClick={() => setPaymentOpen(false)} aria-label="Cerrar">×</button></div><p>Registrá un ingreso o payout contra una cuenta. Cada operación genera postings y auditoría.</p><form onSubmit={createPayment}><label>Dirección<select value={paymentDirection} onChange={(event)=>setPaymentDirection(event.target.value as 'cash_in'|'cash_out')}><option value="cash_in">Cash-in · ingreso</option><option value="cash_out">Cash-out · payout</option></select></label><label>Cuenta<select name="accountId" required defaultValue=""><option value="" disabled>Seleccionar cuenta</option>{data.accounts.map((account)=><option key={account.id} value={account.id}>{account.accountReference} · {account.currency} · {money(account.balance,account.currency)}</option>)}</select></label><label>Contraparte<input name="counterparty" placeholder="Banco, sponsor o beneficiario" required minLength={2} /></label><label>Concepto<input name="description" placeholder="Liquidación, fondeo o payout" required minLength={2} /></label><label>Monto<input name="amount" type="number" min="0.01" max="10000000" step="0.01" required /></label>{feedback&&<div className="form-feedback">{feedback}</div>}<button className="drawer-submit" disabled={busy||data.accounts.length===0}>{busy?'Procesando…':'Procesar payment →'}</button></form><small className="drawer-note">Sandbox: no mueve fondos reales ni llama proveedores externos.</small></aside></div>}
     </main>
   );
 }
 
-function SecondaryConsoleView({ active, data, busy, feedback, onTransfer, onReverse, onHold }: {
+function SecondaryConsoleView({ active, data, busy, feedback, onTransfer, onPayment, onReverse, onHold }: {
   active: string; data: DashboardData; busy: boolean; feedback: string; onTransfer: () => void;
+  onPayment: () => void;
   onReverse: (transactionId: string) => void; onHold: (holdId: string, action: 'capture' | 'release') => void;
 }) {
   const [uploadState, setUploadState] = useState('');
@@ -129,6 +149,8 @@ function SecondaryConsoleView({ active, data, busy, feedback, onTransfer, onReve
   }
 
   if (active === 'Movimientos') return <div className="module-view"><div className="module-view-head"><div><p>OPERACIONES</p><h1>Movimientos</h1><span>Operaciones monetarias respaldadas por asientos inmutables.</span></div><button className="app-primary" onClick={onTransfer}>+ Nueva transferencia</button></div>{feedback&&<div className="form-feedback ledger-feedback">{feedback}</div>}<article className="full-table"><div className="module-toolbar"><label>⌕ Buscar movimiento</label><div><button>Todos</button><button>Ingresos</button><button>Egresos</button><button>Exportar ↓</button></div></div><div className="app-table-head"><span>MOVIMIENTO</span><span>FECHA</span><span>MONTO</span><span>ESTADO</span></div>{data.transactions.map((transaction)=><div className="app-table-row" key={transaction.id}><span className="movement"><i>{transaction.amount < 0 ? '↗' : '↙'}</i><b>{transaction.counterparty}<small>{transaction.description}</small></b></span><span>{new Date(transaction.createdAt).toLocaleDateString('es-AR',{day:'2-digit',month:'short'})}<small>{new Date(transaction.createdAt).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</small></span><strong className={transaction.amount<0?'':'positive'}>{transaction.amount>0?'+':''}{money(transaction.amount,transaction.currency)}</strong><span className={`row-status ${transaction.status}`}><i />{statusLabel(transaction.status)}{transaction.amount<0&&transaction.status==='settled'&&!transaction.reversalOf&&<button className="ledger-row-action" disabled={busy} onClick={()=>onReverse(transaction.id)}>Revertir</button>}</span></div>)}</article></div>;
+
+  if (active === 'Payments') return <div className="module-view"><div className="module-view-head"><div><p>PAYMENT ORCHESTRATION</p><h1>Cash-in y cash-out</h1><span>Ingresos y payouts aplicados a cuentas concretas, listos para adaptadores regionales.</span></div><button className="app-primary" onClick={onPayment}>+ Nuevo payment</button></div>{feedback&&<div className="form-feedback ledger-feedback">{feedback}</div>}<div className="module-metrics"><article><strong>{data.accounts.length}</strong><span>cuentas operables</span></article><article><strong>{data.transactions.filter((item)=>item.amount>0).length}</strong><span>ingresos recientes</span></article><article><strong>{data.transactions.filter((item)=>item.amount<0).length}</strong><span>egresos recientes</span></article></div><article className="module-list"><div className="card-head"><div><h2>Cuentas de producto</h2><p>Saldo derivado de postings por cuenta</p></div><b>LEDGER-BACKED</b></div>{data.accounts.length===0?<div><span className="movement"><i>◉</i><b>Sin cuentas<small>Creá una cuenta mediante API para comenzar</small></b></span><strong>Vacío</strong></div>:data.accounts.map((account)=><div key={account.id}><span className="movement"><i>◉</i><b>{account.accountReference}<small>{account.country} · {account.currency} · {account.status}</small></b></span><strong>{money(account.balance,account.currency)}</strong></div>)}</article></div>;
 
   if (active === 'Cuentas') return <div className="module-view"><div className="module-view-head"><div><p>CORE & LEDGER</p><h1>Balances por moneda</h1><span>Saldo contable menos reservas activas. Ninguna moneda se mezcla con otra.</span></div><span className="module-health"><i /> Balanceado</span></div><div className="module-metrics ledger-balances">{data.balances.map((balance)=><article key={balance.currency}><small>{balance.currency}</small><strong>{money(balance.available,balance.currency)}</strong><span>Contable {money(balance.current,balance.currency)} · Reservado {money(balance.held,balance.currency)}</span></article>)}</div><article className="module-list"><div className="card-head"><div><h2>Reglas del núcleo</h2><p>Garantías activas en PostgreSQL</p></div><b>DOUBLE ENTRY</b></div><div><span className="movement"><i>＝</i><b>Partida doble<small>Cada journal exige débitos iguales a créditos</small></b></span><strong>Obligatorio</strong></div><div><span className="movement"><i>⌁</i><b>Inmutabilidad<small>Las correcciones se realizan mediante reversas</small></b></span><strong>Activo</strong></div><div><span className="movement"><i>¤</i><b>Unidades mínimas<small>BIGINT por moneda, sin punto flotante</small></b></span><strong>Activo</strong></div></article></div>;
 
