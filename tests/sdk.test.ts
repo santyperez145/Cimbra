@@ -114,6 +114,21 @@ test('el SDK expone el catálogo de servicios nativos de Cimbra', async () => {
   assert.equal(result.data.data[0].id, 'financial-core');
 });
 
+test('el SDK crea reglas de riesgo y conciliaciones con idempotencia', async () => {
+  const calls: Array<{ url: string; idempotencyKey: string | null }> = [];
+  const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async (input, init) => {
+    calls.push({ url: String(input), idempotencyKey: new Headers(init?.headers).get('idempotency-key') });
+    if (String(input).endsWith('/risk/rules')) return Response.json({ ok: true, replayed: false, rule: { id: 'rule_1', status: 'active' } }, { status: 201 });
+    return Response.json({ ok: true, replayed: false, run: { id: 'run_1', status: 'completed' } }, { status: 201 });
+  } });
+  await client.risk.createRule({ name: 'Monto alto USD', kind: 'amount_threshold', operationType: 'cash_out', scoreDelta: 50,
+    action: 'review', configuration: { threshold: '30000.00', currency: 'USD' } });
+  await client.reconciliation.createRun({ name: 'Cierre diario', source: 'bank', currency: 'ARS',
+    periodStart: '2026-08-27T00:00:00.000Z', periodEnd: '2026-08-28T00:00:00.000Z', entries: [] });
+  assert.deepEqual(calls.map((call) => call.url), ['https://api.test/api/v1/risk/rules', 'https://api.test/api/v1/reconciliation/runs']);
+  for (const call of calls) assert.match(call.idempotencyKey ?? '', /^idem_[a-f0-9]{32}$/);
+});
+
 test('el SDK verifica firma, timestamp, cuerpo crudo y antigüedad del webhook', async () => {
   const secret = 'whsec_test_secret';
   const timestamp = '1787941200';

@@ -21,8 +21,8 @@ La independencia tecnológica no elimina la realidad de los rieles. Para mover f
 | Bill Payments | catálogo, deuda, pago, recargas, suscripciones | API, webhooks, SDK, archivos | Roadmap |
 | Wallets | white-label, balances, pockets y payouts | API, webhooks, SDK, consola | Base técnica |
 | Lending | originación, líneas, schedules, intereses y cobranza | API, webhooks, SDK, consola | Roadmap |
-| Risk & Fraud | reglas, velocity, scoring, casos y listas | API, eventos, consola | Base técnica |
-| Reconciliation | tres vías, settlement, excepciones y archivos | API, webhooks, archivos, consola | Base técnica |
+| Risk & Fraud | reglas, velocity, scoring, casos y decisiones | API, webhooks, SDK, consola | Sandbox operativo |
+| Reconciliation | comparación de lotes, matches, faltantes y excepciones | API, webhooks, SDK, consola | Sandbox operativo |
 | Treasury | posición, prefunding, forecasting y sweeps | API, webhooks, archivos, consola | Roadmap |
 | Developer Platform | API v1, SDK, sandbox, webhooks y observabilidad | API, SDK, consola | Sandbox operativo |
 

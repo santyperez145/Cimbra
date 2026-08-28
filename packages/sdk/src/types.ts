@@ -14,6 +14,31 @@ export type PlatformCapability = {
   summary: string; features: string[]; interfaces: Array<'rest_api' | 'webhooks' | 'sdk' | 'console' | 'iso8583' | 'files' | 'streaming'>;
   availability: 'sandbox' | 'foundation' | 'roadmap'; delivery: 'cimbra_native'; regulatoryBoundary: string;
 };
+export type RiskRule = {
+  id: string; name: string; kind: 'amount_threshold' | 'velocity_count' | 'counterparty_match';
+  operationType: 'any' | 'transfer' | 'cash_in' | 'cash_out'; scoreDelta: number; action: 'score' | 'review' | 'decline';
+  configuration: Record<string, unknown>; priority: number; status: 'active' | 'disabled'; createdAt: string; updatedAt: string;
+};
+export type RiskEvaluation = {
+  id: string; operationType: 'transfer' | 'cash_in' | 'cash_out'; resourceType: string; resourceId: string | null;
+  amountMinor: string; amount: number; currency: Currency; counterparty: string; score: number; decision: 'approve' | 'review' | 'decline';
+  matchedRuleIds: string[]; reasons: string[]; createdAt: string;
+};
+export type RiskCase = {
+  id: string; evaluationId: string; transactionId: string | null; holdId: string | null; status: 'open' | 'resolved';
+  priority: 'low' | 'medium' | 'high' | 'critical'; resolution: 'approved' | 'declined' | null; resolutionNote: string | null;
+  counterparty: string; amountMinor: string; amount: number; currency: Currency; score: number; decision: 'review' | 'decline'; reasons: string[]; createdAt: string;
+};
+export type ReconciliationRun = {
+  id: string; name: string; source: 'bank' | 'clearing' | 'card_network' | 'cash_network' | 'internal'; currency: Currency;
+  periodStart: string; periodEnd: string; status: 'open' | 'completed'; expectedMinor: string; expected: number; actualMinor: string; actual: number;
+  differenceMinor: string; difference: number; matchedCount: number; exceptionCount: number; createdAt: string; updatedAt: string;
+};
+export type ReconciliationException = {
+  id: string; runId: string; itemId: string; kind: 'amount_mismatch' | 'missing_internal' | 'missing_external'; status: 'open' | 'resolved' | 'accepted';
+  externalReference: string; transactionId: string | null; expectedMinor: string; expected: number; actualMinor: string; actual: number;
+  differenceMinor: string; difference: number; currency: Currency; reason: string; resolution: 'corrected' | 'accepted' | null; createdAt: string;
+};
 export type Hold = { id: string; transactionId: string; amountMinor: string; amount: number; currency: Currency; status: string; expiresAt: string | null; createdAt: string; counterparty: string; description: string };
 export type LedgerBalance = { currency: Currency; currentMinor: string; heldMinor: string; availableMinor: string; current: number; held: number; available: number };
 export type LedgerJournal = { id: string; transactionId: string | null; kind: string; description: string; currency: Currency; status: string; reversalOf: string | null; postedAt: string | null; amountMinor: string; amount: number; postingCount: number };
@@ -31,4 +56,13 @@ export type CreateAccountInput = { customerId: string; currency: Currency; count
 export type CreateCardInput = { accountId: string; product?: Card['product']; format?: Card['format'] };
 export type CreateTransferInput = { counterparty: string; description: string; amount: string; currency?: Currency };
 export type CreatePaymentInput = { accountId: string; direction: 'cash_in' | 'cash_out'; counterparty: string; description: string; amount: string; currency: Currency };
+export type CreateRiskEvaluationInput = { operationType: 'transfer' | 'cash_in' | 'cash_out'; amount: string; currency: Currency; counterparty: string };
+export type CreateRiskRuleInput = {
+  name: string; kind: RiskRule['kind']; operationType: RiskRule['operationType']; scoreDelta: number; action: RiskRule['action']; priority?: number;
+  configuration: { threshold: string; currency: Currency } | { count: number; windowMinutes: number } | { pattern: string };
+};
+export type CreateReconciliationRunInput = {
+  name: string; source: ReconciliationRun['source']; currency: Currency; periodStart: string; periodEnd: string;
+  entries: Array<{ externalReference: string; transactionId?: string; direction: 'credit' | 'debit'; amount: string }>;
+};
 export type CreateWebhookInput = { name: string; url: string; eventTypes: string[] };

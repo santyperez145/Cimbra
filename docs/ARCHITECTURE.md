@@ -11,7 +11,7 @@
 
 ## Arquitectura del MVP alojado
 
-La versión de este repositorio usa Next.js 16, React 19 y TypeScript sobre Vercel Functions. PostgreSQL administrado guarda usuarios, identidades externas, sesiones, tokens de acción hasheados, recovery codes hasheados, organizaciones, miembros, cuentas financieras, journals, postings, holds, objetos sandbox, transacciones, leads, metadata documental y eventos; Vercel Blob privado conserva únicamente los bytes de evidencia. La identidad es propia y se resuelve en servidor: credenciales PBKDF2-HMAC-SHA-256, sesiones opacas revocables, OAuth 2.0/OIDC con Google y Apple, verificación de email y MFA TOTP RFC 6238.
+La versión de este repositorio usa Next.js 16, React 19 y TypeScript sobre Vercel Functions. PostgreSQL administrado guarda usuarios, identidades externas, sesiones, tokens de acción hasheados, recovery codes hasheados, organizaciones, miembros, cuentas financieras, journals, postings, holds, reglas/evaluaciones/casos de riesgo, corridas/partidas/excepciones de conciliación, objetos sandbox, transacciones, leads, metadata documental y eventos; Vercel Blob privado conserva únicamente los bytes de evidencia. La identidad es propia y se resuelve en servidor: credenciales PBKDF2-HMAC-SHA-256, sesiones opacas revocables, OAuth 2.0/OIDC con Google y Apple, verificación de email y MFA TOTP RFC 6238.
 
 Los flujos OAuth usan Authorization Code, `state`, nonce, PKCE en Google y validación de firma, issuer y audience contra JWKS. Los secretos viven sólo en variables cifradas del entorno. Las sesiones viajan en cookies `HttpOnly`, `Secure` y `SameSite`, mientras PostgreSQL conserva únicamente el hash SHA-256 del token. Los enlaces de email duran como máximo 24 horas, se invalidan al emitir uno nuevo y se consumen atómicamente. El TOTP usa pasos de 30 segundos, tolerancia de un paso, secreto de 160 bits cifrado con AES-256-GCM y rechazo del mismo paso ya utilizado; cada recovery code de 80 bits se consume en una única transacción. Un reset de contraseña revoca todas las sesiones y no elimina el segundo factor. Las restricciones únicas, claves foráneas, transacciones, idempotency keys y triggers diferidos protegen la integridad de los datos. El sandbox monetario guarda importes en unidades mínimas `BIGINT`, calcula los balances desde postings, impide mezclar monedas o tenants y sólo corrige operaciones mediante reversas compensatorias.
 
@@ -30,6 +30,10 @@ La API pública se expone bajo `/api/v1`. Todas las respuestas incluyen un `X-Re
 La infraestructura reproducible del piloto está en `infra/terraform/aws`: ALB/WAF, ECS Fargate en subredes privadas, PostgreSQL 16 Multi-AZ con PITR, KMS/Secrets Manager y CloudWatch. El outbox de PostgreSQL sigue siendo la cola durable autoritativa en esta etapa; EventBridge ejecuta el recovery dispatcher cada minuto, además del dispatch inmediato post-response.
 
 El catálogo de capacidades propio expone por API, SDK y consola los dominios `cimbra_native`, sus interfaces y su disponibilidad verificable. No conserva conexiones ni credenciales de plataformas competidoras. La conectividad futura se limita al perímetro de bancos, cámaras, esquemas y fuentes reguladas, con secretos y redes aislados por riel. Ver [`OWN_PLATFORM.md`](OWN_PLATFORM.md).
+
+Risk & Fraud evalúa transferencias y payments dentro de la transacción que crea el movimiento. Combina umbrales regionales de sistema, velocity por contraparte y reglas activas por tenant; persiste score, decisión, reglas coincidentes y razones. `review` crea un caso y hold vinculados, y resolver el caso captura o libera la reserva mediante la misma semántica idempotente del ledger. `decline` conserva la evaluación y el caso sin crear un movimiento contable.
+
+Reconciliation toma un lote externo versionado por Idempotency-Key y lo compara con movimientos `settled/reversed` del mismo tenant, moneda y período. Cada partida queda como `matched`, `mismatch`, `missing_internal` o `missing_external`; las diferencias generan excepciones con resolución auditable. No modifica postings ni oculta breaks: una corrección financiera debe ingresar como operación compensatoria independiente. Los ciclos de settlement y la ingestión automática de extractos continúan como trabajo previo a dinero real.
 
 Los deployments productivos de Vercel ejecutan las migraciones versionadas antes de compilar y publicar la nueva aplicación. Los previews no mutan la base compartida; ECS conserva una task definition de migración separada y el rollout exige su finalización correcta.
 
@@ -63,6 +67,8 @@ El sandbox ya impone:
 - journals `posted` y `reversed`, transacciones con estados explícitos y vínculos de reversa;
 - claves idempotentes por tenant y operación;
 - prohibición de updates destructivos sobre asientos posteados;
+- decisiones de riesgo persistidas y explicables antes de contabilizar;
+- conciliaciones reproducibles con cola de excepciones y cierre explícito;
 
 Antes de dinero real todavía se requieren secuencia estable para extractos, conciliación independiente contra Cimbra, banco/cámara y settlement, cierres, snapshots, operación multi-región y controles regulatorios.
 

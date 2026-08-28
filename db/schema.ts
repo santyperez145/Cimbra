@@ -216,6 +216,112 @@ export const apiKeys = pgTable('api_keys', {
   check('api_keys_rate_limit_positive', sql`${table.rateLimitPerMinute} > 0 AND ${table.rateWindowCount} >= 0`),
 ]);
 
+export const riskRules = pgTable('risk_rules', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  idempotencyKey: text('idempotency_key').notNull(), requestFingerprint: text('request_fingerprint').notNull(),
+  name: text('name').notNull(), kind: text('kind').notNull(), operationType: text('operation_type').notNull().default('any'),
+  scoreDelta: integer('score_delta').notNull(), action: text('action').notNull(), configuration: text('configuration').notNull().default('{}'),
+  priority: integer('priority').notNull().default(100), status: text('status').notNull().default('active'),
+  createdBy: text('created_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
+  createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_risk_rules_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  index('idx_risk_rules_org_status_priority').on(table.organizationId, table.status, table.priority),
+  check('risk_rules_kind', sql`${table.kind} IN ('amount_threshold', 'velocity_count', 'counterparty_match')`),
+  check('risk_rules_operation', sql`${table.operationType} IN ('any', 'transfer', 'cash_in', 'cash_out')`),
+  check('risk_rules_score', sql`${table.scoreDelta} BETWEEN 0 AND 100`),
+  check('risk_rules_action', sql`${table.action} IN ('score', 'review', 'decline')`),
+  check('risk_rules_priority', sql`${table.priority} BETWEEN 1 AND 1000`),
+  check('risk_rules_status', sql`${table.status} IN ('active', 'disabled')`),
+]);
+
+export const riskEvaluations = pgTable('risk_evaluations', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  idempotencyKey: text('idempotency_key').notNull(), requestFingerprint: text('request_fingerprint').notNull(),
+  operationType: text('operation_type').notNull(), resourceType: text('resource_type').notNull().default('transaction'), resourceId: text('resource_id'),
+  amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(), currency: text('currency').notNull(), counterparty: text('counterparty').notNull(),
+  score: integer('score').notNull(), decision: text('decision').notNull(), matchedRuleIds: text('matched_rule_ids').notNull().default('[]'),
+  reasons: text('reasons').notNull().default('[]'), createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_risk_evaluations_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  index('idx_risk_evaluations_org_created').on(table.organizationId, table.createdAt),
+  index('idx_risk_evaluations_resource').on(table.organizationId, table.resourceId),
+  check('risk_evaluations_operation', sql`${table.operationType} IN ('transfer', 'cash_in', 'cash_out')`),
+  check('risk_evaluations_score', sql`${table.score} BETWEEN 0 AND 100`),
+  check('risk_evaluations_decision', sql`${table.decision} IN ('approve', 'review', 'decline')`),
+]);
+
+export const riskCases = pgTable('risk_cases', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  evaluationId: text('evaluation_id').notNull().references(() => riskEvaluations.id, { onDelete: 'cascade' }),
+  transactionId: text('transaction_id').references(() => transactions.id, { onDelete: 'restrict' }),
+  holdId: text('hold_id').references(() => holds.id, { onDelete: 'restrict' }),
+  status: text('status').notNull().default('open'), priority: text('priority').notNull().default('medium'),
+  resolution: text('resolution'), resolutionNote: text('resolution_note'), resolutionIdempotencyKey: text('resolution_idempotency_key'),
+  resolvedBy: text('resolved_by').references(() => users.id, { onDelete: 'restrict' }), resolvedAt: text('resolved_at'),
+  createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_risk_cases_evaluation').on(table.evaluationId),
+  uniqueIndex('idx_risk_cases_org_resolution_idempotency').on(table.organizationId, table.resolutionIdempotencyKey),
+  index('idx_risk_cases_org_status_created').on(table.organizationId, table.status, table.createdAt),
+  check('risk_cases_status', sql`${table.status} IN ('open', 'resolved')`),
+  check('risk_cases_priority', sql`${table.priority} IN ('low', 'medium', 'high', 'critical')`),
+  check('risk_cases_resolution', sql`${table.resolution} IS NULL OR ${table.resolution} IN ('approved', 'declined')`),
+]);
+
+export const reconciliationRuns = pgTable('reconciliation_runs', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  idempotencyKey: text('idempotency_key').notNull(), requestFingerprint: text('request_fingerprint').notNull(),
+  name: text('name').notNull(), source: text('source').notNull(), currency: text('currency').notNull(),
+  periodStart: text('period_start').notNull(), periodEnd: text('period_end').notNull(), status: text('status').notNull().default('open'),
+  expectedMinor: bigint('expected_minor', { mode: 'bigint' }).notNull().default(sql`0`), actualMinor: bigint('actual_minor', { mode: 'bigint' }).notNull().default(sql`0`),
+  differenceMinor: bigint('difference_minor', { mode: 'bigint' }).notNull().default(sql`0`), matchedCount: integer('matched_count').notNull().default(0),
+  exceptionCount: integer('exception_count').notNull().default(0), createdBy: text('created_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
+  createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_reconciliation_runs_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  index('idx_reconciliation_runs_org_created').on(table.organizationId, table.createdAt),
+  check('reconciliation_runs_source', sql`${table.source} IN ('bank', 'clearing', 'card_network', 'cash_network', 'internal')`),
+  check('reconciliation_runs_status', sql`${table.status} IN ('open', 'completed')`),
+  check('reconciliation_runs_counts', sql`${table.matchedCount} >= 0 AND ${table.exceptionCount} >= 0`),
+]);
+
+export const reconciliationItems = pgTable('reconciliation_items', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  runId: text('run_id').notNull().references(() => reconciliationRuns.id, { onDelete: 'cascade' }),
+  transactionId: text('transaction_id').references(() => transactions.id, { onDelete: 'restrict' }), externalReference: text('external_reference').notNull(),
+  expectedMinor: bigint('expected_minor', { mode: 'bigint' }).notNull(), actualMinor: bigint('actual_minor', { mode: 'bigint' }).notNull(),
+  differenceMinor: bigint('difference_minor', { mode: 'bigint' }).notNull(), currency: text('currency').notNull(), status: text('status').notNull(),
+  reason: text('reason'), createdAt: text('created_at').notNull(),
+}, (table) => [
+  index('idx_reconciliation_items_run').on(table.runId, table.createdAt),
+  uniqueIndex('idx_reconciliation_items_run_external').on(table.runId, table.externalReference),
+  check('reconciliation_items_status', sql`${table.status} IN ('matched', 'mismatch', 'missing_internal', 'missing_external', 'resolved')`),
+]);
+
+export const reconciliationExceptions = pgTable('reconciliation_exceptions', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  runId: text('run_id').notNull().references(() => reconciliationRuns.id, { onDelete: 'cascade' }),
+  itemId: text('item_id').notNull().references(() => reconciliationItems.id, { onDelete: 'cascade' }),
+  kind: text('kind').notNull(), differenceMinor: bigint('difference_minor', { mode: 'bigint' }).notNull(), status: text('status').notNull().default('open'),
+  resolution: text('resolution'), resolutionNote: text('resolution_note'), resolutionIdempotencyKey: text('resolution_idempotency_key'),
+  resolvedBy: text('resolved_by').references(() => users.id, { onDelete: 'restrict' }), resolvedAt: text('resolved_at'),
+  createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_reconciliation_exceptions_item').on(table.itemId),
+  uniqueIndex('idx_reconciliation_exceptions_org_resolution_idempotency').on(table.organizationId, table.resolutionIdempotencyKey),
+  index('idx_reconciliation_exceptions_org_status_created').on(table.organizationId, table.status, table.createdAt),
+  check('reconciliation_exceptions_kind', sql`${table.kind} IN ('amount_mismatch', 'missing_internal', 'missing_external')`),
+  check('reconciliation_exceptions_status', sql`${table.status} IN ('open', 'resolved', 'accepted')`),
+  check('reconciliation_exceptions_resolution', sql`${table.resolution} IS NULL OR ${table.resolution} IN ('corrected', 'accepted')`),
+]);
+
 export const webhookEndpoints = pgTable('webhook_endpoints', {
   id: text('id').primaryKey(),
   organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),

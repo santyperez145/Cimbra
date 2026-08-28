@@ -30,6 +30,30 @@ Fortaleza: emisión y procesamiento de tarjetas, experiencia de integración y c
 
 Fortaleza: propuesta white-label rápida con wallet, pagos y crédito. Cimbra debe superarla en profundidad developer, auditabilidad, configuración, controles enterprise y amplitud operativa sin perder time-to-market.
 
+## Benchmark aplicado — riesgo y conciliación (28/08/2026)
+
+El bloque sandbox actual iguala el patrón mínimo esperable de una infraestructura API-first: decisiones previas al posting, idempotencia por tenant, reglas configurables, velocity, score y razones persistidas, casos, resolución transaccional con holds, webhooks, SDK y una cola de excepciones de conciliación que detecta diferencias y faltantes en ambos sentidos.
+
+La comparación oficial muestra, sin embargo, una brecha deliberadamente visible frente a productos maduros:
+
+| Referencia | Patrón observado | Estado Cimbra | Decisión propia |
+| --- | --- | --- | --- |
+| BIND / bindX | OAuth2, rate limiting, cuentas y transferencias CBU/CVU 7x24 sobre riel bancario real | Contrato API, scopes, rate limit, ledger y transferencias sandbox | Conectar directamente el primer riel/sponsor; no usar bindX como dependencia |
+| Dock | Antifraude transaccional en tiempo real, comportamiento/IA, background check, biometría, comunicación multicanal y operación 24x7 | Reglas determinísticas, velocity, casos y auditabilidad | Agregar señales, modelos evaluados, listas y step-up propios; no anunciar IA antes de tener datos y métricas |
+| tapi | Una integración regional, sandbox, dashboard y soporte para bill payments, recargas y cash in/out | Developer platform uniforme, payments genéricos, consola y SDK; sin catálogo regional real | Construir billers y cash network mediante convenios directos por país |
+| Pismo | Portal extenso, APIs, eventos real-time/batch, webhooks antifraude con presupuesto de latencia y reconciliación de clearing/DLQ | API v1, eventos firmados, decisión síncrona y conciliación por lote | Incorporar SLO de decisión, streaming/batch durable, replay operacional y reconciliación específica por riel |
+| Pomelo | Idempotencia, autorización/ajustes, presentments asíncronos, remedios de fraude y archivos diarios de conciliación por SFTP | Idempotencia, holds/reversas, casos y comparación de lotes vía API | Crear ingestión propia de archivos, presentments/clearing y remedios con máquina de estados |
+| Wibond | Wallet/finanzas embebidas de implementación rápida; el detalle técnico público no permite validar paridad endpoint por endpoint | Core y developer platform propios con mayor trazabilidad visible | Validar producto, SLA, cobertura y precios directamente durante diligence |
+
+Prioridad de producto resultante:
+
+1. Automatizar ingestión de extractos y archivos firmados, scheduling, cierre y settlement por riel directo.
+2. Agregar señales de dispositivo/identidad, listas, versionado de reglas, simulación, champion/challenger y métricas de falsos positivos.
+3. Añadir asignación, SLA, evidencia, comentarios y doble control a casos y excepciones.
+4. Publicar Postman, generación de SDKs adicionales, changelog y SLOs medidos; luego ejecutar homologación y certificaciones.
+
+Ninguno de estos gaps autoriza conectar Cimbra con un competidor. Las únicas dependencias externas admisibles para operación real son bancos, cámaras, esquemas, redes, fuentes oficiales y sponsors regulados donde sean jurídicamente necesarios.
+
 ## Wedge recomendado
 
 Primer segmento: marketplaces, SaaS vertical y plataformas de workforce con volumen mensual entre USD 1M y USD 20M que necesitan cuentas virtuales, payouts, conciliación y tarjetas corporativas en Argentina y México.
@@ -72,12 +96,19 @@ Una ronda pre-seed debe financiar 18 meses para cerrar el producto inicial, cont
 
 ## Fuentes competitivas consultadas
 
-- https://bind.com.ar/
-- https://dock.tech/es/
-- https://tapi.la/
-- https://www.pismo.io/es/
 - https://www.bindx.com/
-- https://pomelo.la/
+- https://developers.bindx.com/transferencias-online-bind
+- https://developers.bindx.com/consulta-de-cuentas-bind
+- https://dock.tech/es/
+- https://dock.tech/es/solucao/fraud-prevention/
+- https://tapi.la/
+- https://www.tapila.dev/docs
+- https://developers.pismo.io/pismo-docs/docs/welcome
+- https://developers.pismo.io/pismo-docs/docs/anti-fraud-integration
+- https://developers.pismo.io/pismo-docs/changelog/6-march-2026
+- https://developers.pomelo.la/api-reference/processing/transactions
+- https://developers.pomelo.la/guides/solutions/processing/reports
+- https://developers.pomelo.la/api-reference/fraud/remedies/tx-remedy
 - https://www.wibond.co/
 
 La información pública cambia; validar métricas, cobertura, licencias y precios directamente en diligence antes de usarla en un pitch.

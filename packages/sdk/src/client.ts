@@ -1,8 +1,9 @@
 import { CimbraApiError, CimbraConnectionError, CimbraTimeoutError } from './errors.ts';
 import type {
   Account, AuditEvent, Card, CimbraResult, CreateAccountInput, CreateCardInput, CreateCustomerInput, CreatePaymentInput,
-  CreateTransferInput, CreateWebhookInput, Customer, Hold, HoldResolution, LedgerBalance, LedgerJournal,
-  ListOptions, Page, PlatformCapability, RequestOptions, Transaction, WebhookOperationalState,
+  CreateReconciliationRunInput, CreateRiskEvaluationInput, CreateRiskRuleInput, CreateTransferInput, CreateWebhookInput,
+  Customer, Hold, HoldResolution, LedgerBalance, LedgerJournal, ListOptions, Page, PlatformCapability,
+  ReconciliationException, ReconciliationRun, RequestOptions, RiskCase, RiskEvaluation, RiskRule, Transaction, WebhookOperationalState,
 } from './types.ts';
 
 type Fetch = typeof globalThis.fetch;
@@ -98,6 +99,28 @@ export class Cimbra {
       data: PlatformCapability[];
       meta: { owner: 'Cimbra'; strategy: 'build_native'; competitorDependency: false; networkBoundary: 'direct_regulated_rails_only' };
     }>('GET', '/api/v1/capabilities', undefined, options),
+  };
+
+  readonly risk = {
+    state: (options?: RequestOptions) => this.request<{ data: { systemPolicies: Array<{ id: string; name: string; action: string; status: string }>; rules: RiskRule[]; evaluations: RiskEvaluation[]; cases: RiskCase[] } }>('GET', '/api/v1/risk', undefined, options),
+    evaluate: (input: CreateRiskEvaluationInput, options?: RequestOptions) =>
+      this.post<{ ok: true; evaluation: RiskEvaluation; replayed: boolean }>('/api/v1/risk/evaluations', input, options, true),
+    createRule: (input: CreateRiskRuleInput, options?: RequestOptions) =>
+      this.post<{ ok: true; rule: RiskRule; replayed: boolean }>('/api/v1/risk/rules', input, options, true),
+    disableRule: (id: string, options?: RequestOptions) =>
+      this.request<{ ok: true }>('DELETE', `/api/v1/risk/rules/${encodeURIComponent(id)}`, undefined, options),
+    resolveCase: (id: string, input: { resolution: 'approved' | 'declined'; note: string }, options?: RequestOptions) =>
+      this.post<{ ok: true; case: { id: string; status: 'resolved'; resolution: 'approved' | 'declined'; replayed: boolean } }>(`/api/v1/risk/cases/${encodeURIComponent(id)}/resolve`, input, options, true),
+  };
+
+  readonly reconciliation = {
+    state: (options?: RequestOptions) => this.request<{ data: { runs: ReconciliationRun[]; exceptions: ReconciliationException[] } }>('GET', '/api/v1/reconciliation', undefined, options),
+    createRun: (input: CreateReconciliationRunInput, options?: RequestOptions) =>
+      this.post<{ ok: true; run: ReconciliationRun; replayed: boolean }>('/api/v1/reconciliation/runs', input, options, true),
+    retrieveRun: (id: string, options?: RequestOptions) =>
+      this.request<ReconciliationRun & { items: Array<Record<string, unknown>> }>('GET', `/api/v1/reconciliation/runs/${encodeURIComponent(id)}`, undefined, options),
+    resolveException: (id: string, input: { resolution: 'corrected' | 'accepted'; note: string }, options?: RequestOptions) =>
+      this.post<{ ok: true; exception: { id: string; status: 'resolved' | 'accepted'; resolution: 'corrected' | 'accepted'; replayed: boolean } }>(`/api/v1/reconciliation/exceptions/${encodeURIComponent(id)}/resolve`, input, options, true),
   };
 
   readonly holds = {

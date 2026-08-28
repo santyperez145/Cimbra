@@ -55,11 +55,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Idempotency-Key es requerido y debe tener al menos 8 caracteres.' }, { status: 400 });
   }
     await ensureDatabase();
-    const riskScore = amountMinor >= majorToMinor('2000000', currency) ? 68 : amountMinor >= majorToMinor('750000', currency) ? 32 : 7;
     const result = await createTransfer({
-      organizationId, actor: user, idempotencyKey, counterparty, description, amountMinor, currency, riskScore,
+      organizationId, actor: user, idempotencyKey, counterparty, description, amountMinor, currency,
     });
     if (!result.replayed) scheduleWebhookDispatch(organizationId);
+    if ('declined' in result) return NextResponse.json({ error: 'La operación fue rechazada por la política de riesgo.', code: 'risk_declined', evaluation: result.declined }, { status: 422, headers: rateLimitHeaders(principal) });
     return NextResponse.json({ ok: true, ...result }, { status: result.replayed ? 200 : 201, headers: rateLimitHeaders(principal) });
   } catch (error) {
     const authorizationResponse = authorizationErrorResponse(error);

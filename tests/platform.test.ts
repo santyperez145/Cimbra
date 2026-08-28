@@ -5,6 +5,8 @@ import { decodePageCursor, encodePageCursor, pageLimit, paginatedResponse } from
 import { isPrivateAddress, normalizeWebhookUrl } from '../app/lib/platform/webhook-url.ts';
 import { versionedApi } from '../app/lib/platform/versioned-api.ts';
 import { CAPABILITY_AVAILABILITY, PLATFORM_CAPABILITIES, PLATFORM_SUMMARY } from '../app/lib/platform/capabilities.ts';
+import { matchReconciliationEntries } from '../app/lib/platform/reconciliation.ts';
+import { systemAmountRisk } from '../app/lib/platform/risk-engine.ts';
 
 process.env.CIMBRA_ENCRYPTION_KEY = '3ea72fc13c567057870342c6ebd34d88f58f6d80b1dba61c4be4e1c2f1406afb';
 
@@ -81,4 +83,25 @@ test('el catálogo sólo declara servicios propios y estados verificables', () =
     assert.ok(capability.interfaces.length > 0);
     assert.ok(capability.regulatoryBoundary.length > 20);
   }
+});
+
+test('las políticas de monto son regionales y explicables', () => {
+  assert.deepEqual(systemAmountRisk(200_000_000n, 'ARS'), { scoreDelta: 61, forceReview: true, ruleId: 'sys_amount_high', reason: 'amount_high' });
+  assert.deepEqual(systemAmountRisk(75_000_000n, 'ARS'), { scoreDelta: 25, forceReview: false, ruleId: 'sys_amount_elevated', reason: 'amount_elevated' });
+  assert.equal(systemAmountRisk(999_999n, 'USD').scoreDelta, 0);
+  assert.equal(systemAmountRisk(3_000_000n, 'USD').forceReview, true);
+});
+
+test('la conciliación detecta matches, diferencias y faltantes en ambos lados', () => {
+  const items = matchReconciliationEntries([
+    { id: 'tx-1', amountMinor: '10000' }, { id: 'tx-2', amountMinor: '-5000' }, { id: 'tx-3', amountMinor: '2500' },
+  ], [
+    { externalReference: 'ext-1', transactionId: 'tx-1', actualMinor: 10000n },
+    { externalReference: 'ext-2', transactionId: 'tx-2', actualMinor: -4500n },
+    { externalReference: 'ext-4', transactionId: 'tx-unknown', actualMinor: 700n },
+  ]);
+  assert.deepEqual(items.map((item) => item.status), ['matched', 'mismatch', 'missing_internal', 'missing_external']);
+  assert.equal(items[1].differenceMinor, 500n);
+  assert.equal(items[2].differenceMinor, 700n);
+  assert.equal(items[3].transactionId, 'tx-3');
 });

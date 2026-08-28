@@ -67,6 +67,43 @@ const available = catalog.data.data.filter((service) => service.availability ===
 
 El catálogo declara qué dominios son nativos de Cimbra, sus interfaces (`rest_api`, `webhooks`, `sdk`, `console`, `iso8583`, archivos o streaming), el grado real de disponibilidad y su límite regulatorio. No registra ni requiere conexiones con plataformas competidoras.
 
+## Riesgo y fraude
+
+```ts
+await cimbra.risk.createRule({
+  name: 'Cash-out alto USD',
+  kind: 'amount_threshold',
+  operationType: 'cash_out',
+  scoreDelta: 60,
+  action: 'review',
+  configuration: { threshold: '30000.00', currency: 'USD' },
+});
+
+const risk = await cimbra.risk.state();
+```
+
+Las transferencias y los cash-out ejecutan estas políticas dentro de su flujo transaccional. Una decisión `review` crea evaluación, caso y hold vinculados; resolver el caso captura o libera la reserva de manera idempotente.
+
+## Conciliación
+
+```ts
+await cimbra.reconciliation.createRun({
+  name: 'Cierre bancario diario',
+  source: 'bank',
+  currency: 'ARS',
+  periodStart: '2026-08-27T00:00:00.000Z',
+  periodEnd: '2026-08-28T00:00:00.000Z',
+  entries: [{
+    externalReference: 'BANK-0001',
+    transactionId: '00000000-0000-4000-8000-000000000001',
+    direction: 'credit',
+    amount: '1250.00',
+  }],
+});
+```
+
+Cada corrida conserva partidas exactas, totales, faltantes en ambos lados y diferencias. Las excepciones se resuelven con nota, actor, timestamp e idempotencia.
+
 Las escrituras financieras seguras generan automáticamente una clave de idempotencia y conservan el mismo `X-Request-Id` durante los reintentos. También se puede proporcionar una clave propia:
 
 ```ts

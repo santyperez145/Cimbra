@@ -6,11 +6,13 @@ import { FormEvent, useState, useSyncExternalStore } from 'react';
 import type { DashboardData } from '@/db/runtime';
 import DevelopersPanel from './developers-panel';
 import PlatformPanel from './platform-panel';
+import ReconciliationPanel from './reconciliation-panel';
+import RiskPanel from './risk-panel';
 import SecurityPanel from './security-panel';
 
 const nav = [
   ['▦', 'Vista general'], ['↔', 'Movimientos'], ['⇄', 'Payments'], ['◉', 'Cuentas'], ['▰', 'Tarjetas'],
-  ['◇', 'Riesgo'], ['✓', 'Compliance'], ['⌘', 'Plataforma'], ['⌁', 'Developers'], ['⌾', 'Seguridad'],
+  ['◇', 'Riesgo'], ['≋', 'Conciliación'], ['✓', 'Compliance'], ['⌘', 'Plataforma'], ['⌁', 'Developers'], ['⌾', 'Seguridad'],
 ];
 
 function money(value: number, currency = 'ARS') {
@@ -158,7 +160,9 @@ function SecondaryConsoleView({ active, data, busy, feedback, onTransfer, onPaym
 
   if (active === 'Cuentas') return <div className="module-view"><div className="module-view-head"><div><p>CORE & LEDGER</p><h1>Balances por moneda</h1><span>Saldo contable menos reservas activas. Ninguna moneda se mezcla con otra.</span></div><span className="module-health"><i /> Balanceado</span></div><div className="module-metrics ledger-balances">{data.balances.map((balance)=><article key={balance.currency}><small>{balance.currency}</small><strong>{money(balance.available,balance.currency)}</strong><span>Contable {money(balance.current,balance.currency)} · Reservado {money(balance.held,balance.currency)}</span></article>)}</div><article className="module-list"><div className="card-head"><div><h2>Reglas del núcleo</h2><p>Garantías activas en PostgreSQL</p></div><b>DOUBLE ENTRY</b></div><div><span className="movement"><i>＝</i><b>Partida doble<small>Cada journal exige débitos iguales a créditos</small></b></span><strong>Obligatorio</strong></div><div><span className="movement"><i>⌁</i><b>Inmutabilidad<small>Las correcciones se realizan mediante reversas</small></b></span><strong>Activo</strong></div><div><span className="movement"><i>¤</i><b>Unidades mínimas<small>BIGINT por moneda, sin punto flotante</small></b></span><strong>Activo</strong></div></article></div>;
 
-  if (active === 'Riesgo') return <div className="module-view"><div className="module-view-head"><div><p>RISK & HOLDS</p><h1>Reservas activas</h1><span>Capturá o liberá fondos sin alterar asientos posteados.</span></div><span className="module-health"><i /> {data.holds.length} abiertas</span></div>{feedback&&<div className="form-feedback ledger-feedback">{feedback}</div>}<article className="module-list hold-list"><div className="card-head"><div><h2>Cola de decisión</h2><p>Operaciones autorizadas o en revisión</p></div></div>{data.holds.length===0?<div><span className="movement"><i>✓</i><b>Sin reservas pendientes<small>No hay fondos bloqueados para revisión</small></b></span><strong>Al día</strong></div>:data.holds.map((hold)=><div key={hold.id}><span className="movement"><i>!</i><b>{hold.counterparty}<small>{hold.description} · {money(hold.amount,hold.currency)}</small></b></span><span className="hold-actions"><button disabled={busy} onClick={()=>onHold(hold.id,'release')}>Liberar</button><button disabled={busy} onClick={()=>onHold(hold.id,'capture')}>Capturar</button></span></div>)}</article></div>;
+  if (active === 'Riesgo') return <RiskPanel holds={data.holds} busy={busy} onHold={onHold} />;
+
+  if (active === 'Conciliación') return <ReconciliationPanel />;
 
   if (active === 'Compliance') return <div className="module-view"><div className="module-view-head"><div><p>COMPLIANCE CENTER</p><h1>Evidencia documental</h1><span>Archivos privados con metadata y auditoría persistidas.</span></div><span className="module-health"><i /> {data.documents.length} documentos</span></div><div className="compliance-grid"><article className="upload-card"><div className="module-icon">↑</div><h2>Agregar evidencia</h2><p>Subí documentación para el expediente. Se almacena de forma privada y queda registrada en auditoría.</p><form onSubmit={uploadDocument}><label>Seleccionar PDF, JPG o PNG<input name="file" type="file" accept="application/pdf,image/jpeg,image/png" required /></label><button disabled={uploading}>{uploading?'Subiendo…':'Subir documento →'}</button>{uploadState&&<div className="form-feedback">{uploadState}</div>}</form><small>Máximo 5 MB por archivo.</small></article><article className="review-queue"><div className="card-head"><div><h2>Documentos recibidos</h2><p>Metadata del almacenamiento privado</p></div><b>{data.documents.length} registrados</b></div>{data.documents.length===0?<div><span className="movement"><i>◇</i><b>Sin documentos<small>Subí la primera evidencia para verla acá</small></b></span><em>Vacío</em></div>:data.documents.map((document)=><div key={document.id}><span className="movement"><i>✓</i><b>{document.fileName}<small>{Math.ceil(document.size/1024)} KB · {new Date(document.createdAt).toLocaleDateString('es-AR')}</small></b></span><em>{document.status}</em></div>)}</article></div></div>;
 

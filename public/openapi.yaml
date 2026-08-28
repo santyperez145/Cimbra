@@ -273,6 +273,179 @@ paths:
                       availabilityModel:
                         type: array
                         items: { type: string, enum: [sandbox, foundation, roadmap] }
+  /api/v1/risk:
+    get:
+      operationId: getRiskState
+      summary: List system policies, tenant rules, evaluations and cases
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      responses:
+        '200': { description: Tenant-scoped risk operational state }
+  /api/v1/risk/evaluations:
+    post:
+      operationId: createRiskEvaluation
+      summary: Run and persist an explainable risk decision
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [operationType, amount, currency, counterparty]
+              properties:
+                operationType: { type: string, enum: [transfer, cash_in, cash_out] }
+                amount: { type: string, pattern: '^\d+(\.\d+)?$' }
+                currency: { type: string, enum: [ARS, USD, MXN, COP, BRL, CLP, PEN] }
+                counterparty: { type: string, minLength: 2, maxLength: 120 }
+      responses:
+        '201':
+          description: Evaluation persisted; review or decline also creates a case
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, evaluation, replayed]
+                properties:
+                  ok: { type: boolean, const: true }
+                  evaluation: { $ref: '#/components/schemas/RiskEvaluation' }
+                  replayed: { type: boolean }
+        '200': { description: Idempotent replay }
+  /api/v1/risk/rules:
+    post:
+      operationId: createRiskRule
+      summary: Create an active tenant risk rule
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, kind, operationType, scoreDelta, action, configuration]
+              properties:
+                name: { type: string, minLength: 2, maxLength: 80 }
+                kind: { type: string, enum: [amount_threshold, velocity_count, counterparty_match] }
+                operationType: { type: string, enum: [any, transfer, cash_in, cash_out] }
+                scoreDelta: { type: integer, minimum: 0, maximum: 100 }
+                action: { type: string, enum: [score, review, decline] }
+                priority: { type: integer, minimum: 1, maximum: 1000, default: 100 }
+                configuration: { type: object, additionalProperties: true }
+      responses:
+        '201': { description: Rule created and activated }
+        '200': { description: Idempotent replay }
+  /api/v1/risk/rules/{id}:
+    delete:
+      operationId: disableRiskRule
+      summary: Disable an active tenant rule
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses:
+        '200': { description: Rule disabled }
+        '404': { description: Rule not found or already disabled }
+  /api/v1/risk/cases/{id}/resolve:
+    post:
+      operationId: resolveRiskCase
+      summary: Resolve a case and capture or release its linked hold
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [resolution, note]
+              properties:
+                resolution: { type: string, enum: [approved, declined] }
+                note: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200': { description: Case and hold resolved idempotently }
+        '409': { description: Case or hold already resolved differently }
+  /api/v1/reconciliation:
+    get:
+      operationId: getReconciliationState
+      summary: List reconciliation runs and exception queue
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      responses:
+        '200': { description: Tenant-scoped runs and exceptions }
+  /api/v1/reconciliation/runs:
+    post:
+      operationId: createReconciliationRun
+      summary: Compare an external batch with Cimbra transactions
+      description: Produces exact matches, amount mismatches, missing internal records and missing external records. The maximum period is 31 days and each request accepts at most 500 entries.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, source, currency, periodStart, periodEnd, entries]
+              properties:
+                name: { type: string, minLength: 2, maxLength: 100 }
+                source: { type: string, enum: [bank, clearing, card_network, cash_network, internal] }
+                currency: { type: string, enum: [ARS, USD, MXN, COP, BRL, CLP, PEN] }
+                periodStart: { type: string, format: date-time }
+                periodEnd: { type: string, format: date-time }
+                entries:
+                  type: array
+                  maxItems: 500
+                  items:
+                    type: object
+                    required: [externalReference, direction, amount]
+                    properties:
+                      externalReference: { type: string, minLength: 2, maxLength: 120 }
+                      transactionId: { type: string, format: uuid }
+                      direction: { type: string, enum: [credit, debit] }
+                      amount: { type: string, pattern: '^\d+(\.\d+)?$' }
+      responses:
+        '201':
+          description: Reconciliation run, items and exceptions persisted atomically
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, run, replayed]
+                properties:
+                  ok: { type: boolean, const: true }
+                  run: { $ref: '#/components/schemas/ReconciliationRun' }
+                  replayed: { type: boolean }
+        '200': { description: Idempotent replay }
+  /api/v1/reconciliation/runs/{id}:
+    get:
+      operationId: retrieveReconciliationRun
+      summary: Retrieve a run with every compared item
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses:
+        '200': { description: Run and item detail }
+        '404': { description: Run not found in tenant }
+  /api/v1/reconciliation/exceptions/{id}/resolve:
+    post:
+      operationId: resolveReconciliationException
+      summary: Correct or explicitly accept an exception
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [resolution, note]
+              properties:
+                resolution: { type: string, enum: [corrected, accepted] }
+                note: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200': { description: Exception resolved with actor and audit trail }
+        '409': { description: Exception already resolved differently }
   /api/v1/transfers/{id}/reverse:
     post:
       operationId: reverseTransfer
@@ -385,7 +558,7 @@ paths:
                   type: array
                   minItems: 1
                   uniqueItems: true
-                  items: { type: string, enum: ['customers:read', 'customers:write', 'accounts:read', 'accounts:write', 'cards:read', 'cards:write', 'transfers:read', 'transfers:write', 'payments:read', 'payments:write', 'platform:read', 'ledger:read', 'events:read', 'compliance:write', 'webhooks:manage'] }
+                  items: { type: string, enum: ['customers:read', 'customers:write', 'accounts:read', 'accounts:write', 'cards:read', 'cards:write', 'transfers:read', 'transfers:write', 'payments:read', 'payments:write', 'risk:read', 'risk:write', 'reconciliation:read', 'reconciliation:write', 'platform:read', 'ledger:read', 'events:read', 'compliance:write', 'webhooks:manage'] }
                 expiresInDays: { type: integer, minimum: 1, maximum: 365 }
       responses:
         '201': { description: API key created and secret returned once }
@@ -510,6 +683,37 @@ components:
       description: Caller-provided correlation identifier. Cimbra returns the accepted or generated value in every response.
       schema: { type: string, minLength: 8, maxLength: 100, pattern: '^[A-Za-z0-9_-]+$' }
   schemas:
+    RiskEvaluation:
+      type: object
+      required: [id, operationType, amountMinor, currency, counterparty, score, decision, matchedRuleIds, reasons, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        operationType: { type: string, enum: [transfer, cash_in, cash_out] }
+        resourceId: { type: [string, 'null'] }
+        amountMinor: { type: string }
+        currency: { type: string }
+        counterparty: { type: string }
+        score: { type: integer, minimum: 0, maximum: 100 }
+        decision: { type: string, enum: [approve, review, decline] }
+        matchedRuleIds: { type: array, items: { type: string } }
+        reasons: { type: array, items: { type: string } }
+        createdAt: { type: string, format: date-time }
+    ReconciliationRun:
+      type: object
+      required: [id, name, source, currency, periodStart, periodEnd, status, expectedMinor, actualMinor, differenceMinor, matchedCount, exceptionCount]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        source: { type: string, enum: [bank, clearing, card_network, cash_network, internal] }
+        currency: { type: string }
+        periodStart: { type: string, format: date-time }
+        periodEnd: { type: string, format: date-time }
+        status: { type: string, enum: [open, completed] }
+        expectedMinor: { type: string }
+        actualMinor: { type: string }
+        differenceMinor: { type: string }
+        matchedCount: { type: integer }
+        exceptionCount: { type: integer }
     PlatformCapability:
       type: object
       required: [id, name, domain, summary, features, interfaces, availability, delivery, regulatoryBoundary]

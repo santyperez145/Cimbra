@@ -25,10 +25,10 @@ async function createPayment(request: Request) {
     catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : 'Monto inválido.' }, { status: 400 }); }
     if (amountMinor <= 0n || amountMinor > majorToMinor('10000000', currency)) return NextResponse.json({ error: 'Monto fuera de rango.' }, { status: 400 });
     await ensureDatabase();
-    const riskScore = direction === 'cash_out' && amountMinor >= majorToMinor('2000000', currency) ? 68 : 7;
     const result = await createAccountPayment({ organizationId: principal.organizationId, actor: principal.user, idempotencyKey,
-      accountId, direction, counterparty, description, amountMinor, currency, riskScore });
+      accountId, direction, counterparty, description, amountMinor, currency });
     if (!result.replayed) scheduleWebhookDispatch(principal.organizationId);
+    if ('declined' in result) return NextResponse.json({ error: 'La operación fue rechazada por la política de riesgo.', code: 'risk_declined', evaluation: result.declined }, { status: 422, headers: rateLimitHeaders(principal) });
     return NextResponse.json({ ok: true, ...result }, { status: result.replayed ? 200 : 201, headers: rateLimitHeaders(principal) });
   } catch (error) {
     const authorization = authorizationErrorResponse(error);

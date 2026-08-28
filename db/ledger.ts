@@ -2,6 +2,7 @@ import type { AuthUser } from '@/app/lib/auth/types';
 import { type Currency, majorToMinor, minorToMajorNumber } from '@/app/lib/ledger/money';
 import { DatabaseClient, getDatabaseClient } from './client';
 import { enqueueWebhookEvent } from './platform';
+import { assessRisk, persistRiskAssessment } from './risk';
 
 type Direction = 'debit' | 'credit';
 
@@ -144,8 +145,9 @@ async function accountBalanceMinor(accountId: string, database: DatabaseClient) 
 
 async function activeHoldsMinor(accountId: string, database: DatabaseClient) {
   const result = await database.prepare(
-    `SELECT COALESCE(SUM(amount_minor), 0)::text AS heldMinor
-     FROM holds WHERE account_id = ? AND status = 'active'`,
+    `SELECT COALESCE(SUM(h.amount_minor), 0)::text AS heldMinor
+     FROM holds h JOIN transactions t ON t.id = h.transaction_id
+     WHERE h.account_id = ? AND h.status = 'active' AND t.type = 'debit'`,
   ).bind(accountId).first<{ heldMinor: string }>();
   return BigInt(result?.heldMinor ?? '0');
 }
@@ -158,7 +160,6 @@ export async function createTransfer(input: {
   description: string;
   amountMinor: bigint;
   currency: Currency;
-  riskScore: number;
 }) {
   const database = getDatabaseClient();
   return database.transaction(async (transaction) => {
@@ -189,9 +190,17 @@ export async function createTransfer(input: {
       throw new LedgerError('Saldo disponible insuficiente para completar la transferencia.', 422, 'insufficient_funds');
     }
 
+    const assessment = await assessRisk({
+      organizationId: input.organizationId, idempotencyKey: operationKey, operationType: 'transfer',
+      amountMinor: input.amountMinor, currency: input.currency, counterparty: input.counterparty,
+    }, transaction);
+    if (assessment.decision === 'decline') {
+      const declined = await persistRiskAssessment({ organizationId: input.organizationId, idempotencyKey: operationKey, actor: input.actor, assessment }, transaction);
+      return { declined, replayed: declined.replayed };
+    }
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
-    const status = input.riskScore >= 60 ? 'review' : 'settled';
+    const status = assessment.decision === 'review' ? 'review' : 'settled';
     const inserted = await transaction.prepare(
       `INSERT INTO transactions
         (id, organization_id, idempotency_key, type, counterparty, description, amount_minor, currency, status, risk_score, reversal_of, created_at, updated_at)
@@ -199,7 +208,7 @@ export async function createTransfer(input: {
        ON CONFLICT (organization_id, idempotency_key) DO NOTHING RETURNING id`,
     ).bind(
       id, input.organizationId, operationKey, input.counterparty, input.description,
-      (-input.amountMinor).toString(), input.currency, status, input.riskScore, now, now,
+      (-input.amountMinor).toString(), input.currency, status, assessment.score, now, now,
     ).first<{ id: string }>();
     if (!inserted) {
       const replay = await transaction.prepare(
@@ -211,13 +220,15 @@ export async function createTransfer(input: {
       return { transaction: serializeTransaction(replay), replayed: true };
     }
 
+    let holdId: string | null = null;
     if (status === 'review') {
+      holdId = crypto.randomUUID();
       await transaction.prepare(
         `INSERT INTO holds
           (id, organization_id, account_id, transaction_id, idempotency_key, amount_minor, currency, status, expires_at, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
       ).bind(
-        crypto.randomUUID(), input.organizationId, accounts.customerFunds, id, operationKey,
+        holdId, input.organizationId, accounts.customerFunds, id, operationKey,
         input.amountMinor.toString(), input.currency, new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), now, now,
       ).run();
     } else {
@@ -235,18 +246,19 @@ export async function createTransfer(input: {
         createdAt: now,
       }, transaction);
     }
+    await persistRiskAssessment({ organizationId: input.organizationId, idempotencyKey: operationKey, actor: input.actor, assessment, resourceId: id, holdId }, transaction);
     await insertAudit(transaction, {
       organizationId: input.organizationId,
       actorId: input.actor.userId,
       action: 'transfer.created',
       resourceType: 'transaction',
       resourceId: id,
-      payload: { amountMinor: input.amountMinor.toString(), currency: input.currency, status, riskScore: input.riskScore },
+      payload: { amountMinor: input.amountMinor.toString(), currency: input.currency, status, riskScore: assessment.score, riskDecision: assessment.decision },
     });
     return {
       transaction: serializeTransaction({
         id, counterparty: input.counterparty, description: input.description, amountMinor: (-input.amountMinor).toString(),
-        currency: input.currency, status, riskScore: input.riskScore, reversalOf: null, createdAt: now,
+        currency: input.currency, status, riskScore: assessment.score, reversalOf: null, createdAt: now,
       }),
       replayed: false,
     };
@@ -263,7 +275,6 @@ export async function createAccountPayment(input: {
   description: string;
   amountMinor: bigint;
   currency: Currency;
-  riskScore: number;
 }) {
   return getDatabaseClient().transaction(async (transaction) => {
     const operationKey = `payment:${input.idempotencyKey}`;
@@ -294,22 +305,32 @@ export async function createAccountPayment(input: {
       const held = await activeHoldsMinor(account.ledgerAccountId, transaction);
       if (input.amountMinor > current - held) throw new LedgerError('Saldo disponible insuficiente.', 422, 'insufficient_funds');
     }
+    const assessment = await assessRisk({
+      organizationId: input.organizationId, idempotencyKey: operationKey, operationType: input.direction,
+      amountMinor: input.amountMinor, currency: input.currency, counterparty: input.counterparty,
+    }, transaction);
+    if (assessment.decision === 'decline') {
+      const declined = await persistRiskAssessment({ organizationId: input.organizationId, idempotencyKey: operationKey, actor: input.actor, assessment }, transaction);
+      return { declined, replayed: declined.replayed };
+    }
     const core = await getOrCreateCoreAccounts(input.organizationId, input.currency, transaction);
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
-    const status = input.direction === 'cash_out' && input.riskScore >= 60 ? 'review' : 'settled';
+    const status = assessment.decision === 'review' ? 'review' : 'settled';
     await transaction.prepare(
       `INSERT INTO transactions
         (id, organization_id, idempotency_key, type, counterparty, description, amount_minor, currency, status, risk_score, reversal_of, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
     ).bind(id, input.organizationId, operationKey, input.direction === 'cash_in' ? 'credit' : 'debit', input.counterparty,
-      input.description, signedAmount.toString(), input.currency, status, input.riskScore, now, now).run();
+      input.description, signedAmount.toString(), input.currency, status, assessment.score, now, now).run();
+    let holdId: string | null = null;
     if (status === 'review') {
+      holdId = crypto.randomUUID();
       await transaction.prepare(
         `INSERT INTO holds
           (id, organization_id, account_id, transaction_id, idempotency_key, amount_minor, currency, status, expires_at, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
-      ).bind(crypto.randomUUID(), input.organizationId, account.ledgerAccountId, id, operationKey, input.amountMinor.toString(),
+      ).bind(holdId, input.organizationId, account.ledgerAccountId, id, operationKey, input.amountMinor.toString(),
         input.currency, new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), now, now).run();
     } else {
       await postJournal({
@@ -324,13 +345,14 @@ export async function createAccountPayment(input: {
         ], createdAt: now,
       }, transaction);
     }
+    await persistRiskAssessment({ organizationId: input.organizationId, idempotencyKey: operationKey, actor: input.actor, assessment, resourceId: id, holdId }, transaction);
     await insertAudit(transaction, {
       organizationId: input.organizationId, actorId: input.actor.userId, action: 'payment.created',
       resourceType: 'transaction', resourceId: id,
-      payload: { accountId: input.accountId, direction: input.direction, amountMinor: input.amountMinor.toString(), currency: input.currency, status },
+      payload: { accountId: input.accountId, direction: input.direction, amountMinor: input.amountMinor.toString(), currency: input.currency, status, riskScore: assessment.score, riskDecision: assessment.decision },
     });
     return { payment: serializeTransaction({ id, counterparty: input.counterparty, description: input.description,
-      amountMinor: signedAmount.toString(), currency: input.currency, status, riskScore: input.riskScore, reversalOf: null, createdAt: now }), replayed: false };
+      amountMinor: signedAmount.toString(), currency: input.currency, status, riskScore: assessment.score, reversalOf: null, createdAt: now }), replayed: false };
   });
 }
 
@@ -425,8 +447,8 @@ export async function resolveHold(input: {
   holdId: string;
   action: 'capture' | 'release';
   idempotencyKey: string;
-}) {
-  return getDatabaseClient().transaction(async (transaction) => {
+}, database: DatabaseClient = getDatabaseClient()) {
+  return database.transaction(async (transaction) => {
     await transaction.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
       .bind(`${input.organizationId}:hold-resolution:${input.idempotencyKey}`).run();
     const keyOwner = await transaction.prepare(
@@ -440,12 +462,12 @@ export async function resolveHold(input: {
     }
     const hold = await transaction.prepare(
       `SELECT h.id, h.account_id AS accountId, h.transaction_id AS transactionId, h.amount_minor::text AS amountMinor,
-        h.currency, h.status, t.description
+        h.currency, h.status, t.description, t.type
        FROM holds h JOIN transactions t ON t.id = h.transaction_id
        WHERE h.id = ? AND h.organization_id = ? FOR UPDATE`,
     ).bind(input.holdId, input.organizationId).first<{
       id: string; accountId: string; transactionId: string; amountMinor: string;
-      currency: Currency; status: string; description: string;
+      currency: Currency; status: string; description: string; type: 'credit' | 'debit';
     }>();
     if (!hold) throw new LedgerError('Reserva no encontrada.', 404, 'hold_not_found');
     if (hold.status !== 'active') {
@@ -473,7 +495,10 @@ export async function resolveHold(input: {
         kind: 'hold_capture',
         description: hold.description,
         currency: hold.currency,
-        postings: [
+        postings: hold.type === 'credit' ? [
+          { accountId: accounts.settlement, direction: 'debit', amountMinor: BigInt(hold.amountMinor) },
+          { accountId: hold.accountId, direction: 'credit', amountMinor: BigInt(hold.amountMinor) },
+        ] : [
           { accountId: hold.accountId, direction: 'debit', amountMinor: BigInt(hold.amountMinor) },
           { accountId: accounts.settlement, direction: 'credit', amountMinor: BigInt(hold.amountMinor) },
         ],
