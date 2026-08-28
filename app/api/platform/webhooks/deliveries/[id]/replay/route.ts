@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { authorizationErrorResponse, authorizeApiRequest } from '@/app/lib/platform/authorization';
+import { authorizationErrorResponse, authorizeApiRequest, rateLimitHeaders } from '@/app/lib/platform/authorization';
 import { scheduleWebhookDispatch } from '@/app/lib/platform/dispatch';
 import { replayWebhookDelivery } from '@/db/platform';
 import { recordAuditEvent } from '@/db/runtime';
@@ -16,7 +16,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       resourceType: 'webhook_delivery', resourceId: id,
     });
     scheduleWebhookDispatch(principal.organizationId);
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true }, { headers: rateLimitHeaders(principal) });
   } catch (error) {
     const response = authorizationErrorResponse(error);
     if (response) return response;

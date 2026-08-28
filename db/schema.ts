@@ -71,9 +71,13 @@ export const leads = pgTable('leads', {
 
 export const customers = pgTable('customers', {
   id: text('id').primaryKey(), organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }), type: text('type').notNull(),
+  idempotencyKey: text('idempotency_key'),
   name: text('name').notNull(), country: text('country').notNull(), taxIdLast4: text('tax_id_last4').notNull(),
   status: text('status').notNull().default('active'), createdAt: text('created_at').notNull(),
-}, (table) => [index('idx_customers_org_created').on(table.organizationId, table.createdAt)]);
+}, (table) => [
+  index('idx_customers_org_created').on(table.organizationId, table.createdAt),
+  uniqueIndex('idx_customers_org_idempotency').on(table.organizationId, table.idempotencyKey),
+]);
 
 export const financialAccounts = pgTable('financial_accounts', {
   id: text('id').primaryKey(),
@@ -137,6 +141,7 @@ export const holds = pgTable('holds', {
 
 export const accounts = pgTable('accounts', {
   id: text('id').primaryKey(), organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  idempotencyKey: text('idempotency_key'),
   customerId: text('customer_id').notNull().references(() => customers.id, { onDelete: 'restrict' }),
   ledgerAccountId: text('ledger_account_id').notNull().references(() => financialAccounts.id, { onDelete: 'restrict' }),
   currency: text('currency').notNull(), country: text('country').notNull(), accountReference: text('account_reference').notNull(),
@@ -145,14 +150,19 @@ export const accounts = pgTable('accounts', {
   index('idx_accounts_org_created').on(table.organizationId, table.createdAt),
   index('idx_accounts_customer').on(table.customerId),
   uniqueIndex('idx_accounts_ledger_account').on(table.ledgerAccountId),
+  uniqueIndex('idx_accounts_org_idempotency').on(table.organizationId, table.idempotencyKey),
 ]);
 
 export const cards = pgTable('cards', {
   id: text('id').primaryKey(), organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  idempotencyKey: text('idempotency_key'),
   accountId: text('account_id').notNull().references(() => accounts.id, { onDelete: 'restrict' }),
   customerId: text('customer_id').notNull().references(() => customers.id, { onDelete: 'restrict' }), product: text('product').notNull(), format: text('format').notNull(),
   last4: text('last4').notNull(), status: text('status').notNull().default('active'), createdAt: text('created_at').notNull(),
-}, (table) => [index('idx_cards_org_created').on(table.organizationId, table.createdAt), index('idx_cards_account').on(table.accountId)]);
+}, (table) => [
+  index('idx_cards_org_created').on(table.organizationId, table.createdAt), index('idx_cards_account').on(table.accountId),
+  uniqueIndex('idx_cards_org_idempotency').on(table.organizationId, table.idempotencyKey),
+]);
 
 export const complianceDocuments = pgTable('compliance_documents', {
   id: text('id').primaryKey(), organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),

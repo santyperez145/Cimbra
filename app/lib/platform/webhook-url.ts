@@ -1,6 +1,8 @@
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 
+export class WebhookDestinationError extends Error {}
+
 function privateIpv4(address: string) {
   const octets = address.split('.').map(Number);
   if (octets.length !== 4 || octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)) return true;
@@ -26,21 +28,21 @@ export function isPrivateAddress(rawAddress: string) {
 }
 
 export function normalizeWebhookUrl(value: unknown) {
-  if (typeof value !== 'string' || value.length > 2048) throw new Error('La URL del webhook es inválida.');
+  if (typeof value !== 'string' || value.length > 2048) throw new WebhookDestinationError('La URL del webhook es inválida.');
   let url: URL;
   try {
     url = new URL(value.trim());
   } catch {
-    throw new Error('La URL del webhook es inválida.');
+    throw new WebhookDestinationError('La URL del webhook es inválida.');
   }
   if (url.protocol !== 'https:' || url.username || url.password || (url.port && url.port !== '443')) {
-    throw new Error('El webhook debe usar HTTPS, puerto 443 y no incluir credenciales.');
+    throw new WebhookDestinationError('El webhook debe usar HTTPS, puerto 443 y no incluir credenciales.');
   }
   const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
   if (!hostname || hostname === 'localhost' || hostname.endsWith('.localhost') || hostname.endsWith('.local') || hostname.endsWith('.internal')) {
-    throw new Error('El webhook debe usar un host público.');
+    throw new WebhookDestinationError('El webhook debe usar un host público.');
   }
-  if (isIP(hostname) && isPrivateAddress(hostname)) throw new Error('El webhook no puede apuntar a una red privada o reservada.');
+  if (isIP(hostname) && isPrivateAddress(hostname)) throw new WebhookDestinationError('El webhook no puede apuntar a una red privada o reservada.');
   url.hash = '';
   return url.toString();
 }
@@ -48,9 +50,11 @@ export function normalizeWebhookUrl(value: unknown) {
 export async function assertPublicWebhookDestination(value: string) {
   const normalized = normalizeWebhookUrl(value);
   const url = new URL(normalized);
-  const addresses = await lookup(url.hostname, { all: true, verbatim: true });
+  const addresses = await lookup(url.hostname, { all: true, verbatim: true }).catch(() => {
+    throw new WebhookDestinationError('El host del webhook no pudo resolverse.');
+  });
   if (addresses.length === 0 || addresses.some(({ address }) => isPrivateAddress(address))) {
-    throw new Error('El host del webhook no resuelve exclusivamente a direcciones públicas.');
+    throw new WebhookDestinationError('El host del webhook no resuelve exclusivamente a direcciones públicas.');
   }
   return normalized;
 }

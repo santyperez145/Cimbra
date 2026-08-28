@@ -34,7 +34,17 @@ yarn-error.log*
 .vercel
 next-env.d.ts
 /dist/
+/packages/*/dist/
 /.wrangler/
 /outputs/
 /work/
 *.tsbuildinfo
+
+# terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+!*.tfvars.example
+crash.log

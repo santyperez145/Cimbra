@@ -13,10 +13,11 @@ Superficies disponibles:
 - `/login` — registro e inicio de sesión propio con usuario/email y contraseña; OAuth Google y Apple se activa al configurar sus credenciales.
 - `/console` — consola protegida con sesiones de servidor, organización y datos propios.
 - `/api/health` — healthcheck sin caché.
-- `/api/sandbox/*` — customers, accounts, cards, transfers, reversas, holds, balances, journals y audit events.
-- `/api/compliance/documents` — evidencia privada en almacenamiento de objetos con metadata en base relacional.
+- `/api/v1/*` — API pública versionada para customers, accounts, cards, transfers, reversas, holds, ledger, events, compliance y webhooks.
+- `/api/sandbox/*` — alias de compatibilidad deprecado; las integraciones nuevas deben usar v1.
 - `/api/platform/api-keys` — claves Bearer con scopes, vencimiento, rate limit, rotación y revocación inmediata.
-- `/api/platform/webhooks` — endpoints HTTPS, signing secrets cifrados, entregas durables, historial y replay.
+- `/api/platform/webhooks` — administración de compatibilidad; la superficie pública está en `/api/v1/webhooks`.
+- `packages/sdk` — SDK TypeScript oficial, tipado, empaquetable y con verificación de webhooks.
 
 ## Desarrollo
 
@@ -32,6 +33,8 @@ Validación:
 ```bash
 npm run db:generate
 npm test
+npm run sdk:build
+npm run sdk:pack
 npm run test:db
 npm run typecheck
 npm run lint
@@ -65,18 +68,33 @@ Apple requiere un Services ID asociado a una app habilitada para Sign in with Ap
 - montos en unidades mínimas enteras (`BIGINT`), con escala por moneda;
 - journals balanceados y separación obligatoria de tenant y moneda en PostgreSQL;
 - postings inmutables; las correcciones crean journals compensatorios;
-- idempotencia por organización para transferencias, journals y holds;
+- idempotencia por organización para customers, accounts, cards, transferencias, journals y holds;
 - saldo disponible derivado del saldo contable menos las reservas activas;
 - escrituras financieras y auditoría dentro de la misma transacción.
 
 ## Garantías de integración
 
 - API keys con formato identificable, secreto visible una vez, hash en servidor y scopes de mínimo privilegio;
-- rate limit atómico por credencial y revocación efectiva en el siguiente request;
+- rate limit atómico por credencial, headers de límite, request IDs correlacionables y revocación efectiva en el siguiente request;
 - outbox de eventos creado dentro de la misma transacción que el cambio de dominio;
 - webhooks HTTPS firmados sobre `timestamp.raw_body`, sin redirects y con bloqueo de redes privadas;
 - leasing con `FOR UPDATE SKIP LOCKED`, backoff durable, intentos persistidos y replay manual;
 - dispatcher protegido por `CRON_SECRET` y ejecución inmediata post-response.
+
+## SDK TypeScript
+
+El paquete `@cimbra/sdk` vive en el monorepo. Genera idempotency keys para escrituras reintentables, conserva el mismo `X-Request-Id`, tipa errores HTTP/conexión/timeout y verifica firmas de webhook sobre el cuerpo crudo.
+
+```bash
+npm run sdk:build
+npm run sdk:pack
+```
+
+La publicación en un registry requiere credenciales y aprobación de release; el tarball se valida en CI sin publicar artefactos por accidente.
+
+## Infraestructura propia
+
+El `Dockerfile` produce una imagen standalone sin proceso root. [`infra/README.md`](infra/README.md) y `infra/terraform/aws` definen el piloto sobre ECS/Fargate, PostgreSQL Multi-AZ con PITR, KMS/Secrets Manager, WAF, autoscaling, observabilidad y el recovery dispatcher del outbox. Terraform sólo debe aplicarse después de revisar plan, costo y cuenta de destino.
 
 ## Documentos de dirección
 

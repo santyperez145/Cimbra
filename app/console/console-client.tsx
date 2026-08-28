@@ -38,7 +38,7 @@ export default function ConsoleClient({ data, user }: { data: DashboardData; use
   async function createTransfer(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setFeedback('');
     const form = new FormData(event.currentTarget);
-    const response = await fetch('/api/sandbox/transfers', {
+    const response = await fetch('/api/v1/transfers', {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
       body: JSON.stringify({ counterparty: form.get('counterparty'), description: form.get('description'), amount: form.get('amount'), currency: form.get('currency') }),
     });
@@ -50,7 +50,7 @@ export default function ConsoleClient({ data, user }: { data: DashboardData; use
 
   async function reverseTransaction(transactionId: string) {
     setBusy(true); setFeedback('');
-    const response = await fetch(`/api/sandbox/transfers/${transactionId}/reverse`, {
+    const response = await fetch(`/api/v1/transfers/${transactionId}/reverse`, {
       method: 'POST', headers: { 'Idempotency-Key': `reverse-${transactionId}` },
     });
     const result = await response.json() as { error?: string };
@@ -60,7 +60,7 @@ export default function ConsoleClient({ data, user }: { data: DashboardData; use
 
   async function resolveReview(holdId: string, action: 'capture' | 'release') {
     setBusy(true); setFeedback('');
-    const response = await fetch(`/api/sandbox/holds/${holdId}/${action}`, { method: 'POST' });
+    const response = await fetch(`/api/v1/holds/${holdId}/${action}`, { method: 'POST' });
     const result = await response.json() as { error?: string };
     setFeedback(response.ok ? action === 'capture' ? 'Reserva capturada y contabilizada.' : 'Reserva liberada sin afectar el saldo contable.' : result.error ?? 'No pudimos resolver la reserva.');
     setBusy(false); router.refresh();

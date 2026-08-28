@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
-import { authorizationErrorResponse, authorizeApiRequest } from '@/app/lib/platform/authorization';
+import { authorizationErrorResponse, authorizeApiRequest, rateLimitHeaders } from '@/app/lib/platform/authorization';
 import { ensureDatabase, getDatabase } from '@/db/runtime';
 
 export async function GET(request: Request) {
   try {
-  const { organizationId } = await authorizeApiRequest(request, { scope: 'events:read', roles: ['owner', 'admin', 'operator', 'viewer'] });
+  const principal = await authorizeApiRequest(request, { scope: 'events:read', roles: ['owner', 'admin', 'operator', 'viewer'] });
+  const { organizationId } = principal;
   await ensureDatabase();
   const events = await getDatabase().prepare(
     `SELECT id, action, resource_type AS resourceType, resource_id AS resourceId, payload, created_at AS createdAt
@@ -20,7 +21,7 @@ export async function GET(request: Request) {
         return { ...event, payload: {} };
       }
     }),
-  }, { headers: { 'Cache-Control': 'no-store' } });
+  }, { headers: { 'Cache-Control': 'no-store', ...rateLimitHeaders(principal) } });
   } catch (error) {
     const response = authorizationErrorResponse(error);
     if (response) return response;

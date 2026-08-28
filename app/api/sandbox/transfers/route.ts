@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { authorizationErrorResponse, authorizeApiRequest } from '@/app/lib/platform/authorization';
+import { authorizationErrorResponse, authorizeApiRequest, rateLimitHeaders } from '@/app/lib/platform/authorization';
 import { scheduleWebhookDispatch } from '@/app/lib/platform/dispatch';
 import { majorToMinor, normalizeCurrency } from '@/app/lib/ledger/money';
 import { createTransfer, LedgerError } from '@/db/ledger';
@@ -35,7 +35,7 @@ export async function POST(request: Request) {
       organizationId, actor: user, idempotencyKey, counterparty, description, amountMinor, currency, riskScore,
     });
     if (!result.replayed) scheduleWebhookDispatch(organizationId);
-    return NextResponse.json({ ok: true, ...result }, { status: result.replayed ? 200 : 201 });
+    return NextResponse.json({ ok: true, ...result }, { status: result.replayed ? 200 : 201, headers: rateLimitHeaders(principal) });
   } catch (error) {
     const authorizationResponse = authorizationErrorResponse(error);
     if (authorizationResponse) return authorizationResponse;

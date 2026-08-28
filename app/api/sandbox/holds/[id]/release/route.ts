@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { authorizationErrorResponse, authorizeApiRequest } from '@/app/lib/platform/authorization';
+import { authorizationErrorResponse, authorizeApiRequest, rateLimitHeaders } from '@/app/lib/platform/authorization';
 import { scheduleWebhookDispatch } from '@/app/lib/platform/dispatch';
 import { LedgerError, resolveHold } from '@/db/ledger';
 import { OrganizationAccessError } from '@/db/runtime';
@@ -11,7 +11,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const { id } = await context.params;
     const hold = await resolveHold({ organizationId, actor: user, holdId: id, action: 'release' });
     if (!hold.replayed) scheduleWebhookDispatch(organizationId);
-    return NextResponse.json({ ok: true, hold });
+    return NextResponse.json({ ok: true, hold }, { headers: rateLimitHeaders(principal) });
   } catch (error) {
     const authorizationResponse = authorizationErrorResponse(error);
     if (authorizationResponse) return authorizationResponse;

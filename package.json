@@ -2,23 +2,29 @@
   "name": "cimbra-fintech-platform",
   "version": "0.1.0",
   "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
   "engines": {
     "node": "22.x"
   },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "node --env-file-if-exists=.env.local .next/standalone/server.js",
     "deploy": "npx vercel@latest --prod",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
     "test:db": "node --env-file-if-exists=.env.local tests/ledger-db.mjs",
     "test:e2e": "node --env-file-if-exists=.env.local tests/app-e2e.mjs",
+    "sdk:build": "npm run build --workspace @cimbra/sdk",
+    "sdk:pack": "npm pack --workspace @cimbra/sdk --dry-run",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "node --env-file-if-exists=.env.local ./node_modules/drizzle-kit/bin.cjs migrate"
+    "db:migrate": "node --env-file-if-exists=.env.local scripts/migrate.mjs"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "3.1121.0",
     "@vercel/blob": "^2.3.0",
     "drizzle-orm": "0.45.2",
     "jose": "^6.1.0",

@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
-  title: Cimbra Sandbox API
+  title: Cimbra API v1
   version: 2026-08-28
-  description: Authenticated sandbox endpoints backed by a persistent double-entry ledger, scoped S2S API keys and signed durable webhooks. They do not move real funds.
+  description: Versioned financial infrastructure API backed by a persistent double-entry ledger, scoped S2S API keys and signed durable webhooks. This deployment is a sandbox and does not move real funds. Every response includes X-Request-Id and Cimbra-Version; API-key responses also expose X-RateLimit-Limit, X-RateLimit-Remaining and X-RateLimit-Reset.
   license:
     name: Proprietary
     identifier: LicenseRef-Proprietary
@@ -52,11 +52,13 @@ paths:
       responses:
         '200': { description: Operational }
         '503': { description: Database or schema unavailable }
-  /api/sandbox/customers:
+  /api/v1/customers:
     post:
       operationId: createCustomer
       summary: Create a customer
       security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -71,13 +73,17 @@ paths:
                 taxId: { type: string, minLength: 4 }
       responses:
         '201': { description: Customer created }
+        '200': { description: Idempotent replay }
         '400': { description: Invalid payload }
+        '409': { description: Idempotency key was already used with a different payload }
         '401': { description: Authentication required }
-  /api/sandbox/accounts:
+  /api/v1/accounts:
     post:
       operationId: createAccount
       summary: Open an account
       security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -91,12 +97,16 @@ paths:
                 country: { type: string, enum: [AR, MX, CO, BR, CL, PE] }
       responses:
         '201': { description: Account opened }
+        '200': { description: Idempotent replay }
+        '409': { description: Idempotency key was already used with a different payload }
         '404': { description: Customer not found in tenant }
-  /api/sandbox/cards:
+  /api/v1/cards:
     post:
       operationId: createCard
       summary: Issue a sandbox card
       security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -110,17 +120,16 @@ paths:
                 format: { type: string, enum: [virtual, physical] }
       responses:
         '201': { description: Card issued }
+        '200': { description: Idempotent replay }
+        '409': { description: Idempotency key was already used with a different payload }
         '404': { description: Account not found in tenant }
-  /api/sandbox/transfers:
+  /api/v1/transfers:
     post:
       operationId: createTransfer
       summary: Create an idempotent sandbox transfer
       security: [{ session: [] }, { bearerApiKey: [] }]
       parameters:
-        - in: header
-          name: Idempotency-Key
-          required: true
-          schema: { type: string, minLength: 8, maxLength: 100 }
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -144,7 +153,7 @@ paths:
         '401': { description: Authentication required }
         '403': { description: Role does not allow mutation }
         '422': { description: Insufficient available balance }
-  /api/sandbox/transfers/{id}/reverse:
+  /api/v1/transfers/{id}/reverse:
     post:
       operationId: reverseTransfer
       summary: Reverse a settled transfer with a compensating journal
@@ -154,16 +163,13 @@ paths:
           name: id
           required: true
           schema: { type: string, format: uuid }
-        - in: header
-          name: Idempotency-Key
-          required: true
-          schema: { type: string, minLength: 8, maxLength: 100 }
+        - $ref: '#/components/parameters/IdempotencyKey'
       responses:
         '201': { description: Reversal posted }
         '200': { description: Existing reversal returned }
         '404': { description: Original transfer not found }
         '409': { description: Transfer is not reversible }
-  /api/sandbox/ledger:
+  /api/v1/ledger:
     get:
       operationId: getLedger
       summary: Read currency-isolated balances, journals and active holds
@@ -171,7 +177,7 @@ paths:
       responses:
         '200': { description: Ledger snapshot }
         '401': { description: Authentication required }
-  /api/sandbox/holds/{id}/capture:
+  /api/v1/holds/{id}/capture:
     post:
       operationId: captureHold
       summary: Capture an active hold and post its financial journal
@@ -185,7 +191,7 @@ paths:
         '200': { description: Hold captured }
         '404': { description: Hold not found }
         '409': { description: Hold already resolved }
-  /api/sandbox/holds/{id}/release:
+  /api/v1/holds/{id}/release:
     post:
       operationId: releaseHold
       summary: Release an active hold without posting a financial journal
@@ -199,7 +205,7 @@ paths:
         '200': { description: Hold released }
         '404': { description: Hold not found }
         '409': { description: Hold already resolved }
-  /api/sandbox/events:
+  /api/v1/events:
     get:
       operationId: listAuditEvents
       summary: List recent audit events
@@ -207,7 +213,7 @@ paths:
       responses:
         '200': { description: Event list }
         '401': { description: Authentication required }
-  /api/compliance/documents:
+  /api/v1/compliance/documents:
     post:
       operationId: uploadComplianceDocument
       summary: Upload private compliance evidence
@@ -277,7 +283,7 @@ paths:
           schema: { type: string, format: uuid }
       responses:
         '201': { description: Replacement key created and old key revoked }
-  /api/platform/webhooks:
+  /api/v1/webhooks:
     get:
       operationId: listWebhooks
       summary: List endpoints, deliveries and attempt logs
@@ -306,7 +312,7 @@ paths:
       responses:
         '201': { description: Webhook created and signing secret returned once }
         '400': { description: 'Invalid, private or non-HTTPS destination' }
-  /api/platform/webhooks/{id}:
+  /api/v1/webhooks/{id}:
     delete:
       operationId: disableWebhook
       summary: Disable an endpoint and cancel pending deliveries
@@ -318,7 +324,7 @@ paths:
           schema: { type: string, format: uuid }
       responses:
         '200': { description: Webhook disabled }
-  /api/platform/webhooks/{id}/rotate:
+  /api/v1/webhooks/{id}/rotate:
     post:
       operationId: rotateWebhookSecret
       summary: Rotate a webhook signing secret
@@ -330,7 +336,7 @@ paths:
           schema: { type: string, format: uuid }
       responses:
         '200': { description: Signing secret rotated and returned once }
-  /api/platform/webhooks/deliveries/{id}/replay:
+  /api/v1/webhooks/deliveries/{id}/replay:
     post:
       operationId: replayWebhookDelivery
       summary: Requeue a webhook delivery while retaining prior attempt logs
@@ -343,6 +349,32 @@ paths:
       responses:
         '200': { description: Delivery requeued }
 components:
+  parameters:
+    IdempotencyKey:
+      in: header
+      name: Idempotency-Key
+      required: true
+      description: Stable unique key for this logical write. Replays return the original resource; reusing it with a different payload returns 409.
+      schema: { type: string, minLength: 8, maxLength: 100, pattern: '^[A-Za-z0-9._:-]+$' }
+    RequestId:
+      in: header
+      name: X-Request-Id
+      required: false
+      description: Caller-provided correlation identifier. Cimbra returns the accepted or generated value in every response.
+      schema: { type: string, minLength: 8, maxLength: 100, pattern: '^[A-Za-z0-9_-]+$' }
+  schemas:
+    ApiError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [type, code, message, requestId]
+          properties:
+            type: { type: string, const: cimbra_api_error }
+            code: { type: string }
+            message: { type: string }
+            requestId: { type: string }
   securitySchemes:
     session:
       type: apiKey

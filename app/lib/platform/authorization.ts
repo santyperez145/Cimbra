@@ -12,6 +12,7 @@ export type ApiPrincipal = {
   role: OrganizationRole | 'api_key';
   authentication: 'session' | 'api_key';
   apiKeyId: string | null;
+  rateLimit: { limit: number; remaining: number; reset: number } | null;
 };
 
 export class ApiAuthorizationError extends Error {
@@ -65,13 +66,21 @@ async function authenticateApiKey(token: string, requiredScope?: ApiScope): Prom
       rate_window_count = CASE WHEN rate_window_started_at IS NULL OR rate_window_started_at <= ? THEN 1 ELSE rate_window_count + 1 END,
       rate_window_started_at = CASE WHEN rate_window_started_at IS NULL OR rate_window_started_at <= ? THEN ? ELSE rate_window_started_at END
      WHERE id = ? AND (rate_window_started_at IS NULL OR rate_window_started_at <= ? OR rate_window_count < rate_limit_per_minute)
-     RETURNING id`,
-  ).bind(now.toISOString(), windowThreshold, windowThreshold, now.toISOString(), key.id, windowThreshold).first<{ id: string }>();
+     RETURNING id, rate_limit_per_minute AS "limit", rate_window_count AS "count",
+       rate_window_started_at AS "windowStartedAt"`,
+  ).bind(now.toISOString(), windowThreshold, windowThreshold, now.toISOString(), key.id, windowThreshold).first<{
+    id: string; limit: number; count: number; windowStartedAt: string;
+  }>();
   if (!consumed) throw new ApiAuthorizationError('Se superó el límite de solicitudes de la API key.', 429, 'rate_limit_exceeded');
   return {
     user: { userId: key.userId, username: key.username, displayName: key.displayName, email: key.email, emailVerified: key.emailVerified === 1 },
     organizationId: key.organizationId,
     role: 'api_key', authentication: 'api_key', apiKeyId: key.id,
+    rateLimit: {
+      limit: consumed.limit,
+      remaining: Math.max(0, consumed.limit - consumed.count),
+      reset: Math.ceil((Date.parse(consumed.windowStartedAt) + 60_000) / 1000),
+    },
   };
 }
 
@@ -90,7 +99,16 @@ export async function authorizeApiRequest(request: Request, options: {
   const user = await getCurrentUser(request);
   if (!user) throw new ApiAuthorizationError('Autenticación requerida.', 401, 'authentication_required');
   const context = await requireOrganizationRole(user, options.roles ?? ['owner', 'admin', 'operator', 'viewer']);
-  return { user, organizationId: context.organizationId, role: context.role, authentication: 'session', apiKeyId: null };
+  return { user, organizationId: context.organizationId, role: context.role, authentication: 'session', apiKeyId: null, rateLimit: null };
+}
+
+export function rateLimitHeaders(principal: ApiPrincipal): HeadersInit | undefined {
+  if (!principal.rateLimit) return undefined;
+  return {
+    'X-RateLimit-Limit': String(principal.rateLimit.limit),
+    'X-RateLimit-Remaining': String(principal.rateLimit.remaining),
+    'X-RateLimit-Reset': String(principal.rateLimit.reset),
+  };
 }
 
 export function authorizationErrorResponse(error: unknown) {

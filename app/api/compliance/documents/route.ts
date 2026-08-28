@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import { del, put } from '@vercel/blob';
-import { authorizationErrorResponse, authorizeApiRequest } from '@/app/lib/platform/authorization';
+import { authorizationErrorResponse, authorizeApiRequest, rateLimitHeaders } from '@/app/lib/platform/authorization';
 import { scheduleWebhookDispatch } from '@/app/lib/platform/dispatch';
+import { deleteComplianceObject, storeComplianceObject } from '@/app/lib/storage/compliance';
 import { ensureDatabase, getDatabase, OrganizationAccessError, recordAuditEvent } from '@/db/runtime';
 
 const allowedTypes = new Set(['application/pdf', 'image/jpeg', 'image/png']);
@@ -39,24 +39,22 @@ export async function POST(request: Request) {
   const fallbackName = file.type === 'application/pdf' ? 'evidence.pdf' : file.type === 'image/png' ? 'evidence.png' : 'evidence.jpg';
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-100) || fallbackName;
   const objectKey = `compliance/${organizationId}/${id}-${safeName}`;
-  const blob = await put(objectKey, file, {
-    access: 'private',
-    addRandomSuffix: false,
-    contentType: file.type,
-  });
+  const storedObject = await storeComplianceObject(objectKey, file);
   try {
     await getDatabase().transaction(async (transaction) => {
       await transaction.prepare(
         `INSERT INTO compliance_documents
           (id, organization_id, object_key, file_name, content_type, size, status, uploaded_by, created_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).bind(id, organizationId, blob.url, safeName, file.type, file.size, 'received', user.userId, new Date().toISOString()).run();
+      ).bind(id, organizationId, storedObject, safeName, file.type, file.size, 'received', user.userId, new Date().toISOString()).run();
       await recordAuditEvent({ organizationId, actorId: user.userId, action: 'compliance.document_uploaded', resourceType: 'document', resourceId: id }, transaction);
     });
   } catch (error) {
-    await del(blob.url).catch(() => undefined);
+    await deleteComplianceObject(storedObject).catch(() => undefined);
     throw error;
   }
   scheduleWebhookDispatch(organizationId);
-  return NextResponse.json({ ok: true, document: { id, fileName: safeName, status: 'received' } }, { status: 201 });
+  return NextResponse.json({ ok: true, document: { id, fileName: safeName, status: 'received' } }, {
+    status: 201, headers: rateLimitHeaders(principal),
+  });
 }

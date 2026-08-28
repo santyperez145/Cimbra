@@ -14,6 +14,9 @@
 - documentos privados en object storage;
 - eventos de auditoría y healthcheck;
 - migraciones, lint, tipos y build automatizables.
+- API pública v1 con request IDs, errores normalizados, rate-limit headers e idempotencia de altas;
+- SDK TypeScript empaquetable con reintentos seguros y verificación de webhooks;
+- imagen OCI standalone e infraestructura AWS reproducible y validada estáticamente.
 
 ## Gate 1 — design partners
 

@@ -8,8 +8,12 @@ const globalDatabase = globalThis as typeof globalThis & { cimbraSql?: SqlClient
 
 function connectionString() {
   const value = process.env.DATABASE_URL ?? process.env.POSTGRES_URL;
-  if (!value) throw new Error('DATABASE_URL is not configured. Connect a PostgreSQL database to this deployment.');
-  return value;
+  if (value) return value;
+  const { DB_HOST: host, DB_PORT: port = '5432', DB_NAME: database, DB_USER: user, DB_PASSWORD: password } = process.env;
+  if (host && database && user && password) {
+    return `postgresql://${encodeURIComponent(user)}:${encodeURIComponent(password)}@${host}:${port}/${encodeURIComponent(database)}`;
+  }
+  throw new Error('DATABASE_URL or the DB_HOST/DB_NAME/DB_USER/DB_PASSWORD set is not configured.');
 }
 
 function normalizeSql(source: string) {

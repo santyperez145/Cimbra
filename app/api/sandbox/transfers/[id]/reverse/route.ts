@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { authorizationErrorResponse, authorizeApiRequest } from '@/app/lib/platform/authorization';
+import { authorizationErrorResponse, authorizeApiRequest, rateLimitHeaders } from '@/app/lib/platform/authorization';
 import { scheduleWebhookDispatch } from '@/app/lib/platform/dispatch';
 import { LedgerError, reverseTransfer } from '@/db/ledger';
 import { OrganizationAccessError } from '@/db/runtime';
@@ -15,7 +15,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const { id } = await context.params;
     const result = await reverseTransfer({ organizationId, actor: user, transactionId: id, idempotencyKey });
     if (!result.replayed) scheduleWebhookDispatch(organizationId);
-    return NextResponse.json({ ok: true, ...result }, { status: result.replayed ? 200 : 201 });
+    return NextResponse.json({ ok: true, ...result }, { status: result.replayed ? 200 : 201, headers: rateLimitHeaders(principal) });
   } catch (error) {
     const authorizationResponse = authorizationErrorResponse(error);
     if (authorizationResponse) return authorizationResponse;

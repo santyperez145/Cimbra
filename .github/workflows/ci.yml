@@ -11,15 +11,24 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.16.0
+          terraform_wrapper: false
       - run: npm ci
       - run: npm test
+      - run: npm run sdk:build
+      - run: npm run sdk:pack
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run build
+      - run: terraform fmt -check -recursive
+      - run: terraform -chdir=infra/terraform/aws init -backend=false -input=false
+      - run: terraform -chdir=infra/terraform/aws validate
