@@ -1,11 +1,13 @@
 import { NextResponse } from 'next/server';
-import { getChatGPTUser } from '@/app/chatgpt-auth';
+import { getCurrentUser } from '@/app/lib/auth/session';
+import { mutationAllowed } from '@/app/lib/auth/http';
 import { ensureDatabase, getD1, getFilesBucket, getOrCreateOrganization, recordAuditEvent } from '@/db/runtime';
 
 const allowedTypes = new Set(['application/pdf', 'image/jpeg', 'image/png']);
 
 export async function POST(request: Request) {
-  const user = await getChatGPTUser();
+  if (!mutationAllowed(request)) return NextResponse.json({ error: 'Origen de solicitud no permitido.' }, { status: 403 });
+  const user = await getCurrentUser(request);
   if (!user) return NextResponse.json({ error: 'Autenticación requerida.' }, { status: 401 });
   const form = await request.formData();
   const file = form.get('file');

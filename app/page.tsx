@@ -21,7 +21,7 @@ export default function Home() {
             <a href="#developers">Developers</a>
             <a href="#empresa">Empresa</a>
           </nav>
-          <div className="nav-actions"><a className="nav-login" href="/console">Ingresar</a><a className="nav-cta" href="#demo">Hablemos <span aria-hidden="true">↗</span></a></div>
+          <div className="nav-actions"><a className="nav-login" href="/login">Ingresar</a><a className="nav-cta" href="#demo">Hablemos <span aria-hidden="true">↗</span></a></div>
         </header>
 
         <div id="inicio" className="hero-grid">

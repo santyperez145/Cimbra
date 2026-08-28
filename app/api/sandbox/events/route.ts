@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
-import { getChatGPTUser } from '@/app/chatgpt-auth';
+import { getCurrentUser } from '@/app/lib/auth/session';
 import { ensureDatabase, getD1, getOrCreateOrganization } from '@/db/runtime';
 
-export async function GET() {
-  const user = await getChatGPTUser();
+export async function GET(request: Request) {
+  const user = await getCurrentUser(request);
   if (!user) return NextResponse.json({ error: 'Autenticación requerida.' }, { status: 401 });
   await ensureDatabase();
   const organizationId = await getOrCreateOrganization(user);

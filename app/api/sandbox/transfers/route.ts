@@ -1,11 +1,13 @@
 import { NextResponse } from 'next/server';
-import { getChatGPTUser } from '@/app/chatgpt-auth';
+import { getCurrentUser } from '@/app/lib/auth/session';
+import { mutationAllowed } from '@/app/lib/auth/http';
 import { ensureDatabase, getD1, getOrCreateOrganization, recordAuditEvent } from '@/db/runtime';
 
 const currencies = new Set(['ARS', 'USD', 'MXN', 'COP', 'BRL', 'CLP', 'PEN']);
 
 export async function POST(request: Request) {
-  const user = await getChatGPTUser();
+  if (!mutationAllowed(request)) return NextResponse.json({ error: 'Origen de solicitud no permitido.' }, { status: 403 });
+  const user = await getCurrentUser(request);
   if (!user) return NextResponse.json({ error: 'Autenticación requerida.' }, { status: 401 });
   const body = await request.json().catch(() => null) as Record<string, unknown> | null;
   const counterparty = typeof body?.counterparty === 'string' ? body.counterparty.trim().slice(0, 120) : '';

@@ -11,7 +11,9 @@
 
 ## Arquitectura del MVP alojado
 
-La versión de este repositorio usa React 19, TypeScript, Vinext/Vite, Cloudflare Workers, D1 y R2. La identidad es administrada por la plataforma y se resuelve en servidor. D1 guarda organizaciones, miembros, objetos sandbox, transacciones, leads, documentos y eventos; R2 guarda únicamente los bytes de evidencia.
+La versión de este repositorio usa React 19, TypeScript, Vinext/Vite, Cloudflare Workers, D1 y R2. La identidad es propia y se resuelve en servidor: credenciales PBKDF2-HMAC-SHA-256, sesiones opacas revocables y OAuth 2.0/OIDC con Google y Apple. D1 guarda usuarios, identidades externas, sesiones, organizaciones, miembros, objetos sandbox, transacciones, leads, documentos y eventos; R2 guarda únicamente los bytes de evidencia.
+
+Los flujos OAuth usan Authorization Code, `state`, nonce, PKCE en Google y validación de firma/issuer/audience contra JWKS. Los secretos viven sólo como bindings cifrados del entorno. Las sesiones viajan en cookies `HttpOnly`, `Secure` y `SameSite`, mientras D1 conserva únicamente el hash SHA-256 del token.
 
 Cada request operativo:
 
@@ -60,6 +62,7 @@ El ledger productivo debe imponer:
 ## Seguridad mínima para producción
 
 - threat model por dominio y revisión independiente antes del piloto;
+- MFA y recuperación de cuenta antes de habilitar operaciones productivas de alto riesgo;
 - MFA fuerte, RBAC/ABAC y segregación de funciones;
 - cifrado en tránsito y reposo con rotación de claves;
 - tokenización de datos de tarjeta y alcance PCI minimizado;

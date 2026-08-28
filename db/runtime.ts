@@ -1,5 +1,5 @@
 import { env } from 'cloudflare:workers';
-import type { ChatGPTUser } from '@/app/chatgpt-auth';
+import type { AuthUser } from '@/app/lib/auth/types';
 
 export type DashboardTransaction = {
   id: string; counterparty: string; description: string; amount: number; currency: string;
@@ -32,6 +32,27 @@ export function ensureDatabase(): Promise<void> {
 async function createSchema() {
   const db = getD1();
   await db.batch([
+    db.prepare(`CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, email TEXT NOT NULL UNIQUE, display_name TEXT NOT NULL,
+      password_hash TEXT, password_salt TEXT, password_iterations INTEGER, email_verified INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS oauth_identities (
+      id TEXT PRIMARY KEY, user_id TEXT NOT NULL, provider TEXT NOT NULL, provider_subject TEXT NOT NULL,
+      provider_email TEXT, created_at TEXT NOT NULL, UNIQUE(provider, provider_subject)
+    )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS auth_sessions (
+      token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL, last_seen_at TEXT NOT NULL
+    )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS oauth_states (
+      state_hash TEXT PRIMARY KEY, provider TEXT NOT NULL, code_verifier TEXT NOT NULL, nonce TEXT NOT NULL,
+      return_to TEXT NOT NULL, expires_at TEXT NOT NULL, created_at TEXT NOT NULL
+    )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS auth_attempts (
+      id TEXT PRIMARY KEY, action TEXT NOT NULL, identity_hash TEXT NOT NULL, ip_hash TEXT NOT NULL,
+      success INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL
+    )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS organizations (
       id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE,
       country TEXT NOT NULL DEFAULT 'AR', status TEXT NOT NULL DEFAULT 'sandbox', created_at TEXT NOT NULL
@@ -74,6 +95,17 @@ async function createSchema() {
       payload TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL
     )`),
     db.prepare('CREATE INDEX IF NOT EXISTS idx_members_organization ON members(organization_id)'),
+    db.prepare('DROP INDEX IF EXISTS idx_members_external_user'),
+    db.prepare('CREATE UNIQUE INDEX IF NOT EXISTS idx_members_user ON members(external_user_id)'),
+    db.prepare('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username)'),
+    db.prepare('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email)'),
+    db.prepare('CREATE UNIQUE INDEX IF NOT EXISTS idx_oauth_provider_subject ON oauth_identities(provider, provider_subject)'),
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_oauth_user ON oauth_identities(user_id)'),
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id)'),
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_auth_sessions_expires ON auth_sessions(expires_at)'),
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_oauth_states_expires ON oauth_states(expires_at)'),
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_auth_attempts_identity ON auth_attempts(action, identity_hash, created_at)'),
+    db.prepare('CREATE INDEX IF NOT EXISTS idx_auth_attempts_ip ON auth_attempts(action, ip_hash, created_at)'),
     db.prepare('CREATE INDEX IF NOT EXISTS idx_transactions_org_created ON transactions(organization_id, created_at)'),
     db.prepare('CREATE INDEX IF NOT EXISTS idx_transactions_org_status ON transactions(organization_id, status)'),
     db.prepare('CREATE INDEX IF NOT EXISTS idx_leads_created ON leads(created_at)'),
@@ -88,7 +120,7 @@ async function createSchema() {
   await db.prepare('PRAGMA optimize').run();
 }
 
-export async function getOrCreateOrganization(user: ChatGPTUser) {
+export async function getOrCreateOrganization(user: AuthUser) {
   await ensureDatabase();
   const db = getD1();
   const member = await db.prepare('SELECT organization_id AS organizationId FROM members WHERE external_user_id = ? LIMIT 1')
@@ -124,7 +156,7 @@ async function seedTransactions(organizationId: string) {
   ).bind(crypto.randomUUID(), organizationId, `seed-${index}`, row[2] >= 0 ? 'credit' : 'debit', row[0], row[1], row[2], row[3], row[4], row[5], new Date(now - index * 2_700_000).toISOString())));
 }
 
-export async function getDashboardData(user: ChatGPTUser): Promise<DashboardData> {
+export async function getDashboardData(user: AuthUser): Promise<DashboardData> {
   const organizationId = await getOrCreateOrganization(user);
   const db = getD1();
   const organization = await db.prepare('SELECT name, status FROM organizations WHERE id = ? LIMIT 1')

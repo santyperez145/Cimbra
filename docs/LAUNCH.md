@@ -6,6 +6,7 @@
 - sitio responsive y captación persistente;
 - documentación conectada a endpoints existentes;
 - identidad y consola multi-tenant básica;
+- registro e inicio de sesión propio, sesiones revocables y OAuth Google/Apple;
 - sandbox persistente para customers, accounts, cards y transfers;
 - idempotencia en transferencias;
 - riesgo por reglas demostrable;
@@ -20,6 +21,7 @@
 - pricing probado y modelo de margen por cliente;
 - selección de Argentina y México como secuencia, no lanzamiento simultáneo;
 - búsqueda marcaria, dominio y constitución societaria;
+- verificación de email, recuperación de contraseña y MFA para roles privilegiados;
 - data room con deck, cap table, presupuesto, riesgos y arquitectura.
 
 ## Gate 2 — piloto con fondos controlados

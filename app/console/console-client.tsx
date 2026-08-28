@@ -25,6 +25,12 @@ export default function ConsoleClient({ data, user }: { data: DashboardData; use
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState('');
 
+  async function signOut() {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    router.push('/login');
+    router.refresh();
+  }
+
   async function createTransfer(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setFeedback('');
     const form = new FormData(event.currentTarget);
@@ -47,7 +53,7 @@ export default function ConsoleClient({ data, user }: { data: DashboardData; use
           {nav.map(([icon, label]) => <button key={label} className={active === label ? 'active' : ''} onClick={() => setActive(label)}><i>{icon}</i>{label}</button>)}
         </nav>
         <div className="app-help"><strong>Centro de ayuda</strong><span>Estamos para acompañarte</span></div>
-        <a className="app-user" href="/signout-with-chatgpt?return_to=/"><b>{user.displayName.slice(0, 2).toUpperCase()}</b><span><strong>{user.displayName}</strong><small>{user.email}</small></span><i>↗</i></a>
+        <button className="app-user" onClick={signOut} title="Cerrar sesión"><b>{user.displayName.slice(0, 2).toUpperCase()}</b><span><strong>{user.displayName}</strong><small>{user.email}</small></span><i>↗</i></button>
       </aside>
 
       <section className="app-main">

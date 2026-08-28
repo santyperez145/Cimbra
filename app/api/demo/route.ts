@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server';
 import { ensureDatabase, getD1 } from '@/db/runtime';
+import { mutationAllowed } from '@/app/lib/auth/http';
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export async function POST(request: Request) {
+  if (!mutationAllowed(request)) return NextResponse.json({ error: 'Origen de solicitud no permitido.' }, { status: 403 });
   const body = await request.json().catch(() => null) as Record<string, unknown> | null;
   const name = typeof body?.name === 'string' ? body.name.trim().slice(0, 100) : '';
   const company = typeof body?.company === 'string' ? body.company.trim().slice(0, 120) : '';

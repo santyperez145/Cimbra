@@ -6,11 +6,44 @@ export const organizations = sqliteTable('organizations', {
   createdAt: text('created_at').notNull(),
 }, (table) => [uniqueIndex('idx_organizations_slug').on(table.slug)]);
 
+export const users = sqliteTable('users', {
+  id: text('id').primaryKey(), username: text('username').notNull(), email: text('email').notNull(),
+  displayName: text('display_name').notNull(), passwordHash: text('password_hash'), passwordSalt: text('password_salt'),
+  passwordIterations: integer('password_iterations'), emailVerified: integer('email_verified').notNull().default(0),
+  createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
+}, (table) => [uniqueIndex('idx_users_username').on(table.username), uniqueIndex('idx_users_email').on(table.email)]);
+
+export const oauthIdentities = sqliteTable('oauth_identities', {
+  id: text('id').primaryKey(), userId: text('user_id').notNull(), provider: text('provider').notNull(),
+  providerSubject: text('provider_subject').notNull(), providerEmail: text('provider_email'), createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_oauth_provider_subject').on(table.provider, table.providerSubject),
+  index('idx_oauth_user').on(table.userId),
+]);
+
+export const authSessions = sqliteTable('auth_sessions', {
+  tokenHash: text('token_hash').primaryKey(), userId: text('user_id').notNull(), expiresAt: text('expires_at').notNull(),
+  createdAt: text('created_at').notNull(), lastSeenAt: text('last_seen_at').notNull(),
+}, (table) => [index('idx_auth_sessions_user').on(table.userId), index('idx_auth_sessions_expires').on(table.expiresAt)]);
+
+export const oauthStates = sqliteTable('oauth_states', {
+  stateHash: text('state_hash').primaryKey(), provider: text('provider').notNull(), codeVerifier: text('code_verifier').notNull(),
+  nonce: text('nonce').notNull(), returnTo: text('return_to').notNull(), expiresAt: text('expires_at').notNull(), createdAt: text('created_at').notNull(),
+}, (table) => [index('idx_oauth_states_expires').on(table.expiresAt)]);
+
+export const authAttempts = sqliteTable('auth_attempts', {
+  id: text('id').primaryKey(), action: text('action').notNull(), identityHash: text('identity_hash').notNull(),
+  ipHash: text('ip_hash').notNull(), success: integer('success').notNull().default(0), createdAt: text('created_at').notNull(),
+}, (table) => [
+  index('idx_auth_attempts_identity').on(table.action, table.identityHash, table.createdAt),
+  index('idx_auth_attempts_ip').on(table.action, table.ipHash, table.createdAt),
+]);
+
 export const members = sqliteTable('members', {
   id: text('id').primaryKey(), organizationId: text('organization_id').notNull(),
-  externalUserId: text('external_user_id').notNull(), email: text('email').notNull(),
+  userId: text('external_user_id').notNull(), email: text('email').notNull(),
   role: text('role').notNull().default('owner'), createdAt: text('created_at').notNull(),
-}, (table) => [uniqueIndex('idx_members_external_user').on(table.externalUserId), index('idx_members_organization').on(table.organizationId)]);
+}, (table) => [uniqueIndex('idx_members_user').on(table.userId), index('idx_members_organization').on(table.organizationId)]);
 
 export const transactions = sqliteTable('transactions', {
   id: text('id').primaryKey(), organizationId: text('organization_id').notNull(),
