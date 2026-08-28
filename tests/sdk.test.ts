@@ -88,6 +88,20 @@ test('el SDK auto-pagina bajo demanda y respeta la señal de retry del servidor'
   assert.equal(retryCalls, 1);
 });
 
+test('el SDK crea payments regionales con idempotencia automática', async () => {
+  let requestUrl = '';
+  let idempotencyKey = '';
+  const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', fetch: async (input, init) => {
+    requestUrl = String(input);
+    idempotencyKey = new Headers(init?.headers).get('idempotency-key') ?? '';
+    return Response.json({ ok: true, replayed: false, payment: { id: 'pay_1', amountMinor: '10000' } }, { status: 201 });
+  } });
+  const result = await client.payments.create({ accountId: 'acc_1', direction: 'cash_in', counterparty: 'Sponsor', description: 'Ingreso', amount: '100.00', currency: 'ARS' });
+  assert.equal(requestUrl, 'https://api.test/api/v1/payments');
+  assert.match(idempotencyKey, /^idem_[a-f0-9]{32}$/);
+  assert.equal(result.data.payment.id, 'pay_1');
+});
+
 test('el SDK verifica firma, timestamp, cuerpo crudo y antigüedad del webhook', async () => {
   const secret = 'whsec_test_secret';
   const timestamp = '1787941200';

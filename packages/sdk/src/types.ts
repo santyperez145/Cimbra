@@ -25,4 +25,5 @@ export type CreateCustomerInput = { type?: 'individual' | 'business'; name: stri
 export type CreateAccountInput = { customerId: string; currency: Currency; country: string };
 export type CreateCardInput = { accountId: string; product?: Card['product']; format?: Card['format'] };
 export type CreateTransferInput = { counterparty: string; description: string; amount: string; currency?: Currency };
+export type CreatePaymentInput = { accountId: string; direction: 'cash_in' | 'cash_out'; counterparty: string; description: string; amount: string; currency: Currency };
 export type CreateWebhookInput = { name: string; url: string; eventTypes: string[] };

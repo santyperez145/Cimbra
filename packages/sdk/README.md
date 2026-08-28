@@ -45,6 +45,19 @@ Cada recurso puede recuperarse directamente por su identificador:
 const customer = await cimbra.customers.retrieve('00000000-0000-4000-8000-000000000001');
 ```
 
+## Cash-in y cash-out
+
+```ts
+await cimbra.payments.create({
+  accountId: '00000000-0000-4000-8000-000000000001',
+  direction: 'cash_in',
+  counterparty: 'Banco patrocinador',
+  description: 'Ingreso conciliado',
+  amount: '250000.00',
+  currency: 'ARS',
+});
+```
+
 Las escrituras financieras seguras generan automáticamente una clave de idempotencia y conservan el mismo `X-Request-Id` durante los reintentos. También se puede proporcionar una clave propia:
 
 ```ts

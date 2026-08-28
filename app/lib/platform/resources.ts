@@ -4,7 +4,7 @@ import { ensureDatabase, getDatabase } from '@/db/runtime';
 import { authorizationErrorResponse, authorizeApiRequest, rateLimitHeaders } from './authorization';
 import type { ApiScope } from './scopes';
 
-type ResourceName = 'customer' | 'account' | 'card' | 'transfer';
+type ResourceName = 'customer' | 'account' | 'card' | 'transfer' | 'payment';
 
 const resources: Record<ResourceName, { scope: ApiScope; query: string }> = {
   customer: {
@@ -32,6 +32,12 @@ const resources: Record<ResourceName, { scope: ApiScope; query: string }> = {
       risk_score AS "riskScore", reversal_of AS "reversalOf", created_at AS "createdAt"
       FROM transactions WHERE id = ? AND organization_id = ? LIMIT 1`,
   },
+  payment: {
+    scope: 'payments:read',
+    query: `SELECT id, counterparty, description, amount_minor::text AS "amountMinor", currency, status,
+      risk_score AS "riskScore", reversal_of AS "reversalOf", created_at AS "createdAt"
+      FROM transactions WHERE id = ? AND organization_id = ? AND idempotency_key LIKE 'payment:%' LIMIT 1`,
+  },
 };
 
 export async function retrieveResource(request: Request, id: string, name: ResourceName) {
@@ -44,7 +50,7 @@ export async function retrieveResource(request: Request, id: string, name: Resou
     await ensureDatabase();
     const item = await getDatabase().prepare(definition.query).bind(id, principal.organizationId).first<Record<string, unknown>>();
     if (!item) return NextResponse.json({ error: 'Recurso no encontrado.' }, { status: 404, headers: rateLimitHeaders(principal) });
-    return NextResponse.json(name === 'transfer' ? serializeTransaction(item as Parameters<typeof serializeTransaction>[0]) : item, {
+    return NextResponse.json(name === 'transfer' || name === 'payment' ? serializeTransaction(item as Parameters<typeof serializeTransaction>[0]) : item, {
       headers: { 'Cache-Control': 'no-store', ...rateLimitHeaders(principal) },
     });
   } catch (error) {

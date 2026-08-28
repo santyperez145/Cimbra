@@ -283,6 +283,23 @@ try {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': accountKey }, body: JSON.stringify(accountPayload),
   }), 200);
   assert.equal(accountReplay.account.id, account.id);
+  const cashIn = await json(await request('/api/v1/payments', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-cashin-${runId}` },
+    body: JSON.stringify({ accountId: account.id, direction: 'cash_in', counterparty: 'QA Sponsor Bank', description: 'Incoming settlement', amount: '5000.00', currency: 'ARS' }),
+  }), 201);
+  assert.equal(cashIn.payment.amountMinor, '500000');
+  const cashInReplay = await json(await request('/api/v1/payments', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-cashin-${runId}` },
+    body: JSON.stringify({ accountId: account.id, direction: 'cash_in', counterparty: 'QA Sponsor Bank', description: 'Incoming settlement', amount: '5000.00', currency: 'ARS' }),
+  }), 200);
+  assert.equal(cashInReplay.replayed, true);
+  const cashOut = await json(await request('/api/v1/payments', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-cashout-${runId}` },
+    body: JSON.stringify({ accountId: account.id, direction: 'cash_out', counterparty: 'QA Beneficiary', description: 'Outgoing payout', amount: '100.00', currency: 'ARS' }),
+  }), 201);
+  assert.equal(cashOut.payment.amountMinor, '-10000');
+  const retrievedPayment = await json(await request(`/api/v1/payments/${cashOut.payment.id}`), 200);
+  assert.equal(retrievedPayment.id, cashOut.payment.id);
   const cardKey = `qa-card-${runId}`;
   const cardPayload = { accountId: account.id, product: 'debit', format: 'virtual' };
   const card = (await json(await request('/api/v1/cards', {

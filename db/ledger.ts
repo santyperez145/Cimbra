@@ -253,6 +253,87 @@ export async function createTransfer(input: {
   });
 }
 
+export async function createAccountPayment(input: {
+  organizationId: string;
+  actor: AuthUser;
+  idempotencyKey: string;
+  accountId: string;
+  direction: 'cash_in' | 'cash_out';
+  counterparty: string;
+  description: string;
+  amountMinor: bigint;
+  currency: Currency;
+  riskScore: number;
+}) {
+  return getDatabaseClient().transaction(async (transaction) => {
+    const operationKey = `payment:${input.idempotencyKey}`;
+    await transaction.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:${operationKey}`).first();
+    const existing = await transaction.prepare(
+      `SELECT id, counterparty, description, amount_minor::text AS "amountMinor", currency, status,
+        risk_score AS "riskScore", reversal_of AS "reversalOf", created_at AS "createdAt"
+       FROM transactions WHERE organization_id = ? AND idempotency_key = ? LIMIT 1`,
+    ).bind(input.organizationId, operationKey).first<StoredTransaction>();
+    const signedAmount = input.direction === 'cash_in' ? input.amountMinor : -input.amountMinor;
+    if (existing) {
+      if (existing.counterparty !== input.counterparty || existing.description !== input.description ||
+          BigInt(existing.amountMinor) !== signedAmount || existing.currency !== input.currency) {
+        throw new LedgerError('La Idempotency-Key ya fue usada con otro payload.', 409, 'idempotency_mismatch');
+      }
+      return { payment: serializeTransaction(existing), replayed: true };
+    }
+    const account = await transaction.prepare(
+      `SELECT a.ledger_account_id AS "ledgerAccountId", a.currency, a.status
+       FROM accounts a WHERE a.id = ? AND a.organization_id = ? LIMIT 1 FOR UPDATE`,
+    ).bind(input.accountId, input.organizationId).first<{ ledgerAccountId: string; currency: Currency; status: string }>();
+    if (!account) throw new LedgerError('Cuenta no encontrada.', 404, 'account_not_found');
+    if (account.status !== 'active') throw new LedgerError('La cuenta no está activa.', 409, 'account_inactive');
+    if (account.currency !== input.currency) throw new LedgerError('La moneda no coincide con la cuenta.', 409, 'currency_mismatch');
+    if (input.direction === 'cash_out') {
+      const current = await accountBalanceMinor(account.ledgerAccountId, transaction);
+      const held = await activeHoldsMinor(account.ledgerAccountId, transaction);
+      if (input.amountMinor > current - held) throw new LedgerError('Saldo disponible insuficiente.', 422, 'insufficient_funds');
+    }
+    const core = await getOrCreateCoreAccounts(input.organizationId, input.currency, transaction);
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const status = input.direction === 'cash_out' && input.riskScore >= 60 ? 'review' : 'settled';
+    await transaction.prepare(
+      `INSERT INTO transactions
+        (id, organization_id, idempotency_key, type, counterparty, description, amount_minor, currency, status, risk_score, reversal_of, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+    ).bind(id, input.organizationId, operationKey, input.direction === 'cash_in' ? 'credit' : 'debit', input.counterparty,
+      input.description, signedAmount.toString(), input.currency, status, input.riskScore, now, now).run();
+    if (status === 'review') {
+      await transaction.prepare(
+        `INSERT INTO holds
+          (id, organization_id, account_id, transaction_id, idempotency_key, amount_minor, currency, status, expires_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
+      ).bind(crypto.randomUUID(), input.organizationId, account.ledgerAccountId, id, operationKey, input.amountMinor.toString(),
+        input.currency, new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), now, now).run();
+    } else {
+      await postJournal({
+        organizationId: input.organizationId, transactionId: id, idempotencyKey: operationKey,
+        kind: input.direction, description: input.description, currency: input.currency,
+        postings: input.direction === 'cash_in' ? [
+          { accountId: core.settlement, direction: 'debit', amountMinor: input.amountMinor },
+          { accountId: account.ledgerAccountId, direction: 'credit', amountMinor: input.amountMinor },
+        ] : [
+          { accountId: account.ledgerAccountId, direction: 'debit', amountMinor: input.amountMinor },
+          { accountId: core.settlement, direction: 'credit', amountMinor: input.amountMinor },
+        ], createdAt: now,
+      }, transaction);
+    }
+    await insertAudit(transaction, {
+      organizationId: input.organizationId, actorId: input.actor.userId, action: 'payment.created',
+      resourceType: 'transaction', resourceId: id,
+      payload: { accountId: input.accountId, direction: input.direction, amountMinor: input.amountMinor.toString(), currency: input.currency, status },
+    });
+    return { payment: serializeTransaction({ id, counterparty: input.counterparty, description: input.description,
+      amountMinor: signedAmount.toString(), currency: input.currency, status, riskScore: input.riskScore, reversalOf: null, createdAt: now }), replayed: false };
+  });
+}
+
 export async function reverseTransfer(input: {
   organizationId: string;
   actor: AuthUser;

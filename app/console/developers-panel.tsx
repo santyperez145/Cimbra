@@ -3,8 +3,8 @@
 import { FormEvent, useEffect, useState } from 'react';
 import Link from 'next/link';
 
-const scopes = ['customers:read', 'customers:write', 'accounts:read', 'accounts:write', 'cards:read', 'cards:write', 'transfers:read', 'transfers:write', 'ledger:read', 'events:read', 'compliance:write', 'webhooks:manage'];
-const eventTypes = ['customer.created', 'account.created', 'card.created', 'transfer.created', 'transfer.reversed', 'hold.captured', 'hold.released', 'compliance.document_uploaded'];
+const scopes = ['customers:read', 'customers:write', 'accounts:read', 'accounts:write', 'cards:read', 'cards:write', 'transfers:read', 'transfers:write', 'payments:read', 'payments:write', 'ledger:read', 'events:read', 'compliance:write', 'webhooks:manage'];
+const eventTypes = ['customer.created', 'account.created', 'card.created', 'transfer.created', 'transfer.reversed', 'hold.captured', 'hold.released', 'payment.created', 'compliance.document_uploaded'];
 
 type ApiKey = { id: string; name: string; prefix: string; scopes: string[]; status: string; rateLimitPerMinute: number; lastUsedAt: string | null; expiresAt: string | null; createdAt: string };
 type Endpoint = { id: string; name: string; url: string; eventTypes: string[]; status: string; secretRotatedAt: string; createdAt: string };

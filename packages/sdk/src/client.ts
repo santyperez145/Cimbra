@@ -1,6 +1,6 @@
 import { CimbraApiError, CimbraConnectionError, CimbraTimeoutError } from './errors.ts';
 import type {
-  Account, AuditEvent, Card, CimbraResult, CreateAccountInput, CreateCardInput, CreateCustomerInput,
+  Account, AuditEvent, Card, CimbraResult, CreateAccountInput, CreateCardInput, CreateCustomerInput, CreatePaymentInput,
   CreateTransferInput, CreateWebhookInput, Customer, Hold, HoldResolution, LedgerBalance, LedgerJournal,
   ListOptions, Page, RequestOptions, Transaction, WebhookOperationalState,
 } from './types.ts';
@@ -85,6 +85,12 @@ export class Cimbra {
   readonly ledger = {
     retrieve: (options?: RequestOptions) =>
       this.request<{ data: { balances: LedgerBalance[]; journals: LedgerJournal[]; holds: Hold[] } }>('GET', '/api/v1/ledger', undefined, options),
+  };
+
+  readonly payments = {
+    create: (input: CreatePaymentInput, options?: RequestOptions) =>
+      this.post<{ ok: true; payment: Transaction; replayed: boolean }>('/api/v1/payments', input, options, true),
+    retrieve: (id: string, options?: RequestOptions) => this.request<Transaction>('GET', `/api/v1/payments/${encodeURIComponent(id)}`, undefined, options),
   };
 
   readonly holds = {

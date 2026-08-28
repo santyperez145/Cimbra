@@ -7,6 +7,8 @@ export const API_SCOPES = [
   'cards:write',
   'transfers:read',
   'transfers:write',
+  'payments:read',
+  'payments:write',
   'ledger:read',
   'events:read',
   'compliance:write',
