@@ -47,6 +47,21 @@ test('el SDK expone errores tipados y no reintenta errores de validación', asyn
   assert.equal(calls, 1);
 });
 
+test('el SDK lista y recupera recursos usando cursores y rutas versionadas', async () => {
+  const urls: string[] = [];
+  const fetcher: typeof fetch = async (input) => {
+    urls.push(String(input));
+    if (urls.length === 1) return Response.json({ data: [], hasMore: false, nextCursor: null });
+    return Response.json({ id: '00000000-0000-4000-8000-000000000001', name: 'Comercio Sur' });
+  };
+  const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', fetch: fetcher });
+  await client.customers.list({ limit: 10, cursor: 'next_page' });
+  const customer = await client.customers.retrieve('00000000-0000-4000-8000-000000000001');
+  assert.equal(urls[0], 'https://api.test/api/v1/customers?limit=10&cursor=next_page');
+  assert.equal(urls[1], 'https://api.test/api/v1/customers/00000000-0000-4000-8000-000000000001');
+  assert.equal(customer.data.name, 'Comercio Sur');
+});
+
 test('el SDK verifica firma, timestamp, cuerpo crudo y antigüedad del webhook', async () => {
   const secret = 'whsec_test_secret';
   const timestamp = '1787941200';

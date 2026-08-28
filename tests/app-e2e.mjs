@@ -199,7 +199,7 @@ try {
 
   const createdKey = await json(await request('/api/platform/api-keys', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: 'QA integration', scopes: ['ledger:read', 'customers:write'], expiresInDays: 30 }),
+    body: JSON.stringify({ name: 'QA integration', scopes: ['ledger:read', 'customers:read', 'customers:write'], expiresInDays: 30 }),
   }), 201);
   assert.match(createdKey.secret, /^cim_sk_test_/);
   const keyList = (await json(await request('/api/platform/api-keys'), 200)).data;
@@ -216,6 +216,15 @@ try {
     body: JSON.stringify(bearerCustomerPayload),
   }), 201);
   assert.equal(bearerCustomer.customer.name, 'QA API Company');
+  const bearerCustomerList = await json(await fetch(new URL('/api/v1/customers?limit=1', target), {
+    headers: { Authorization: `Bearer ${createdKey.secret}` },
+  }), 200);
+  assert.equal(bearerCustomerList.data.length, 1);
+  assert.equal(typeof bearerCustomerList.hasMore, 'boolean');
+  const bearerCustomerRetrieved = await json(await fetch(new URL(`/api/v1/customers/${bearerCustomer.customer.id}`, target), {
+    headers: { Authorization: `Bearer ${createdKey.secret}` },
+  }), 200);
+  assert.equal(bearerCustomerRetrieved.id, bearerCustomer.customer.id);
   const bearerCustomerReplay = await json(await fetch(new URL('/api/v1/customers', target), {
     method: 'POST', headers: { Authorization: `Bearer ${createdKey.secret}`, 'Content-Type': 'application/json', 'Idempotency-Key': bearerCustomerKey },
     body: JSON.stringify(bearerCustomerPayload),

@@ -47,24 +47,28 @@ function listPath(path: string, options?: ListOptions) {
 export class Cimbra {
   readonly customers = {
     list: (options?: ListOptions) => this.request<Page<Customer>>('GET', listPath('/api/v1/customers', options), undefined, options),
+    retrieve: (id: string, options?: RequestOptions) => this.request<Customer>('GET', `/api/v1/customers/${encodeURIComponent(id)}`, undefined, options),
     create: (input: CreateCustomerInput, options?: RequestOptions) =>
       this.post<{ ok: true; customer: Customer; replayed: boolean }>('/api/v1/customers', input, options, true),
   };
 
   readonly accounts = {
     list: (options?: ListOptions) => this.request<Page<Account>>('GET', listPath('/api/v1/accounts', options), undefined, options),
+    retrieve: (id: string, options?: RequestOptions) => this.request<Account>('GET', `/api/v1/accounts/${encodeURIComponent(id)}`, undefined, options),
     create: (input: CreateAccountInput, options?: RequestOptions) =>
       this.post<{ ok: true; account: Account; replayed: boolean }>('/api/v1/accounts', input, options, true),
   };
 
   readonly cards = {
     list: (options?: ListOptions) => this.request<Page<Card>>('GET', listPath('/api/v1/cards', options), undefined, options),
+    retrieve: (id: string, options?: RequestOptions) => this.request<Card>('GET', `/api/v1/cards/${encodeURIComponent(id)}`, undefined, options),
     create: (input: CreateCardInput, options?: RequestOptions) =>
       this.post<{ ok: true; card: Card; replayed: boolean }>('/api/v1/cards', input, options, true),
   };
 
   readonly transfers = {
     list: (options?: ListOptions) => this.request<Page<Transaction>>('GET', listPath('/api/v1/transfers', options), undefined, options),
+    retrieve: (id: string, options?: RequestOptions) => this.request<Transaction>('GET', `/api/v1/transfers/${encodeURIComponent(id)}`, undefined, options),
     create: (input: CreateTransferInput, options?: RequestOptions) =>
       this.post<{ ok: true; transaction: Transaction; replayed: boolean }>('/api/v1/transfers', input, options, true),
     reverse: (id: string, options?: RequestOptions) =>

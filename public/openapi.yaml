@@ -84,6 +84,15 @@ paths:
         '400': { description: Invalid payload }
         '409': { description: Idempotency key was already used with a different payload }
         '401': { description: Authentication required }
+  /api/v1/customers/{id}:
+    get:
+      operationId: retrieveCustomer
+      summary: Retrieve a customer by ID
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses:
+        '200': { description: Customer }
+        '404': { description: Customer not found in tenant }
   /api/v1/accounts:
     get:
       operationId: listAccounts
@@ -114,6 +123,15 @@ paths:
         '200': { description: Idempotent replay }
         '409': { description: Idempotency key was already used with a different payload }
         '404': { description: Customer not found in tenant }
+  /api/v1/accounts/{id}:
+    get:
+      operationId: retrieveAccount
+      summary: Retrieve an account by ID
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses:
+        '200': { description: Account }
+        '404': { description: Account not found in tenant }
   /api/v1/cards:
     get:
       operationId: listCards
@@ -144,6 +162,15 @@ paths:
         '200': { description: Idempotent replay }
         '409': { description: Idempotency key was already used with a different payload }
         '404': { description: Account not found in tenant }
+  /api/v1/cards/{id}:
+    get:
+      operationId: retrieveCard
+      summary: Retrieve a card by ID
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses:
+        '200': { description: Card }
+        '404': { description: Card not found in tenant }
   /api/v1/transfers:
     get:
       operationId: listTransfers
@@ -197,6 +224,15 @@ paths:
         '200': { description: Existing reversal returned }
         '404': { description: Original transfer not found }
         '409': { description: Transfer is not reversible }
+  /api/v1/transfers/{id}:
+    get:
+      operationId: retrieveTransfer
+      summary: Retrieve a transfer by ID
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses:
+        '200': { description: Transfer }
+        '404': { description: Transfer not found in tenant }
   /api/v1/ledger:
     get:
       operationId: getLedger
@@ -378,6 +414,11 @@ paths:
         '200': { description: Delivery requeued }
 components:
   parameters:
+    ResourceId:
+      in: path
+      name: id
+      required: true
+      schema: { type: string, format: uuid }
     PageLimit:
       in: query
       name: limit

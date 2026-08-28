@@ -29,6 +29,12 @@ const next = page.data.nextCursor
   : null;
 ```
 
+Cada recurso puede recuperarse directamente por su identificador:
+
+```ts
+const customer = await cimbra.customers.retrieve('00000000-0000-4000-8000-000000000001');
+```
+
 Las escrituras financieras seguras generan automáticamente una clave de idempotencia y conservan el mismo `X-Request-Id` durante los reintentos. También se puede proporcionar una clave propia:
 
 ```ts
