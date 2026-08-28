@@ -4,7 +4,7 @@ import { apiKeyPrefix, createApiKey, decryptPlatformSecret, encryptPlatformSecre
 import { decodePageCursor, encodePageCursor, pageLimit, paginatedResponse } from '../app/lib/platform/pagination.ts';
 import { isPrivateAddress, normalizeWebhookUrl } from '../app/lib/platform/webhook-url.ts';
 import { versionedApi } from '../app/lib/platform/versioned-api.ts';
-import { normalizeCredentialReference, normalizeProviderCapabilities, normalizeProviderConfiguration, providerDescriptor } from '../app/lib/platform/providers.ts';
+import { CAPABILITY_AVAILABILITY, PLATFORM_CAPABILITIES, PLATFORM_SUMMARY } from '../app/lib/platform/capabilities.ts';
 
 process.env.CIMBRA_ENCRYPTION_KEY = '3ea72fc13c567057870342c6ebd34d88f58f6d80b1dba61c4be4e1c2f1406afb';
 
@@ -68,13 +68,17 @@ test('la API v1 informa replay y política de reintento en headers', async () =>
   assert.equal(reject.headers.get('cimbra-should-retry'), 'false');
 });
 
-test('valida capacidades, configuración y referencias opacas de proveedores', () => {
-  const bindx = providerDescriptor('bindx');
-  assert.ok(bindx);
-  assert.deepEqual(normalizeProviderCapabilities(bindx, ['transfers', 'accounts']), ['accounts', 'transfers']);
-  assert.equal(normalizeProviderCapabilities(bindx, ['cards']), null);
-  assert.equal(normalizeCredentialReference('aws-secretsmanager://cimbra/providers/bindx'), 'aws-secretsmanager://cimbra/providers/bindx');
-  assert.equal(normalizeCredentialReference('secret-directo'), null);
-  assert.deepEqual(normalizeProviderConfiguration({ country: 'AR', programId: 'program-1' }), { country: 'AR', programId: 'program-1' });
-  assert.equal(normalizeProviderConfiguration({ apiKey: 'prohibida' }), null);
+test('el catálogo sólo declara servicios propios y estados verificables', () => {
+  assert.equal(PLATFORM_SUMMARY.owner, 'Cimbra');
+  assert.equal(PLATFORM_SUMMARY.strategy, 'build_native');
+  assert.equal(PLATFORM_SUMMARY.competitorDependency, false);
+  assert.equal(new Set(PLATFORM_CAPABILITIES.map((item) => item.id)).size, PLATFORM_CAPABILITIES.length);
+  assert.ok(PLATFORM_CAPABILITIES.length >= 15);
+  for (const capability of PLATFORM_CAPABILITIES) {
+    assert.equal(capability.delivery, 'cimbra_native');
+    assert.ok(CAPABILITY_AVAILABILITY.includes(capability.availability));
+    assert.ok(capability.features.length > 0);
+    assert.ok(capability.interfaces.length > 0);
+    assert.ok(capability.regulatoryBoundary.length > 20);
+  }
 });

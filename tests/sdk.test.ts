@@ -102,20 +102,16 @@ test('el SDK crea payments regionales con idempotencia automática', async () =>
   assert.equal(result.data.payment.id, 'pay_1');
 });
 
-test('el SDK administra conexiones de proveedores sin enviar secretos directos', async () => {
+test('el SDK expone el catálogo de servicios nativos de Cimbra', async () => {
   let requestUrl = '';
-  let requestBody = '';
-  const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async (input, init) => {
-    requestUrl = String(input); requestBody = String(init?.body);
-    return Response.json({ ok: true, replayed: false, connection: { id: 'con_1', provider: 'bindx', status: 'pending_validation' } }, { status: 201 });
+  const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async (input) => {
+    requestUrl = String(input);
+    return Response.json({ data: [{ id: 'financial-core', availability: 'sandbox', delivery: 'cimbra_native' }], meta: { owner: 'Cimbra', strategy: 'build_native', competitorDependency: false, networkBoundary: 'direct_regulated_rails_only' } });
   } });
-  const result = await client.connections.create({
-    provider: 'bindx', name: 'BIND Argentina', environment: 'sandbox', capabilities: ['accounts', 'transfers'],
-    transport: 'rest_api', credentialReference: 'aws-secretsmanager://cimbra/providers/bindx', configuration: { country: 'AR' },
-  });
-  assert.equal(requestUrl, 'https://api.test/api/v1/connections');
-  assert.match(requestBody, /aws-secretsmanager/);
-  assert.equal(result.data.connection.provider, 'bindx');
+  const result = await client.capabilities.list();
+  assert.equal(requestUrl, 'https://api.test/api/v1/capabilities');
+  assert.equal(result.data.meta.competitorDependency, false);
+  assert.equal(result.data.data[0].id, 'financial-core');
 });
 
 test('el SDK verifica firma, timestamp, cuerpo crudo y antigüedad del webhook', async () => {

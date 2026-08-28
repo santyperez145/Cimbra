@@ -32,10 +32,10 @@
 
 ## Gate 2 — piloto con fondos controlados
 
-- sponsor bancario / PSP y contratos firmados;
+- licencia aplicable o sponsor bancario/PSP y contratos de acceso al riel firmados;
 - KYC/KYB, AML, sanciones y monitoreo con responsables definidos;
-- ledger productivo independiente de proveedores;
-- conciliación de tres vías: Cimbra, proveedor y banco;
+- ledger productivo autoritativo e independiente de bancos, cámaras y redes;
+- conciliación de tres vías: Cimbra, banco/cámara y settlement;
 - secrets/KMS, SIEM, backups, incident response y on-call;
 - pentest y cierre de hallazgos críticos/altos;
 - términos, privacidad, DPA, soporte y matriz regulatoria aprobados;
@@ -43,7 +43,7 @@
 
 ## Gate 3 — disponibilidad general
 
-- dos proveedores homologados para rieles críticos o plan de contingencia contractual;
+- conectividad directa homologada y plan de contingencia para cada riel crítico;
 - SLO medidos durante al menos 90 días;
 - conciliación automática con excepciones dentro de SLA;
 - unit economics positivos por cohorte;
@@ -52,12 +52,12 @@
 
 ## Criterios de no lanzamiento
 
-No mover fondos si falta cualquiera de estos elementos: dueño regulatorio claro, segregación y safeguarding, ledger reproducible, conciliación independiente, plan de reversas, monitoreo de fraude, respuesta a incidentes, contrato con proveedor o límites operativos.
+No mover fondos si falta cualquiera de estos elementos: dueño regulatorio claro, segregación y safeguarding, ledger reproducible, conciliación independiente, plan de reversas, monitoreo de fraude, respuesta a incidentes, acceso contractual al riel o límites operativos.
 
 ## Próximas decisiones ejecutivas
 
 1. Elegir el wedge exacto y un país inicial.
 2. Nombrar responsable legal/compliance con experiencia local.
 3. Conseguir dos design partners antes de profundizar módulos secundarios.
-4. Definir build-versus-partner por cada riel.
+4. Definir licencia, sponsor y conectividad directa del primer riel sin incorporar plataformas competidoras.
 5. Fijar presupuesto de 18 meses y umbrales de contratación.

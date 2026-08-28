@@ -10,10 +10,10 @@ La aplicación pública actual corre en Vercel con PostgreSQL administrado. `ter
 - Dos o más instancias de la API en tres subredes privadas y despliegues con circuit breaker.
 - PostgreSQL 16 Multi-AZ privado, cifrado con una CMK propia, backups de 35 días, PITR, Performance Insights y deletion protection.
 - Outbox transaccional y leases en PostgreSQL como cola durable de webhooks. EventBridge inicia un dispatcher cada minuto; el proceso conserva entrega al menos una vez, backoff, DLQ lógica (`exhausted`) y replay.
-- Secretos de aplicación y conexión en Secrets Manager, cifrados con KMS e inyectados sólo en runtime.
+- Secretos de aplicación y conectividad regulada en Secrets Manager, cifrados con KMS e inyectados sólo en runtime.
 - Bucket privado, versionado y cifrado conectado mediante el adaptador S3 de evidencia de compliance. El despliegue Vercel conserva su adapter de Blob.
 - Logs y alarmas en CloudWatch, flow logs de VPC y autoscaling por CPU y cantidad de requests.
-- Egress redundante mediante NAT por zona para APIs y webhooks de proveedores; las credenciales de adaptadores se autorizan por ARN exacto con `provider_secret_arns`, nunca con acceso wildcard. VPN, mTLS o PrivateLink se agregan por proveedor durante homologación.
+- Egress redundante mediante NAT por zona para webhooks y conexiones directas a bancos, cámaras y redes reguladas. VPN, mTLS, PrivateLink, HSM y permisos IAM de mínimo privilegio se agregan por riel durante certificación; la plantilla no incluye credenciales ni dependencias de plataformas competidoras.
 
 Esta topología evita incorporar Kafka, Temporal, Redis o Kubernetes antes de tener carga que los justifique. Se agregan cuando aparecen workflows multi-servicio, partición del throughput, consumidores independientes o límites operativos que no pueda resolver el outbox de PostgreSQL.
 

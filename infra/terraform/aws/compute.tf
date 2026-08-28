@@ -43,7 +43,7 @@ resource "aws_security_group" "tasks" {
   }
 
   egress {
-    description = "TLS providers, OAuth and signed webhooks"
+    description = "TLS for regulated rails, OAuth and signed webhooks"
     protocol    = "-1"
     from_port   = 0
     to_port     = 0
@@ -259,14 +259,6 @@ data "aws_iam_policy_document" "task" {
   statement {
     actions   = ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey"]
     resources = [aws_kms_key.platform.arn]
-  }
-  dynamic "statement" {
-    for_each = length(var.provider_secret_arns) > 0 ? [1] : []
-    content {
-      sid       = "ResolveApprovedProviderCredentials"
-      actions   = ["secretsmanager:GetSecretValue"]
-      resources = var.provider_secret_arns
-    }
   }
 }
 

@@ -244,71 +244,35 @@ paths:
       responses:
         '200': { description: Payment }
         '404': { description: Payment not found in tenant }
-  /api/v1/providers:
+  /api/v1/capabilities:
     get:
-      operationId: listProviders
-      summary: List supported provider adapters, capabilities and transports
+      operationId: listPlatformCapabilities
+      summary: List Cimbra-native financial infrastructure services and their real availability
+      description: Competitors are benchmark inputs only. Every returned service is owned by Cimbra; networkBoundary identifies the direct regulated-rail boundary required for live money movement.
       security: [{ session: [] }, { bearerApiKey: [] }]
       responses:
-        '200': { description: Provider adapter catalog }
-  /api/v1/connections:
-    get:
-      operationId: listProviderConnections
-      summary: List configured provider connections with cursor pagination
-      security: [{ session: [] }, { bearerApiKey: [] }]
-      parameters: [{ $ref: '#/components/parameters/PageLimit' }, { $ref: '#/components/parameters/PageCursor' }]
-      responses:
-        '200': { description: Provider connection page without credential references }
-    post:
-      operationId: createProviderConnection
-      summary: Register an encrypted reference to provider credentials
-      description: Credentials are never accepted inline. credentialReference must point to an external secret manager and is encrypted at rest; the response only exposes credentialConfigured.
-      security: [{ session: [] }, { bearerApiKey: [] }]
-      parameters:
-        - $ref: '#/components/parameters/IdempotencyKey'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [provider, name, environment, capabilities, transport, credentialReference]
-              properties:
-                provider: { type: string, enum: [bindx, dock, tapi, pismo, pomelo, wibond] }
-                name: { type: string, minLength: 2, maxLength: 80 }
-                environment: { type: string, enum: [sandbox, production] }
-                capabilities:
-                  type: array
-                  minItems: 1
-                  uniqueItems: true
-                  items: { type: string, enum: [accounts, transfers, cash_in, cash_out, cards, bill_payments, kyc_kyb, reconciliation, lending, acquiring, checks, webhooks] }
-                transport: { type: string, enum: [rest_api, webhook, batch_file, sftp, vpn, iso8583] }
-                credentialReference:
-                  type: string
-                  pattern: '^(aws-secretsmanager|gcp-secret-manager|azure-key-vault|vault|env)://'
-                configuration:
-                  type: object
-                  additionalProperties: false
-                  properties:
-                    country: { type: string, pattern: '^[A-Z]{2}$' }
-                    programId: { type: string, maxLength: 120 }
-                    tenantId: { type: string, maxLength: 120 }
-                    accountId: { type: string, maxLength: 120 }
-                    webhookProfile: { type: string, maxLength: 120 }
-      responses:
-        '201': { description: Connection registered as pending_validation }
-        '200': { description: Idempotent replay }
-        '400': { description: 'Invalid provider capability, transport or secret reference' }
-        '409': { description: Idempotency mismatch or duplicate connection name }
-  /api/v1/connections/{id}:
-    get:
-      operationId: retrieveProviderConnection
-      summary: Retrieve safe provider connection metadata
-      security: [{ session: [] }, { bearerApiKey: [] }]
-      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
-      responses:
-        '200': { description: Provider connection without credential reference }
-        '404': { description: Connection not found in tenant }
+        '200':
+          description: Cimbra service catalog
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/PlatformCapability' }
+                  meta:
+                    type: object
+                    required: [owner, strategy, competitorDependency, networkBoundary, availabilityModel]
+                    properties:
+                      owner: { type: string, const: Cimbra }
+                      strategy: { type: string, const: build_native }
+                      competitorDependency: { type: boolean, const: false }
+                      networkBoundary: { type: string, const: direct_regulated_rails_only }
+                      availabilityModel:
+                        type: array
+                        items: { type: string, enum: [sandbox, foundation, roadmap] }
   /api/v1/transfers/{id}/reverse:
     post:
       operationId: reverseTransfer
@@ -421,7 +385,7 @@ paths:
                   type: array
                   minItems: 1
                   uniqueItems: true
-                  items: { type: string, enum: ['customers:read', 'customers:write', 'accounts:read', 'accounts:write', 'cards:read', 'cards:write', 'transfers:read', 'transfers:write', 'payments:read', 'payments:write', 'connections:read', 'connections:write', 'ledger:read', 'events:read', 'compliance:write', 'webhooks:manage'] }
+                  items: { type: string, enum: ['customers:read', 'customers:write', 'accounts:read', 'accounts:write', 'cards:read', 'cards:write', 'transfers:read', 'transfers:write', 'payments:read', 'payments:write', 'platform:read', 'ledger:read', 'events:read', 'compliance:write', 'webhooks:manage'] }
                 expiresInDays: { type: integer, minimum: 1, maximum: 365 }
       responses:
         '201': { description: API key created and secret returned once }
@@ -546,6 +510,21 @@ components:
       description: Caller-provided correlation identifier. Cimbra returns the accepted or generated value in every response.
       schema: { type: string, minLength: 8, maxLength: 100, pattern: '^[A-Za-z0-9_-]+$' }
   schemas:
+    PlatformCapability:
+      type: object
+      required: [id, name, domain, summary, features, interfaces, availability, delivery, regulatoryBoundary]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        domain: { type: string, enum: [core, payments, cards, commerce, credit, risk, operations, platform] }
+        summary: { type: string }
+        features: { type: array, items: { type: string } }
+        interfaces:
+          type: array
+          items: { type: string, enum: [rest_api, webhooks, sdk, console, iso8583, files, streaming] }
+        availability: { type: string, enum: [sandbox, foundation, roadmap] }
+        delivery: { type: string, const: cimbra_native }
+        regulatoryBoundary: { type: string }
     ApiError:
       type: object
       required: [error]

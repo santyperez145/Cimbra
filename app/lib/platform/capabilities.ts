@@ -1,0 +1,118 @@
+export const CAPABILITY_AVAILABILITY = ['sandbox', 'foundation', 'roadmap'] as const;
+export type CapabilityAvailability = typeof CAPABILITY_AVAILABILITY[number];
+
+export const CAPABILITY_INTERFACES = ['rest_api', 'webhooks', 'sdk', 'console', 'iso8583', 'files', 'streaming'] as const;
+export type CapabilityInterface = typeof CAPABILITY_INTERFACES[number];
+
+export type PlatformCapability = {
+  id: string;
+  name: string;
+  domain: 'core' | 'payments' | 'cards' | 'commerce' | 'credit' | 'risk' | 'operations' | 'platform';
+  summary: string;
+  features: readonly string[];
+  interfaces: readonly CapabilityInterface[];
+  availability: CapabilityAvailability;
+  delivery: 'cimbra_native';
+  regulatoryBoundary: string;
+};
+
+export const PLATFORM_CAPABILITIES: readonly PlatformCapability[] = [
+  {
+    id: 'identity-tenancy', name: 'Identity & Tenancy', domain: 'platform', availability: 'sandbox', delivery: 'cimbra_native',
+    summary: 'Identidad, organizaciones, roles, API keys, sesiones, MFA y aislamiento por tenant.',
+    features: ['RBAC multi-tenant', 'OAuth/OIDC', 'MFA TOTP', 'API keys con scopes', 'auditoría'],
+    interfaces: ['rest_api', 'console'], regulatoryBoundary: 'Cimbra administra identidad y autorización; cada cliente conserva la responsabilidad sobre sus usuarios autorizados.',
+  },
+  {
+    id: 'customers-kyc', name: 'Customers, KYC & KYB', domain: 'risk', availability: 'foundation', delivery: 'cimbra_native',
+    summary: 'Ciclo de clientes y empresas, evidencia, casos, screening y decisiones trazables.',
+    features: ['customers y businesses', 'documentos privados', 'casos y evidencia', 'screening AML/sanciones', 'decision logs'],
+    interfaces: ['rest_api', 'webhooks', 'sdk', 'console'], regulatoryBoundary: 'La verificación regulatoria requiere fuentes de identidad, listas oficiales y responsables de compliance habilitados por jurisdicción.',
+  },
+  {
+    id: 'financial-core', name: 'Financial Core & Ledger', domain: 'core', availability: 'sandbox', delivery: 'cimbra_native',
+    summary: 'Cuentas, ledger de doble partida, holds, límites, fees, reversas y balances derivados.',
+    features: ['multi-currency', 'double-entry ledger', 'holds y captures', 'reversas compensatorias', 'idempotencia'],
+    interfaces: ['rest_api', 'webhooks', 'sdk', 'console'], regulatoryBoundary: 'El sandbox no custodia dinero. Cuentas transaccionales reales requieren licencia propia o patrocinio regulado y safeguarding.',
+  },
+  {
+    id: 'payment-orchestration', name: 'Payment Orchestration', domain: 'payments', availability: 'sandbox', delivery: 'cimbra_native',
+    summary: 'Intents, cash-in, cash-out, transferencias, routing, estados, reintentos y reversas.',
+    features: ['payment intents', 'cash-in/cash-out', 'routing por reglas', 'idempotencia', 'state machine'],
+    interfaces: ['rest_api', 'webhooks', 'sdk', 'console'], regulatoryBoundary: 'Para liquidar dinero real Cimbra debe conectarse directamente a bancos, cámaras, esquemas o sponsors autorizados; no a plataformas competidoras.',
+  },
+  {
+    id: 'instant-payments', name: 'Instant Payments & Transfers', domain: 'payments', availability: 'roadmap', delivery: 'cimbra_native',
+    summary: 'Transferencias inmediatas, alias, QR interoperable, solicitudes de pago y devoluciones.',
+    features: ['account-to-account', 'aliases', 'QR interoperable', 'request to pay', 'returns'],
+    interfaces: ['rest_api', 'webhooks', 'sdk', 'files'], regulatoryBoundary: 'El acceso a Pix, SPEI, Transferencias 3.0 y otros rieles exige membresía, certificación o sponsor local.',
+  },
+  {
+    id: 'card-issuing', name: 'Card Issuing', domain: 'cards', availability: 'foundation', delivery: 'cimbra_native',
+    summary: 'Programas, tarjetas físicas/virtuales, lifecycle, controles, límites y tokenización.',
+    features: ['debit/credit/prepaid', 'virtual/physical', 'card lifecycle', 'spend controls', 'network tokens'],
+    interfaces: ['rest_api', 'webhooks', 'sdk', 'console'], regulatoryBoundary: 'Emisión real requiere BIN sponsor o membresía de esquema, personalización certificada y cumplimiento PCI DSS.',
+  },
+  {
+    id: 'card-processing', name: 'Card Processing & Authorization', domain: 'cards', availability: 'roadmap', delivery: 'cimbra_native',
+    summary: 'Autorización online/stand-in, clearing, presentments, reversals, disputes y 3DS.',
+    features: ['real-time authorization', 'stand-in', 'clearing', 'chargebacks', '3DS'],
+    interfaces: ['rest_api', 'webhooks', 'iso8583', 'files', 'streaming'], regulatoryBoundary: 'Procesamiento conectado a redes requiere PCI DSS, HSM, certificación de esquema y acuerdos de conectividad.',
+  },
+  {
+    id: 'acquiring', name: 'Acquiring & Acceptance', domain: 'commerce', availability: 'roadmap', delivery: 'cimbra_native',
+    summary: 'Checkout, links, QR, Tap to Phone, POS, preautorizaciones, split y chargebacks.',
+    features: ['checkout y links', 'QR y Tap to Phone', 'POS/TEF', 'preauthorization', 'split payments'],
+    interfaces: ['rest_api', 'webhooks', 'sdk', 'iso8583'], regulatoryBoundary: 'Adquirencia real requiere licencia o sponsor adquirente, certificaciones EMV/PCI y acuerdos con marcas y comercios.',
+  },
+  {
+    id: 'bill-payments', name: 'Bill Payments & Top-ups', domain: 'commerce', availability: 'roadmap', delivery: 'cimbra_native',
+    summary: 'Catálogo, deuda, pago, recargas, suscripciones, confirmación y reversa.',
+    features: ['service catalog', 'debt inquiry', 'bill pay', 'top-ups', 'subscriptions'],
+    interfaces: ['rest_api', 'webhooks', 'sdk', 'files'], regulatoryBoundary: 'La cobertura requiere convenios directos con empresas, agregadores de origen o redes habilitadas, manteniendo el modelo canónico de Cimbra.',
+  },
+  {
+    id: 'wallets', name: 'Wallets & Embedded Finance', domain: 'core', availability: 'foundation', delivery: 'cimbra_native',
+    summary: 'Wallet white-label, saldos, bolsillos, payouts y experiencias embebidas configurables.',
+    features: ['white-label wallet', 'balances y pockets', 'payouts', 'program configuration', 'tenant branding'],
+    interfaces: ['rest_api', 'webhooks', 'sdk', 'console'], regulatoryBoundary: 'Una wallet con fondos reales debe operar bajo el marco PSP, entidad financiera o equivalente de cada país.',
+  },
+  {
+    id: 'lending', name: 'Lending & Credit', domain: 'credit', availability: 'roadmap', delivery: 'cimbra_native',
+    summary: 'Originación, líneas, desembolsos, cronogramas, intereses, cobranzas y mora.',
+    features: ['origination', 'credit lines', 'schedules', 'interest and fees', 'collections'],
+    interfaces: ['rest_api', 'webhooks', 'sdk', 'console'], regulatoryBoundary: 'Otorgamiento y fondeo exigen entidad habilitada, políticas crediticias, reporting y tratamiento de datos conforme a cada mercado.',
+  },
+  {
+    id: 'risk-fraud', name: 'Risk & Fraud', domain: 'risk', availability: 'foundation', delivery: 'cimbra_native',
+    summary: 'Rules engine, velocity, device/risk signals, decisiones, casos y listas.',
+    features: ['rules engine', 'velocity limits', 'risk scoring', 'case management', 'allow/deny lists'],
+    interfaces: ['rest_api', 'webhooks', 'streaming', 'console'], regulatoryBoundary: 'Los modelos y reglas requieren datos representativos, monitoreo de sesgo y aprobación humana según impacto y regulación.',
+  },
+  {
+    id: 'reconciliation-settlement', name: 'Reconciliation & Settlement', domain: 'operations', availability: 'foundation', delivery: 'cimbra_native',
+    summary: 'Conciliación de tres vías, settlement, excepciones, archivos y reportes operativos.',
+    features: ['three-way reconciliation', 'settlement cycles', 'exception queue', 'file ingestion', 'break resolution'],
+    interfaces: ['rest_api', 'webhooks', 'files', 'console'], regulatoryBoundary: 'La conciliación productiva depende de extractos oficiales de cada banco, cámara o red y segregación operativa.',
+  },
+  {
+    id: 'treasury', name: 'Treasury & Liquidity', domain: 'operations', availability: 'roadmap', delivery: 'cimbra_native',
+    summary: 'Posición, prefunding, cash forecasting, límites de contraparte y movimientos internos.',
+    features: ['cash position', 'prefunding', 'forecasting', 'counterparty limits', 'sweeps'],
+    interfaces: ['rest_api', 'webhooks', 'files', 'console'], regulatoryBoundary: 'La ejecución de tesorería requiere cuentas bancarias controladas, mandatos, segregación y políticas aprobadas.',
+  },
+  {
+    id: 'developer-platform', name: 'Developer Platform', domain: 'platform', availability: 'sandbox', delivery: 'cimbra_native',
+    summary: 'API versionada, SDK oficial, webhooks firmados, sandbox, observabilidad e idempotencia.',
+    features: ['REST API v1', 'TypeScript SDK', 'signed webhooks', 'sandbox', 'request tracing'],
+    interfaces: ['rest_api', 'webhooks', 'sdk', 'console'], regulatoryBoundary: 'Disponible para integración técnica; los endpoints sandbox no autorizan ni liquidan fondos reales.',
+  },
+] as const;
+
+export const PLATFORM_SUMMARY = {
+  owner: 'Cimbra',
+  strategy: 'build_native',
+  competitorDependency: false,
+  networkBoundary: 'direct_regulated_rails_only',
+  availabilityModel: CAPABILITY_AVAILABILITY,
+} as const;

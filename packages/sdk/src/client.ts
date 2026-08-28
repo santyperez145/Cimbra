@@ -1,8 +1,8 @@
 import { CimbraApiError, CimbraConnectionError, CimbraTimeoutError } from './errors.ts';
 import type {
   Account, AuditEvent, Card, CimbraResult, CreateAccountInput, CreateCardInput, CreateCustomerInput, CreatePaymentInput,
-  CreateProviderConnectionInput, CreateTransferInput, CreateWebhookInput, Customer, Hold, HoldResolution, LedgerBalance, LedgerJournal,
-  ListOptions, Page, Provider, ProviderConnection, RequestOptions, Transaction, WebhookOperationalState,
+  CreateTransferInput, CreateWebhookInput, Customer, Hold, HoldResolution, LedgerBalance, LedgerJournal,
+  ListOptions, Page, PlatformCapability, RequestOptions, Transaction, WebhookOperationalState,
 } from './types.ts';
 
 type Fetch = typeof globalThis.fetch;
@@ -93,16 +93,11 @@ export class Cimbra {
     retrieve: (id: string, options?: RequestOptions) => this.request<Transaction>('GET', `/api/v1/payments/${encodeURIComponent(id)}`, undefined, options),
   };
 
-  readonly providers = {
-    list: (options?: RequestOptions) => this.request<{ data: Provider[] }>('GET', '/api/v1/providers', undefined, options),
-  };
-
-  readonly connections = {
-    list: (options?: ListOptions) => this.request<Page<ProviderConnection>>('GET', listPath('/api/v1/connections', options), undefined, options),
-    listAll: (options?: ListOptions) => this.iterate((page) => this.connections.list({ ...options, cursor: page })),
-    retrieve: (id: string, options?: RequestOptions) => this.request<ProviderConnection>('GET', `/api/v1/connections/${encodeURIComponent(id)}`, undefined, options),
-    create: (input: CreateProviderConnectionInput, options?: RequestOptions) =>
-      this.post<{ ok: true; connection: ProviderConnection; replayed: boolean }>('/api/v1/connections', input, options, true),
+  readonly capabilities = {
+    list: (options?: RequestOptions) => this.request<{
+      data: PlatformCapability[];
+      meta: { owner: 'Cimbra'; strategy: 'build_native'; competitorDependency: false; networkBoundary: 'direct_regulated_rails_only' };
+    }>('GET', '/api/v1/capabilities', undefined, options),
   };
 
   readonly holds = {

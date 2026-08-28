@@ -5,12 +5,12 @@ import Link from 'next/link';
 import { FormEvent, useState, useSyncExternalStore } from 'react';
 import type { DashboardData } from '@/db/runtime';
 import DevelopersPanel from './developers-panel';
-import ConnectionsPanel from './connections-panel';
+import PlatformPanel from './platform-panel';
 import SecurityPanel from './security-panel';
 
 const nav = [
   ['▦', 'Vista general'], ['↔', 'Movimientos'], ['⇄', 'Payments'], ['◉', 'Cuentas'], ['▰', 'Tarjetas'],
-  ['◇', 'Riesgo'], ['✓', 'Compliance'], ['⌘', 'Conexiones'], ['⌁', 'Developers'], ['⌾', 'Seguridad'],
+  ['◇', 'Riesgo'], ['✓', 'Compliance'], ['⌘', 'Plataforma'], ['⌁', 'Developers'], ['⌾', 'Seguridad'],
 ];
 
 function money(value: number, currency = 'ARS') {
@@ -166,7 +166,7 @@ function SecondaryConsoleView({ active, data, busy, feedback, onTransfer, onPaym
 
   if (active === 'Developers') return <DevelopersPanel journalCount={data.journalCount} />;
 
-  if (active === 'Conexiones') return <ConnectionsPanel />;
+  if (active === 'Plataforma') return <PlatformPanel />;
 
   return null;
 }

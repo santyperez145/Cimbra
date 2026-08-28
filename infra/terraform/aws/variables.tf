@@ -134,10 +134,3 @@ variable "apple_private_key" {
   sensitive = true
   default   = ""
 }
-
-variable "provider_secret_arns" {
-  description = "Exact Secrets Manager ARNs that runtime provider adapters may resolve. Keep empty until a provider is contracted and homologated."
-  type        = list(string)
-  sensitive   = true
-  default     = []
-}

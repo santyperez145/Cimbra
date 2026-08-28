@@ -58,23 +58,14 @@ await cimbra.payments.create({
 });
 ```
 
-## Conexiones con proveedores
+## Catálogo de servicios Cimbra
 
 ```ts
-const providers = await cimbra.providers.list();
-
-await cimbra.connections.create({
-  provider: 'bindx',
-  name: 'BIND Argentina',
-  environment: 'sandbox',
-  capabilities: ['accounts', 'transfers'],
-  transport: 'rest_api',
-  credentialReference: 'aws-secretsmanager://cimbra/providers/bindx',
-  configuration: { country: 'AR' },
-});
+const catalog = await cimbra.capabilities.list();
+const available = catalog.data.data.filter((service) => service.availability === 'sandbox');
 ```
 
-La API no acepta API keys ni secretos del proveedor dentro del payload. Sólo registra referencias a un gestor de secretos, las cifra en reposo y nunca las devuelve.
+El catálogo declara qué dominios son nativos de Cimbra, sus interfaces (`rest_api`, `webhooks`, `sdk`, `console`, `iso8583`, archivos o streaming), el grado real de disponibilidad y su límite regulatorio. No registra ni requiere conexiones con plataformas competidoras.
 
 Las escrituras financieras seguras generan automáticamente una clave de idempotencia y conservan el mismo `X-Request-Id` durante los reintentos. También se puede proporcionar una clave propia:
 

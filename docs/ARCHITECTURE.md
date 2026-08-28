@@ -4,7 +4,7 @@
 
 1. El ledger es la fuente de verdad, nunca el balance cacheado de un proveedor.
 2. Toda mutación financiera es idempotente, auditable y autorizada en servidor.
-3. Los proveedores externos se conectan mediante adaptadores; el dominio no depende de sus modelos.
+3. Todos los dominios de producto son propios; sólo los bancos, cámaras, esquemas y fuentes reguladas se conectan detrás de puertos de red aislados.
 4. Los flujos largos se orquestan con estados explícitos, compensaciones y reintentos seguros.
 5. PII, secretos, fondos y telemetría viven en límites de seguridad separados.
 6. Sandbox y producción tienen credenciales, datos, rieles y señales visuales distintas.
@@ -29,7 +29,7 @@ La API pública se expone bajo `/api/v1`. Todas las respuestas incluyen un `X-Re
 
 La infraestructura reproducible del piloto está en `infra/terraform/aws`: ALB/WAF, ECS Fargate en subredes privadas, PostgreSQL 16 Multi-AZ con PITR, KMS/Secrets Manager y CloudWatch. El outbox de PostgreSQL sigue siendo la cola durable autoritativa en esta etapa; EventBridge ejecuta el recovery dispatcher cada minuto, además del dispatch inmediato post-response.
 
-El control plane de proveedores mantiene un catálogo canónico y conexiones aisladas por organización. Las conexiones declaran proveedor, ambiente, capacidades y transporte, pero nunca reciben credenciales inline: conservan cifrada únicamente una referencia a Secrets Manager, Vault o equivalente. El estado inicial `pending_validation` evita presentar una integración contractual como operativa antes de validar autenticación, red y homologación. Ver [`PROVIDER_CONNECTIVITY.md`](PROVIDER_CONNECTIVITY.md).
+El catálogo de capacidades propio expone por API, SDK y consola los dominios `cimbra_native`, sus interfaces y su disponibilidad verificable. No conserva conexiones ni credenciales de plataformas competidoras. La conectividad futura se limita al perímetro de bancos, cámaras, esquemas y fuentes reguladas, con secretos y redes aislados por riel. Ver [`OWN_PLATFORM.md`](OWN_PLATFORM.md).
 
 Los deployments productivos de Vercel ejecutan las migraciones versionadas antes de compilar y publicar la nueva aplicación. Los previews no mutan la base compartida; ECS conserva una task definition de migración separada y el rollout exige su finalización correcta.
 
@@ -39,7 +39,7 @@ El ledger actual es un núcleo financiero real para sandbox, pero no debe conver
 
 - Identity & Tenancy: organizaciones, roles, permisos, claves, políticas y segregación.
 - Financial Core: cuentas, ledger de doble partida, holds, límites, fees, intereses y cierres.
-- Payment Orchestration: intents, routing, adapters, webhooks, conciliación y settlement.
+- Payment Orchestration: intents, routing, conectores directos a rieles, webhooks, conciliación y settlement.
 - Cards & Lending: emisión/procesamiento y ciclo de crédito como dominios separados.
 - Risk & Compliance: KYC/KYB, screening, rules engine, casos, evidencia y reportes.
 - Platform: API gateway, event bus, workflows, observabilidad, developer portal y billing.
@@ -64,7 +64,7 @@ El sandbox ya impone:
 - claves idempotentes por tenant y operación;
 - prohibición de updates destructivos sobre asientos posteados;
 
-Antes de dinero real todavía se requieren secuencia estable para extractos, conciliación independiente contra cada proveedor y banco, cierres, snapshots, operación multi-región y controles regulatorios.
+Antes de dinero real todavía se requieren secuencia estable para extractos, conciliación independiente contra Cimbra, banco/cámara y settlement, cierres, snapshots, operación multi-región y controles regulatorios.
 
 ## Seguridad mínima para producción
 
@@ -83,7 +83,7 @@ Antes de dinero real todavía se requieren secuencia estable para extractos, con
 ## SLO iniciales
 
 - API transaccional: 99,95% al piloto; objetivo 99,99% al escalar.
-- p95 interno: menor a 250 ms, excluyendo proveedor externo.
+- p95 interno: menor a 250 ms, excluyendo bancos, cámaras y redes externas.
 - RPO ledger: cercano a cero mediante replicación y journal durable.
 - RTO crítico: menor a 60 minutos al piloto, menor a 15 minutos en enterprise.
 - webhooks: entrega al menos una vez, firma, backoff y replay controlado.
