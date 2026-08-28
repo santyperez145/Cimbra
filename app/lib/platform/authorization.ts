@@ -45,12 +45,12 @@ async function authenticateApiKey(token: string, requiredScope?: ApiScope): Prom
   const key = await getDatabase().prepare(
     `SELECT k.id, k.organization_id AS "organizationId", k.secret_hash AS "secretHash", k.scopes,
       k.status, k.expires_at AS "expiresAt", u.id AS "userId", u.username, u.display_name AS "displayName",
-      u.email, u.email_verified AS "emailVerified"
+      u.email, u.email_verified AS "emailVerified", u.mfa_enabled AS "mfaEnabled"
      FROM api_keys k JOIN users u ON u.id = k.created_by
      WHERE k.prefix = ? LIMIT 1`,
   ).bind(prefix).first<{
     id: string; organizationId: string; secretHash: string; scopes: string; status: string; expiresAt: string | null;
-    userId: string; username: string; displayName: string; email: string; emailVerified: number;
+    userId: string; username: string; displayName: string; email: string; emailVerified: number; mfaEnabled: number;
   }>();
   if (!key || key.status !== 'active' || (key.expiresAt && key.expiresAt <= new Date().toISOString()) || !(await verifyApiKey(token, key.secretHash))) {
     throw new ApiAuthorizationError('API key inválida, revocada o vencida.', 401, 'invalid_api_key');
@@ -73,7 +73,10 @@ async function authenticateApiKey(token: string, requiredScope?: ApiScope): Prom
   }>();
   if (!consumed) throw new ApiAuthorizationError('Se superó el límite de solicitudes de la API key.', 429, 'rate_limit_exceeded');
   return {
-    user: { userId: key.userId, username: key.username, displayName: key.displayName, email: key.email, emailVerified: key.emailVerified === 1 },
+    user: {
+      userId: key.userId, username: key.username, displayName: key.displayName, email: key.email,
+      emailVerified: key.emailVerified === 1, mfaEnabled: key.mfaEnabled === 1,
+    },
     organizationId: key.organizationId,
     role: 'api_key', authentication: 'api_key', apiKeyId: key.id,
     rateLimit: {
@@ -99,6 +102,12 @@ export async function authorizeApiRequest(request: Request, options: {
   const user = await getCurrentUser(request);
   if (!user) throw new ApiAuthorizationError('Autenticación requerida.', 401, 'authentication_required');
   const context = await requireOrganizationRole(user, options.roles ?? ['owner', 'admin', 'operator', 'viewer']);
+  if (process.env.CIMBRA_REQUIRE_VERIFIED_EMAIL === '1' && !user.emailVerified) {
+    throw new ApiAuthorizationError('Verificá el email de la cuenta antes de operar.', 403, 'email_verification_required');
+  }
+  if (process.env.CIMBRA_REQUIRE_PRIVILEGED_MFA === '1' && ['owner', 'admin'].includes(context.role) && !user.mfaEnabled) {
+    throw new ApiAuthorizationError('Activá MFA para operar con un rol privilegiado.', 403, 'mfa_required');
+  }
   return { user, organizationId: context.organizationId, role: context.role, authentication: 'session', apiKeyId: null, rateLimit: null };
 }
 

@@ -11,6 +11,7 @@ Superficies disponibles:
 - `/` — propuesta comercial y captación persistente de leads.
 - `/developers` — quickstart y referencia de los endpoints implementados.
 - `/login` — registro e inicio de sesión propio con usuario/email y contraseña; OAuth Google y Apple se activa al configurar sus credenciales.
+- `/forgot-password`, `/reset-password` y `/verify-email` — ciclo de vida de cuenta con tokens opacos, expiración, uso único y respuestas anti-enumeración.
 - `/console` — consola protegida con sesiones de servidor, organización y datos propios.
 - `/api/health` — healthcheck sin caché.
 - `/api/v1/*` — API pública versionada para customers, accounts, cards, transfers, reversas, holds, ledger, events, compliance y webhooks.
@@ -41,7 +42,7 @@ npm run lint
 npm run build
 ```
 
-La identidad de Cimbra usa PBKDF2-HMAC-SHA-256 con 600.000 iteraciones, sesiones opacas revocables en PostgreSQL, cookies `HttpOnly`, protección de origen y límites de intentos. Las API keys sólo se almacenan como hash. Los signing secrets usan AES-256-GCM en reposo y los webhooks HMAC-SHA256 en tránsito. Ningún secreto se guarda en el cliente ni en el repositorio.
+La identidad de Cimbra usa PBKDF2-HMAC-SHA-256 con 600.000 iteraciones, sesiones opacas revocables en PostgreSQL, cookies `HttpOnly`, protección de origen y límites de intentos. Incluye verificación de email, recuperación con cierre global de sesiones y MFA TOTP interoperable con bloqueo de replay; los ocho recovery codes de 80 bits se muestran una vez y sólo se persisten como hash. Las API keys sólo se almacenan como hash. Los secretos TOTP y de firma usan AES-256-GCM en reposo y los webhooks HMAC-SHA256 en tránsito. Ningún secreto se guarda en el cliente ni en el repositorio.
 
 ## Infraestructura y despliegue
 
@@ -52,9 +53,10 @@ La aplicación corre sobre Next.js en Vercel, PostgreSQL administrado y Vercel B
 3. Creá un Blob store privado y vinculalo al proyecto para obtener `BLOB_READ_WRITE_TOKEN`.
 4. Cargá `CIMBRA_PUBLIC_URL` y `NEXT_PUBLIC_CIMBRA_PUBLIC_URL` con el dominio público HTTPS.
 5. Generá valores aleatorios independientes de 32 bytes para `CIMBRA_ENCRYPTION_KEY` y `CRON_SECRET`; guardalos como secretos del entorno.
-6. Cargá las credenciales de Google y Apple indicadas en `.env.example` si esos proveedores se habilitarán.
-7. Ejecutá `npm run db:migrate` una vez por ambiente antes de desplegar el código que depende de la migración. Las migraciones son la única fuente de verdad del esquema.
-8. Desplegá con la integración Git o mediante `npm run deploy`.
+6. Verificá un dominio en Resend y cargá `RESEND_API_KEY` y `CIMBRA_FROM_EMAIL`; sin ambos valores el producto no simula envíos y muestra el proveedor como pendiente. En producción activá `CIMBRA_REQUIRE_VERIFIED_EMAIL=1` y `CIMBRA_REQUIRE_PRIVILEGED_MFA=1`; la infraestructura AWS ya lo hace automáticamente.
+7. Cargá las credenciales de Google y Apple indicadas en `.env.example` si esos proveedores se habilitarán.
+8. Ejecutá `npm run db:migrate` una vez por ambiente antes de desplegar el código que depende de la migración. Las migraciones son la única fuente de verdad del esquema.
+9. Desplegá con la integración Git o mediante `npm run deploy`.
 
 Redirect URIs a registrar:
 

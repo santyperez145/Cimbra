@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { authRateLimit, recordAuthAttempt, registerPasswordUser, validateRegistration } from '@/app/lib/auth/accounts';
 import { mutationAllowed } from '@/app/lib/auth/http';
 import { createSession } from '@/app/lib/auth/session';
+import { publicOrigin } from '@/app/lib/auth/config';
+import { sendEmailVerification } from '@/app/lib/auth/lifecycle';
 
 export async function POST(request: Request) {
   if (!mutationAllowed(request)) return NextResponse.json({ error: 'Origen de solicitud no permitido.' }, { status: 403 });
@@ -14,7 +16,14 @@ export async function POST(request: Request) {
   try {
     const user = await registerPasswordUser(validated);
     await recordAuthAttempt(rate.attempt, true);
-    const response = NextResponse.json({ ok: true, user: { username: user.username, displayName: user.displayName, email: user.email } }, { status: 201 });
+    const verificationEmailSent = await sendEmailVerification({
+      userId: user.userId, email: user.email, displayName: user.displayName, origin: publicOrigin(request),
+    });
+    const response = NextResponse.json({
+      ok: true,
+      user: { username: user.username, displayName: user.displayName, email: user.email, emailVerified: false },
+      verificationEmailSent,
+    }, { status: 201 });
     await createSession(user.userId, request, response);
     response.headers.set('Cache-Control', 'no-store');
     return response;

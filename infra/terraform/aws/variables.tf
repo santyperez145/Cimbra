@@ -89,3 +89,48 @@ variable "alert_email" {
   type        = string
   default     = ""
 }
+
+variable "resend_api_key" {
+  description = "Resend API key for transactional identity emails. Supply through an ignored tfvars file or TF_VAR_resend_api_key."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "cimbra_from_email" {
+  description = "Verified transactional sender, including optional display name."
+  type        = string
+  default     = ""
+}
+
+variable "google_client_id" {
+  type    = string
+  default = ""
+}
+
+variable "google_client_secret" {
+  type      = string
+  sensitive = true
+  default   = ""
+}
+
+variable "apple_client_id" {
+  type    = string
+  default = ""
+}
+
+variable "apple_team_id" {
+  type    = string
+  default = ""
+}
+
+variable "apple_key_id" {
+  type    = string
+  default = ""
+}
+
+variable "apple_private_key" {
+  type      = string
+  sensitive = true
+  default   = ""
+}

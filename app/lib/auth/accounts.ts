@@ -3,11 +3,12 @@ import { hashPassword, randomToken, sha256, verifyPassword } from './crypto';
 import type { AuthUser, OAuthProvider } from './types';
 
 type StoredUser = {
-  userId: string; username: string; displayName: string; email: string; emailVerified: number;
+  userId: string; username: string; displayName: string; email: string; emailVerified: number; mfaEnabled: number;
   passwordHash: string | null; passwordSalt: string | null; passwordIterations: number | null;
 };
 
-export type AuthAttempt = { action: 'login' | 'register'; identityHash: string; ipHash: string };
+export type AuthAction = 'login' | 'register' | 'email_verification' | 'password_reset' | 'mfa';
+export type AuthAttempt = { action: AuthAction; identityHash: string; ipHash: string };
 
 export function normalizeEmail(value: unknown) {
   return typeof value === 'string' ? value.trim().toLowerCase().slice(0, 254) : '';
@@ -17,27 +18,38 @@ export function normalizeUsername(value: unknown) {
   return typeof value === 'string' ? value.trim().toLowerCase().slice(0, 30) : '';
 }
 
+export function validateNewPassword(value: unknown) {
+  const password = typeof value === 'string' ? value : '';
+  return password.length >= 12 && password.length <= 128 ? password : null;
+}
+
 export function validateRegistration(input: Record<string, unknown>) {
   const displayName = typeof input.displayName === 'string' ? input.displayName.trim().replace(/\s+/g, ' ').slice(0, 100) : '';
   const username = normalizeUsername(input.username);
   const email = normalizeEmail(input.email);
-  const password = typeof input.password === 'string' ? input.password : '';
+  const password = validateNewPassword(input.password) ?? '';
   if (displayName.length < 2) return { error: 'Ingresá tu nombre completo.' } as const;
   if (!/^[a-z0-9][a-z0-9._-]{2,29}$/.test(username)) return { error: 'El usuario debe tener entre 3 y 30 caracteres: letras, números, punto, guion o guion bajo.' } as const;
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { error: 'Ingresá un email válido.' } as const;
-  if (password.length < 12 || password.length > 128) return { error: 'La contraseña debe tener entre 12 y 128 caracteres.' } as const;
+  if (!password) return { error: 'La contraseña debe tener entre 12 y 128 caracteres.' } as const;
   return { displayName, username, email, password } as const;
 }
 
 function toAuthUser(row: StoredUser): AuthUser {
-  return { userId: row.userId, username: row.username, displayName: row.displayName, email: row.email, emailVerified: row.emailVerified === 1 };
+  return {
+    userId: row.userId, username: row.username, displayName: row.displayName, email: row.email,
+    emailVerified: row.emailVerified === 1, mfaEnabled: row.mfaEnabled === 1,
+  };
 }
 
 export async function registerPasswordUser(input: { displayName: string; username: string; email: string; password: string }) {
   await ensureDatabase();
   const password = await hashPassword(input.password);
   const now = new Date().toISOString();
-  const user: AuthUser = { userId: crypto.randomUUID(), username: input.username, displayName: input.displayName, email: input.email, emailVerified: false };
+  const user: AuthUser = {
+    userId: crypto.randomUUID(), username: input.username, displayName: input.displayName,
+    email: input.email, emailVerified: false, mfaEnabled: false,
+  };
   try {
     await getDatabase().prepare(
       `INSERT INTO users (id, username, email, display_name, password_hash, password_salt, password_iterations, email_verified, created_at, updated_at)
@@ -55,7 +67,7 @@ export async function authenticatePassword(identifier: string, password: string)
   await ensureDatabase();
   const normalized = identifier.trim().toLowerCase().slice(0, 254);
   const row = await getDatabase().prepare(
-    `SELECT id AS userId, username, display_name AS displayName, email, email_verified AS emailVerified,
+    `SELECT id AS userId, username, display_name AS displayName, email, email_verified AS emailVerified, mfa_enabled AS mfaEnabled,
       password_hash AS passwordHash, password_salt AS passwordSalt, password_iterations AS passwordIterations
      FROM users WHERE email = ? OR username = ? LIMIT 1`,
   ).bind(normalized, normalized).first<StoredUser>();
@@ -73,7 +85,7 @@ function requestIp(request: Request) {
     || 'unknown';
 }
 
-export async function authRateLimit(action: AuthAttempt['action'], identifier: string, request: Request) {
+export async function authRateLimit(action: AuthAction, identifier: string, request: Request) {
   await ensureDatabase();
   const identityHash = await sha256(`${action}:identity:${identifier.trim().toLowerCase()}`);
   const ipHash = await sha256(`${action}:ip:${requestIp(request)}`);
@@ -84,8 +96,8 @@ export async function authRateLimit(action: AuthAttempt['action'], identifier: s
       SUM(CASE WHEN ip_hash = ? AND success = 0 THEN 1 ELSE 0 END) AS ipFailures
      FROM auth_attempts WHERE action = ? AND created_at >= ?`,
   ).bind(identityHash, ipHash, action, since).first<{ identityFailures: number | null; ipFailures: number | null }>();
-  const identityLimit = action === 'login' ? 8 : 3;
-  const ipLimit = action === 'login' ? 40 : 10;
+  const identityLimit = action === 'login' || action === 'mfa' ? 8 : 3;
+  const ipLimit = action === 'login' || action === 'mfa' ? 40 : 10;
   return {
     limited: Number(counts?.identityFailures ?? 0) >= identityLimit || Number(counts?.ipFailures ?? 0) >= ipLimit,
     attempt: { action, identityHash, ipHash } satisfies AuthAttempt,
@@ -114,7 +126,7 @@ export async function findOrCreateOAuthUser(input: {
   await ensureDatabase();
   const db = getDatabase();
   const identity = await db.prepare(
-    `SELECT u.id AS userId, u.username, u.display_name AS displayName, u.email, u.email_verified AS emailVerified,
+    `SELECT u.id AS userId, u.username, u.display_name AS displayName, u.email, u.email_verified AS emailVerified, u.mfa_enabled AS mfaEnabled,
       u.password_hash AS passwordHash, u.password_salt AS passwordSalt, u.password_iterations AS passwordIterations
      FROM oauth_identities i JOIN users u ON u.id = i.user_id
      WHERE i.provider = ? AND i.provider_subject = ? LIMIT 1`,
@@ -124,7 +136,7 @@ export async function findOrCreateOAuthUser(input: {
   const email = normalizeEmail(input.email);
   if (!email || !input.emailVerified) throw new Error('El proveedor no devolvió un email verificado para crear la cuenta.');
   const existing = await db.prepare(
-    `SELECT id AS userId, username, display_name AS displayName, email, email_verified AS emailVerified,
+    `SELECT id AS userId, username, display_name AS displayName, email, email_verified AS emailVerified, mfa_enabled AS mfaEnabled,
       password_hash AS passwordHash, password_salt AS passwordSalt, password_iterations AS passwordIterations
      FROM users WHERE email = ? LIMIT 1`,
   ).bind(email).first<StoredUser>();
@@ -143,6 +155,7 @@ export async function findOrCreateOAuthUser(input: {
     displayName: input.displayName?.trim().slice(0, 100) || email.split('@')[0],
     email,
     emailVerified: true,
+    mfaEnabled: false,
   };
   await db.batch([
     db.prepare(

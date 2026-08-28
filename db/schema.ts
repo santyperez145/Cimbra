@@ -11,6 +11,8 @@ export const users = pgTable('users', {
   id: text('id').primaryKey(), username: text('username').notNull(), email: text('email').notNull(),
   displayName: text('display_name').notNull(), passwordHash: text('password_hash'), passwordSalt: text('password_salt'),
   passwordIterations: integer('password_iterations'), emailVerified: integer('email_verified').notNull().default(0),
+  mfaEnabled: integer('mfa_enabled').notNull().default(0), mfaSecretCiphertext: text('mfa_secret_ciphertext'),
+  mfaLastUsedStep: bigint('mfa_last_used_step', { mode: 'bigint' }),
   createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
 }, (table) => [uniqueIndex('idx_users_username').on(table.username), uniqueIndex('idx_users_email').on(table.email)]);
 
@@ -38,6 +40,25 @@ export const authAttempts = pgTable('auth_attempts', {
 }, (table) => [
   index('idx_auth_attempts_identity').on(table.action, table.identityHash, table.createdAt),
   index('idx_auth_attempts_ip').on(table.action, table.ipHash, table.createdAt),
+]);
+
+export const authActionTokens = pgTable('auth_action_tokens', {
+  id: text('id').primaryKey(), userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  type: text('type').notNull(), tokenHash: text('token_hash').notNull(), expiresAt: text('expires_at').notNull(),
+  consumedAt: text('consumed_at'), createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_auth_action_tokens_hash').on(table.tokenHash),
+  index('idx_auth_action_tokens_user_type').on(table.userId, table.type, table.createdAt),
+  index('idx_auth_action_tokens_expires').on(table.expiresAt),
+  check('auth_action_tokens_type', sql`${table.type} IN ('email_verification', 'password_reset', 'mfa_challenge')`),
+]);
+
+export const mfaRecoveryCodes = pgTable('mfa_recovery_codes', {
+  id: text('id').primaryKey(), userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  codeHash: text('code_hash').notNull(), consumedAt: text('consumed_at'), createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_mfa_recovery_codes_hash').on(table.codeHash),
+  index('idx_mfa_recovery_codes_user').on(table.userId, table.consumedAt),
 ]);
 
 export const members = pgTable('members', {

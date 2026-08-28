@@ -11,9 +11,9 @@
 
 ## Arquitectura del MVP alojado
 
-La versión de este repositorio usa Next.js 16, React 19 y TypeScript sobre Vercel Functions. PostgreSQL administrado guarda usuarios, identidades externas, sesiones, organizaciones, miembros, cuentas financieras, journals, postings, holds, objetos sandbox, transacciones, leads, metadata documental y eventos; Vercel Blob privado conserva únicamente los bytes de evidencia. La identidad es propia y se resuelve en servidor: credenciales PBKDF2-HMAC-SHA-256, sesiones opacas revocables y OAuth 2.0/OIDC con Google y Apple.
+La versión de este repositorio usa Next.js 16, React 19 y TypeScript sobre Vercel Functions. PostgreSQL administrado guarda usuarios, identidades externas, sesiones, tokens de acción hasheados, recovery codes hasheados, organizaciones, miembros, cuentas financieras, journals, postings, holds, objetos sandbox, transacciones, leads, metadata documental y eventos; Vercel Blob privado conserva únicamente los bytes de evidencia. La identidad es propia y se resuelve en servidor: credenciales PBKDF2-HMAC-SHA-256, sesiones opacas revocables, OAuth 2.0/OIDC con Google y Apple, verificación de email y MFA TOTP RFC 6238.
 
-Los flujos OAuth usan Authorization Code, `state`, nonce, PKCE en Google y validación de firma, issuer y audience contra JWKS. Los secretos viven sólo en variables cifradas del entorno. Las sesiones viajan en cookies `HttpOnly`, `Secure` y `SameSite`, mientras PostgreSQL conserva únicamente el hash SHA-256 del token. Las restricciones únicas, claves foráneas, transacciones, idempotency keys y triggers diferidos protegen la integridad de los datos. El sandbox monetario guarda importes en unidades mínimas `BIGINT`, calcula los balances desde postings, impide mezclar monedas o tenants y sólo corrige operaciones mediante reversas compensatorias.
+Los flujos OAuth usan Authorization Code, `state`, nonce, PKCE en Google y validación de firma, issuer y audience contra JWKS. Los secretos viven sólo en variables cifradas del entorno. Las sesiones viajan en cookies `HttpOnly`, `Secure` y `SameSite`, mientras PostgreSQL conserva únicamente el hash SHA-256 del token. Los enlaces de email duran como máximo 24 horas, se invalidan al emitir uno nuevo y se consumen atómicamente. El TOTP usa pasos de 30 segundos, tolerancia de un paso, secreto de 160 bits cifrado con AES-256-GCM y rechazo del mismo paso ya utilizado; cada recovery code de 80 bits se consume en una única transacción. Un reset de contraseña revoca todas las sesiones y no elimina el segundo factor. Las restricciones únicas, claves foráneas, transacciones, idempotency keys y triggers diferidos protegen la integridad de los datos. El sandbox monetario guarda importes en unidades mínimas `BIGINT`, calcula los balances desde postings, impide mezclar monedas o tenants y sólo corrige operaciones mediante reversas compensatorias.
 
 Cada request operativo:
 
@@ -65,8 +65,8 @@ Antes de dinero real todavía se requieren secuencia estable para extractos, con
 ## Seguridad mínima para producción
 
 - threat model por dominio y revisión independiente antes del piloto;
-- MFA y recuperación de cuenta antes de habilitar operaciones productivas de alto riesgo;
-- MFA fuerte, RBAC/ABAC y segregación de funciones;
+- MFA obligatorio para owners/admins antes de habilitar operaciones productivas de alto riesgo; el TOTP implementado sirve para el piloto y debe complementarse con WebAuthn resistente a phishing para disponibilidad general;
+- RBAC/ABAC y segregación de funciones;
 - cifrado en tránsito y reposo con rotación de claves;
 - tokenización de datos de tarjeta y alcance PCI minimizado;
 - SAST, DAST, dependency scanning, secret scanning y SBOM en CI;

@@ -4,6 +4,7 @@ export type AuthUser = {
   displayName: string;
   email: string;
   emailVerified: boolean;
+  mfaEnabled: boolean;
 };
 
 export type OAuthProvider = 'google' | 'apple';

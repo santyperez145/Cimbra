@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { del } from '@vercel/blob';
 import postgres from 'postgres';
 
@@ -13,10 +13,16 @@ const runId = randomUUID();
 const email = `cimbra-qa-${runId}@example.test`;
 const username = `qa${runId.replaceAll('-', '').slice(0, 20)}`;
 const password = `Cimbra-QA-${runId}!`;
+const replacementPassword = `Cimbra-QA-Recovered-${runId}!`;
 const sql = postgres(process.env.DATABASE_URL, { max: 1 });
 let cookie = '';
 let userId = '';
 let organizationId = '';
+const authAttemptHashes = new Set();
+
+function trackAuthAttempt(action, identifier) {
+  authAttemptHashes.add(createHash('sha256').update(`${action}:identity:${identifier.trim().toLowerCase()}`).digest('base64url'));
+}
 
 async function request(path, init = {}) {
   const headers = new Headers(init.headers);
@@ -28,6 +34,28 @@ async function json(response, status) {
   const body = await response.json();
   assert.equal(response.status, status, JSON.stringify(body));
   return body;
+}
+
+function authTokenHash(type, token) {
+  return createHash('sha256').update(`cimbra-auth-token:${type}:${token}`).digest('base64url');
+}
+
+function decodeBase32(value) {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let bits = 0; let buffer = 0; const output = [];
+  for (const character of value) {
+    buffer = (buffer << 5) | alphabet.indexOf(character); bits += 5;
+    if (bits >= 8) { output.push((buffer >>> (bits - 8)) & 255); bits -= 8; }
+  }
+  return Buffer.from(output);
+}
+
+function totp(secret, step = Math.floor(Date.now() / 30_000)) {
+  const counter = Buffer.alloc(8); counter.writeBigUInt64BE(BigInt(step));
+  const signature = createHmac('sha1', decodeBase32(secret)).update(counter).digest();
+  const offset = signature.at(-1) & 15;
+  const binary = signature.readUInt32BE(offset) & 0x7fffffff;
+  return String(binary % 1_000_000).padStart(6, '0');
 }
 
 async function cleanup() {
@@ -64,8 +92,7 @@ async function cleanup() {
   }
   await sql`DELETE FROM auth_sessions WHERE user_id = ${userId}`;
   await sql`DELETE FROM users WHERE id = ${userId}`;
-  const identityHash = createHash('sha256').update(`register:identity:${email}`).digest('hex');
-  await sql`DELETE FROM auth_attempts WHERE action = 'register' AND identity_hash = ${identityHash}`;
+  for (const identityHash of authAttemptHashes) await sql`DELETE FROM auth_attempts WHERE identity_hash = ${identityHash}`;
 }
 
 try {
@@ -73,6 +100,7 @@ try {
   assert.equal(health.status, 'ok');
   assert.equal(health.dependencies.database, 'ok');
 
+  trackAuthAttempt('register', email);
   const registration = await request('/api/auth/register', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -85,6 +113,74 @@ try {
   assert.equal((await request('/console')).status, 200);
   const me = await json(await request('/api/auth/me'), 200);
   assert.equal(me.user.email, email);
+  assert.equal(me.user.emailVerified, false);
+  assert.equal(me.user.mfaEnabled, false);
+
+  const verificationToken = randomBytes(32).toString('base64url');
+  trackAuthAttempt('email_verification', verificationToken);
+  await sql`
+    INSERT INTO auth_action_tokens (id, user_id, type, token_hash, expires_at, created_at)
+    VALUES (${randomUUID()}, ${(await sql`SELECT id FROM users WHERE email = ${email}`)[0].id}, 'email_verification',
+      ${authTokenHash('email_verification', verificationToken)}, ${new Date(Date.now() + 60_000).toISOString()}, ${new Date().toISOString()})
+  `;
+  await json(await request('/api/auth/email/verify', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: verificationToken }),
+  }), 200);
+  await json(await request('/api/auth/email/verify', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: verificationToken }),
+  }), 400);
+  const verifiedMe = await json(await request('/api/auth/me'), 200);
+  assert.equal(verifiedMe.user.emailVerified, true);
+
+  const unknownEmail = `unknown-${runId}@example.test`;
+  trackAuthAttempt('password_reset', unknownEmail);
+  const forgot = await json(await request('/api/auth/password/forgot', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: unknownEmail }),
+  }), 200);
+  assert.match(forgot.message, /Si existe una cuenta verificada/);
+
+  const resetToken = randomBytes(32).toString('base64url');
+  trackAuthAttempt('password_reset', resetToken);
+  await sql`
+    INSERT INTO auth_action_tokens (id, user_id, type, token_hash, expires_at, created_at)
+    VALUES (${randomUUID()}, ${(await sql`SELECT id FROM users WHERE email = ${email}`)[0].id}, 'password_reset',
+      ${authTokenHash('password_reset', resetToken)}, ${new Date(Date.now() + 60_000).toISOString()}, ${new Date().toISOString()})
+  `;
+  await json(await request('/api/auth/password/reset', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: resetToken, password: replacementPassword }),
+  }), 200);
+  await json(await request('/api/auth/me'), 401);
+  trackAuthAttempt('login', email);
+  const recoveredLogin = await request('/api/auth/login', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ identifier: email, password: replacementPassword }),
+  });
+  await json(recoveredLogin, 200);
+  cookie = recoveredLogin.headers.get('set-cookie')?.split(';', 1)[0] ?? '';
+
+  const setup = await json(await request('/api/auth/mfa/setup', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ currentPassword: replacementPassword }),
+  }), 200);
+  assert.match(setup.secret, /^[A-Z2-7]{32}$/);
+  assert.match(setup.qrDataUrl, /^data:image\/png;base64,/);
+  const enabled = await json(await request('/api/auth/mfa/enable', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: totp(setup.secret) }),
+  }), 200);
+  assert.equal(enabled.recoveryCodes.length, 8);
+  await json(await request('/api/auth/logout', { method: 'POST' }), 200);
+  const passwordStep = await json(await request('/api/auth/login', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ identifier: email, password: replacementPassword }),
+  }), 200);
+  assert.equal(passwordStep.mfaRequired, true);
+  assert.ok(passwordStep.challengeToken);
+  trackAuthAttempt('mfa', passwordStep.challengeToken);
+  const mfaLogin = await request('/api/auth/mfa/challenge', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ challengeToken: passwordStep.challengeToken, code: totp(setup.secret, Math.floor(Date.now() / 30_000) + 1) }),
+  });
+  await json(mfaLogin, 200);
+  cookie = mfaLogin.headers.get('set-cookie')?.split(';', 1)[0] ?? '';
+  const securedMe = await json(await request('/api/auth/me'), 200);
+  assert.equal(securedMe.user.mfaEnabled, true);
 
   const initialLedgerResponse = await request('/api/v1/ledger', { headers: { 'X-Request-Id': `qa-request-${runId}` } });
   const initialLedger = (await json(initialLedgerResponse, 200)).data;
@@ -260,7 +356,7 @@ try {
 
   console.log(JSON.stringify({
     ok: true,
-    checks: ['auth', 'tenant-seed', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'private-evidence', 'audit'],
+    checks: ['auth', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'private-evidence', 'audit'],
   }));
 } finally {
   await cleanup();

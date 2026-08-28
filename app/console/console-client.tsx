@@ -5,10 +5,11 @@ import Link from 'next/link';
 import { FormEvent, useState } from 'react';
 import type { DashboardData } from '@/db/runtime';
 import DevelopersPanel from './developers-panel';
+import SecurityPanel from './security-panel';
 
 const nav = [
   ['▦', 'Vista general'], ['↔', 'Movimientos'], ['◉', 'Cuentas'], ['▰', 'Tarjetas'],
-  ['◇', 'Riesgo'], ['✓', 'Compliance'], ['⌁', 'Developers'],
+  ['◇', 'Riesgo'], ['✓', 'Compliance'], ['⌁', 'Developers'], ['⌾', 'Seguridad'],
 ];
 
 function money(value: number, currency = 'ARS') {
@@ -20,7 +21,10 @@ function statusLabel(status: string) {
   return ({ settled: 'Liquidado', authorized: 'Autorizado', review: 'En revisión', pending: 'Pendiente', reversed: 'Revertido', cancelled: 'Cancelado' } as Record<string, string>)[status] ?? status;
 }
 
-export default function ConsoleClient({ data, user }: { data: DashboardData; user: { displayName: string; email: string } }) {
+export default function ConsoleClient({ data, user }: {
+  data: DashboardData;
+  user: { displayName: string; email: string; emailVerified: boolean; mfaEnabled: boolean; recoveryCodeCount: number };
+}) {
   const router = useRouter();
   const [active, setActive] = useState('Vista general');
   const [transferOpen, setTransferOpen] = useState(false);
@@ -97,7 +101,7 @@ export default function ConsoleClient({ data, user }: { data: DashboardData; use
             </article>
             <aside className="risk-card"><div className="card-head"><div><h2>Control de riesgo</h2><p>Reservas persistidas del sandbox</p></div><span className="risk-live">● ACTIVO</span></div><div className="risk-score"><div><strong>{data.riskAlerts}</strong><span>reservas abiertas</span></div><div><strong>{data.journalCount}</strong><span>journals posteados</span></div></div>{data.holds.slice(0,1).map((hold)=><div className="risk-item" key={hold.id}><i className="coral-dot">!</i><span><strong>Fondos reservados</strong><small>{hold.counterparty} · {money(hold.amount,hold.currency)}</small></span><b>Revisar</b></div>)}<div className="risk-item"><i>✓</i><span><strong>Integridad del ledger</strong><small>Débitos y créditos validados en PostgreSQL</small></span><b className="normal">Activo</b></div><button className="risk-button" onClick={() => setActive('Riesgo')}>Abrir centro de riesgo →</button></aside>
           </div>
-          </> : <SecondaryConsoleView active={active} data={data} busy={busy} feedback={feedback} onTransfer={() => setTransferOpen(true)} onReverse={reverseTransaction} onHold={resolveReview} />}
+          </> : active === 'Seguridad' ? <SecurityPanel user={user} /> : <SecondaryConsoleView active={active} data={data} busy={busy} feedback={feedback} onTransfer={() => setTransferOpen(true)} onReverse={reverseTransaction} onHold={resolveReview} />}
         </div>
       </section>
 

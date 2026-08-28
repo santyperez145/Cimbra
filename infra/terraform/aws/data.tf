@@ -66,6 +66,14 @@ resource "aws_secretsmanager_secret_version" "application" {
   secret_string = jsonencode({
     CIMBRA_ENCRYPTION_KEY = random_id.application_encryption.hex
     CRON_SECRET           = random_password.cron.result
+    RESEND_API_KEY        = var.resend_api_key
+    CIMBRA_FROM_EMAIL     = var.cimbra_from_email
+    GOOGLE_CLIENT_ID      = var.google_client_id
+    GOOGLE_CLIENT_SECRET  = var.google_client_secret
+    APPLE_CLIENT_ID       = var.apple_client_id
+    APPLE_TEAM_ID         = var.apple_team_id
+    APPLE_KEY_ID          = var.apple_key_id
+    APPLE_PRIVATE_KEY     = var.apple_private_key
   })
 }
 

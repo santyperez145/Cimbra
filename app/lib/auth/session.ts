@@ -44,13 +44,13 @@ export async function getCurrentUser(request?: Request): Promise<AuthUser | null
   const tokenHash = await sha256(token);
   const row = await getDatabase().prepare(
     `SELECT u.id AS userId, u.username, u.display_name AS displayName, u.email,
-      u.email_verified AS emailVerified
+      u.email_verified AS emailVerified, u.mfa_enabled AS mfaEnabled
      FROM auth_sessions s JOIN users u ON u.id = s.user_id
      WHERE s.token_hash = ? AND s.expires_at > ? LIMIT 1`,
   ).bind(tokenHash, new Date().toISOString()).first<{
-    userId: string; username: string; displayName: string; email: string; emailVerified: number;
+    userId: string; username: string; displayName: string; email: string; emailVerified: number; mfaEnabled: number;
   }>();
-  return row ? { ...row, emailVerified: row.emailVerified === 1 } : null;
+  return row ? { ...row, emailVerified: row.emailVerified === 1, mfaEnabled: row.mfaEnabled === 1 } : null;
 }
 
 export async function requireUser(returnTo = '/console'): Promise<AuthUser> {

@@ -17,6 +17,7 @@
 - API pública v1 con request IDs, errores normalizados, rate-limit headers e idempotencia de altas;
 - SDK TypeScript empaquetable con reintentos seguros y verificación de webhooks;
 - imagen OCI standalone e infraestructura AWS reproducible y validada estáticamente.
+- verificación de email, recuperación de contraseña con revocación de sesiones y MFA TOTP con recovery codes de un solo uso.
 
 ## Gate 1 — design partners
 
@@ -25,7 +26,7 @@
 - pricing probado y modelo de margen por cliente;
 - selección de Argentina y México como secuencia, no lanzamiento simultáneo;
 - búsqueda marcaria, dominio y constitución societaria;
-- verificación de email, recuperación de contraseña y MFA para roles privilegiados;
+- proveedor de email transaccional con dominio verificado y política que exija MFA a owners/admins fuera de sandbox;
 - data room con deck, cap table, presupuesto, riesgos y arquitectura.
 
 ## Gate 2 — piloto con fondos controlados

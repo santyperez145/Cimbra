@@ -1,17 +1,22 @@
 'use client';
 
 import { FormEvent, useState } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 type Props = {
   availability: { google: boolean; apple: boolean };
   returnTo: string;
   initialError: string;
+  initialMfa: boolean;
 };
 
-export default function LoginForm({ availability, returnTo, initialError }: Props) {
+export default function LoginForm({ availability, returnTo, initialError, initialMfa }: Props) {
+  const router = useRouter();
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(initialError);
+  const [challengeToken, setChallengeToken] = useState(initialMfa ? 'cookie' : '');
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -27,8 +32,10 @@ export default function LoginForm({ availability, returnTo, initialError }: Prop
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      const result = await response.json() as { error?: string };
+      const result = await response.json() as { error?: string; mfaRequired?: boolean; challengeToken?: string; verificationEmailSent?: boolean };
       if (!response.ok) setError(result.error ?? 'No pudimos completar la operación.');
+      else if (result.mfaRequired && result.challengeToken) setChallengeToken(result.challengeToken);
+      else if (mode === 'register') router.push(`/verify-email?sent=${result.verificationEmailSent ? '1' : '0'}&return_to=${encodeURIComponent(returnTo)}`);
       else window.location.assign(returnTo);
     } catch {
       setError('No pudimos conectarnos. Revisá tu conexión e intentá nuevamente.');
@@ -37,10 +44,39 @@ export default function LoginForm({ availability, returnTo, initialError }: Prop
     }
   }
 
+  async function verifyMfa(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true); setError('');
+    const form = new FormData(event.currentTarget);
+    try {
+      const response = await fetch('/api/auth/mfa/challenge', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ challengeToken: challengeToken === 'cookie' ? undefined : challengeToken, code: form.get('code') }),
+      });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) setError(result.error ?? 'No pudimos validar el código.');
+      else window.location.assign(returnTo);
+    } catch {
+      setError('No pudimos conectarnos. Revisá tu conexión e intentá nuevamente.');
+    } finally { setBusy(false); }
+  }
+
   function changeMode(next: 'login' | 'register') {
     setMode(next);
     setError('');
   }
+
+  if (challengeToken) return (
+    <div className="auth-box">
+      <div className="auth-heading"><small>SEGUNDO FACTOR</small><h2>Confirmá que sos vos</h2><p>Ingresá el código de seis dígitos de tu autenticador o uno de tus códigos de recuperación.</p></div>
+      <form className="auth-form auth-secondary-form" onSubmit={verifyMfa}>
+        <label>Código de seguridad<input name="code" autoComplete="one-time-code" inputMode="numeric" maxLength={40} autoFocus placeholder="000000" required /></label>
+        {error && <div className="auth-error" role="alert">{error}</div>}
+        <button className="auth-submit" disabled={busy}>{busy ? 'Validando…' : 'Verificar e ingresar →'}</button>
+        <button type="button" className="auth-text-button" onClick={() => { setChallengeToken(''); setError(''); }}>Volver al inicio de sesión</button>
+      </form>
+    </div>
+  );
 
   return (
     <div className="auth-box">
@@ -58,6 +94,7 @@ export default function LoginForm({ availability, returnTo, initialError }: Prop
         {mode === 'register' && <><label>Nombre completo<input name="displayName" autoComplete="name" minLength={2} maxLength={100} placeholder="Sofía Martínez" required /></label><label>Nombre de usuario<input name="username" autoComplete="username" minLength={3} maxLength={30} pattern="[a-zA-Z0-9._-]+" placeholder="sofia.martinez" required /><small>Letras, números, punto, guion o guion bajo.</small></label><label>Email corporativo<input name="email" type="email" autoComplete="email" maxLength={254} placeholder="sofia@empresa.com" required /></label></>}
         {mode === 'login' && <label>Email o usuario<input name="identifier" autoComplete="username" maxLength={254} placeholder="sofia@empresa.com" required /></label>}
         <label>Contraseña<input name="password" type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} minLength={mode === 'register' ? 12 : undefined} maxLength={128} placeholder="Mínimo 12 caracteres" required />{mode === 'register' && <small>Usá una frase única de al menos 12 caracteres.</small>}</label>
+        {mode === 'login' && <Link className="auth-forgot" href="/forgot-password">¿Olvidaste tu contraseña?</Link>}
         {error && <div className="auth-error" role="alert">{error}</div>}
         <button className="auth-submit" disabled={busy}>{busy ? 'Procesando…' : mode === 'login' ? 'Ingresar a la consola →' : 'Crear cuenta →'}</button>
       </form>

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { authenticatePassword, authRateLimit, recordAuthAttempt } from '@/app/lib/auth/accounts';
 import { mutationAllowed } from '@/app/lib/auth/http';
 import { createSession } from '@/app/lib/auth/session';
+import { issueMfaChallenge } from '@/app/lib/auth/mfa';
 
 export async function POST(request: Request) {
   if (!mutationAllowed(request)) return NextResponse.json({ error: 'Origen de solicitud no permitido.' }, { status: 403 });
@@ -14,6 +15,10 @@ export async function POST(request: Request) {
   const user = await authenticatePassword(identifier, password);
   await recordAuthAttempt(rate.attempt, Boolean(user));
   if (!user) return NextResponse.json({ error: 'Usuario o contraseña incorrectos.' }, { status: 401 });
+  if (user.mfaEnabled) {
+    const challengeToken = await issueMfaChallenge(user.userId);
+    return NextResponse.json({ ok: true, mfaRequired: true, challengeToken }, { headers: { 'Cache-Control': 'no-store' } });
+  }
   const response = NextResponse.json({ ok: true, user: { username: user.username, displayName: user.displayName, email: user.email } });
   await createSession(user.userId, request, response);
   response.headers.set('Cache-Control', 'no-store');

@@ -272,6 +272,8 @@ locals {
     { name = "NODE_ENV", value = "production" },
     { name = "CIMBRA_PUBLIC_URL", value = var.public_url },
     { name = "NEXT_PUBLIC_CIMBRA_PUBLIC_URL", value = var.public_url },
+    { name = "CIMBRA_REQUIRE_VERIFIED_EMAIL", value = var.environment == "production" ? "1" : "0" },
+    { name = "CIMBRA_REQUIRE_PRIVILEGED_MFA", value = var.environment == "production" ? "1" : "0" },
     { name = "DB_HOST", value = aws_db_instance.postgres.address },
     { name = "DB_PORT", value = tostring(aws_db_instance.postgres.port) },
     { name = "DB_NAME", value = aws_db_instance.postgres.db_name },
@@ -282,6 +284,14 @@ locals {
     { name = "DB_PASSWORD", valueFrom = "${aws_db_instance.postgres.master_user_secret[0].secret_arn}:password::" },
     { name = "CIMBRA_ENCRYPTION_KEY", valueFrom = "${aws_secretsmanager_secret.application.arn}:CIMBRA_ENCRYPTION_KEY::" },
     { name = "CRON_SECRET", valueFrom = "${aws_secretsmanager_secret.application.arn}:CRON_SECRET::" },
+    { name = "RESEND_API_KEY", valueFrom = "${aws_secretsmanager_secret.application.arn}:RESEND_API_KEY::" },
+    { name = "CIMBRA_FROM_EMAIL", valueFrom = "${aws_secretsmanager_secret.application.arn}:CIMBRA_FROM_EMAIL::" },
+    { name = "GOOGLE_CLIENT_ID", valueFrom = "${aws_secretsmanager_secret.application.arn}:GOOGLE_CLIENT_ID::" },
+    { name = "GOOGLE_CLIENT_SECRET", valueFrom = "${aws_secretsmanager_secret.application.arn}:GOOGLE_CLIENT_SECRET::" },
+    { name = "APPLE_CLIENT_ID", valueFrom = "${aws_secretsmanager_secret.application.arn}:APPLE_CLIENT_ID::" },
+    { name = "APPLE_TEAM_ID", valueFrom = "${aws_secretsmanager_secret.application.arn}:APPLE_TEAM_ID::" },
+    { name = "APPLE_KEY_ID", valueFrom = "${aws_secretsmanager_secret.application.arn}:APPLE_KEY_ID::" },
+    { name = "APPLE_PRIVATE_KEY", valueFrom = "${aws_secretsmanager_secret.application.arn}:APPLE_PRIVATE_KEY::" },
   ]
 }
 

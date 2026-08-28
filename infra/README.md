@@ -20,7 +20,7 @@ Esta topología evita incorporar Kafka, Temporal, Redis o Kubernetes antes de te
 
 1. Publicar una imagen inmutable del `Dockerfile` en ECR u otro registro privado.
 2. Crear un backend S3 con locking para el estado de Terraform y configurar `backend.hcl` fuera del repositorio.
-3. Copiar `terraform/aws/terraform.tfvars.example` a un archivo ignorado y completar imagen, certificado y URL pública.
+3. Copiar `terraform/aws/terraform.tfvars.example` a un archivo ignorado y completar imagen, certificado, URL pública y credenciales de email/OAuth. El secreto de Resend y las claves privadas deben ingresar mediante un canal seguro; Terraform las guarda en Secrets Manager y ECS las inyecta sólo en runtime.
 4. Ejecutar `terraform init -backend-config=backend.hcl`, `terraform plan -out=plan.tfplan` y revisar costo, diff y políticas.
 5. Aplicar primero en una cuenta de staging. Ejecutar la task definition indicada por el output `migration_task_definition_arn` en las subredes privadas y exigir exit code 0 antes de cambiar el tráfico. La imagen incluye `scripts/migrate.mjs` y el historial de migraciones.
 6. Probar restore de backup, failover Multi-AZ, rollback de ECS, alarmas y entregas de webhook antes del piloto.

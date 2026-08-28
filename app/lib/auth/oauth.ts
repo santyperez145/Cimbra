@@ -6,6 +6,7 @@ import { findOrCreateOAuthUser } from './accounts';
 import { randomToken, sha256 } from './crypto';
 import { createSession, readRequestCookie } from './session';
 import type { OAuthProvider } from './types';
+import { issueMfaChallenge, setMfaChallengeCookie } from './mfa';
 
 const GOOGLE_KEYS = createRemoteJWKSet(new URL('https://www.googleapis.com/oauth2/v3/certs'));
 const APPLE_KEYS = createRemoteJWKSet(new URL('https://appleid.apple.com/auth/keys'));
@@ -168,8 +169,11 @@ export async function finishOAuth(provider: OAuthProvider, request: Request, val
       });
     }
 
-    const response = NextResponse.redirect(new URL(safeReturnTo(saved.returnTo), origin));
-    await createSession(user.userId, request, response);
+    const response = user.mfaEnabled
+      ? NextResponse.redirect(new URL(`/login?mfa=1&return_to=${encodeURIComponent(safeReturnTo(saved.returnTo))}`, origin))
+      : NextResponse.redirect(new URL(safeReturnTo(saved.returnTo), origin));
+    if (user.mfaEnabled) setMfaChallengeCookie(request, response, await issueMfaChallenge(user.userId));
+    else await createSession(user.userId, request, response);
     clearOAuthCookie(response);
     return response;
   } catch (error) {
