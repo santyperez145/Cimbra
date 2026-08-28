@@ -29,21 +29,21 @@ export default function Home() {
             <p className="eyebrow"><span /> Infraestructura financiera para Latinoamérica</p>
             <h1>Tu producto financiero,<br /><em>sin construir el banco.</em></h1>
             <p className="hero-lede">
-              Cuentas, pagos, tarjetas, crédito y compliance en una sola plataforma API-first. Modular para empezar. Robusta para escalar.
+              Identidad propia, cuentas sandbox, tarjetas de prueba, transferencias y un ledger de doble partida en una plataforma API-first construida para evolucionar por módulos.
             </p>
             <div className="hero-actions">
               <a className="button button-primary" href="#demo">Diseñemos tu lanzamiento <span>↗</span></a>
               <a className="button button-secondary" href="#developers"><span className="code-icon">{'{ }'}</span> Ver documentación</a>
             </div>
             <div className="trust-row" aria-label="Características de confianza">
-              <span><b>●</b> API unificada</span>
-              <span><b>●</b> Ledger en tiempo real</span>
-              <span><b>●</b> Arquitectura multi-país</span>
+              <span><b>●</b> API OpenAPI</span>
+              <span><b>●</b> Ledger persistente</span>
+              <span><b>●</b> Monedas segregadas</span>
             </div>
           </div>
 
           <div className="console-wrap" aria-label="Vista previa de la consola Cimbra">
-            <div className="float-chip float-chip-top"><span>Disponibilidad</span><strong><i /> 99,99%</strong></div>
+            <div className="float-chip float-chip-top"><span>Ledger</span><strong><i /> Partida doble</strong></div>
             <div className="console-card">
               <aside className="console-sidebar">
                 <div className="mini-mark"><i /><i /><i /></div>
@@ -55,24 +55,20 @@ export default function Home() {
               <div className="console-main">
                 <div className="console-topbar">
                   <span>Vista general</span>
-                  <div><span className="env-pill">● Producción</span><b>FM</b></div>
+                  <div><span className="env-pill">● Sandbox</span><b>CS</b></div>
                 </div>
                 <div className="console-content">
                   <div className="console-heading">
-                    <div><small>BUEN DÍA, FINANZAS MODA</small><h2>Todo en orden.</h2></div>
-                    <button aria-label="Más opciones">•••</button>
+                    <div><small>TENANT INICIAL CIMBRA</small><h2>Ledger balanceado.</h2></div>
                   </div>
                   <div className="metric-grid">
                     <article className="metric-main">
-                      <div><span>Volumen procesado</span><small>Últimos 30 días</small></div>
-                      <strong>$ 18,4M</strong>
-                      <div className="chart" aria-hidden="true">
-                        {[38, 52, 44, 66, 58, 81, 72, 93, 84, 100].map((h, i) => <i key={i} style={{height: `${h}%`}} />)}
-                      </div>
-                      <small className="metric-up">↗ 18,2% vs. período anterior</small>
+                      <div><span>Volumen ARS registrado</span><small>Datos semilla del sandbox</small></div>
+                      <strong>$ 5.420.950</strong>
+                      <small className="metric-up">8 movimientos persistidos</small>
                     </article>
-                    <article className="metric-side"><span>Tasa de aprobación</span><strong>96,8%</strong><small>↗ 1,4%</small></article>
-                    <article className="metric-side coral"><span>Alertas de riesgo</span><strong>03</strong><small>Requieren revisión</small></article>
+                    <article className="metric-side"><span>Tasa de aprobación</span><strong>75,0%</strong><small>Calculada por estado</small></article>
+                    <article className="metric-side coral"><span>Reservas activas</span><strong>02</strong><small>Requieren decisión</small></article>
                   </div>
                   <div className="activity">
                     <div className="activity-title"><strong>Actividad reciente</strong><span>Ver todas →</span></div>
@@ -87,12 +83,12 @@ export default function Home() {
                 </div>
               </div>
             </div>
-            <div className="float-chip float-chip-bottom"><span>Procesado hoy</span><strong>$ 2.847.230 <i>↗ 12%</i></strong></div>
+            <div className="float-chip float-chip-bottom"><span>Balances separados</span><strong>ARS · USD</strong></div>
           </div>
         </div>
 
         <div className="hero-foot">
-          <p>Un solo contrato. Una sola integración.<br />Todo el stack financiero.</p>
+          <p>Una base propia. Integración modular.<br />Roadmap regional transparente.</p>
           <div className="country-list"><span>AR</span><span>MX</span><span>CO</span><span>BR</span><span>CL</span><span>PE</span></div>
         </div>
       </section>
@@ -104,12 +100,12 @@ export default function Home() {
           <p>Activá sólo lo que necesitás hoy. Sumá nuevas capacidades sin migraciones traumáticas ni integraciones duplicadas.</p>
         </div>
         <div className="module-grid">
-          <article className="module-card featured"><span className="module-number">01</span><div className="module-icon">⌗</div><h3>Core & Ledger</h3><p>Cuentas multi-moneda, ledger de doble partida, saldos disponibles y contables, intereses y límites.</p><ul><li>CVU / CBU / CLABE</li><li>Conciliación en tiempo real</li><li>Multi-entidad y multi-país</li></ul><a href="#demo">Explorar módulo →</a></article>
-          <article className="module-card"><span className="module-number">02</span><div className="module-icon">↔</div><h3>Payments</h3><p>Pagos, cobros y payouts orquestados a través de rieles locales desde una API consistente.</p><ul><li>Transferencias y QR</li><li>Servicios y recargas</li><li>Split payments</li></ul><a href="#demo">Explorar módulo →</a></article>
-          <article className="module-card"><span className="module-number">03</span><div className="module-icon">▰</div><h3>Cards</h3><p>Emisión y procesamiento de débito, crédito y prepago, físicas o virtuales, con controles en tiempo real.</p><ul><li>Tokenización y 3DS</li><li>Controles configurables</li><li>Disputas y chargebacks</li></ul><a href="#demo">Explorar módulo →</a></article>
-          <article className="module-card"><span className="module-number">04</span><div className="module-icon">◒</div><h3>Lending</h3><p>Originación, scoring, desembolso y servicing para crédito al consumo, comercios y capital de trabajo.</p><ul><li>Motor de decisiones</li><li>Calendarios flexibles</li><li>Cobranzas automatizadas</li></ul><a href="#demo">Explorar módulo →</a></article>
-          <article className="module-card"><span className="module-number">05</span><div className="module-icon">✓</div><h3>Compliance & Risk</h3><p>Onboarding KYB/KYC, reglas AML, monitoreo transaccional y expedientes auditables por jurisdicción.</p><ul><li>Screening PEP y sanciones</li><li>Rules engine</li><li>Case management</li></ul><a href="#demo">Explorar módulo →</a></article>
-          <article className="module-card"><span className="module-number">06</span><div className="module-icon">⌁</div><h3>Data & Operations</h3><p>Consola unificada, webhooks, reportes regulatorios, conciliación y observabilidad del ciclo completo.</p><ul><li>Eventos en tiempo real</li><li>Exports y reportes</li><li>Roles y trazabilidad</li></ul><a href="#demo">Explorar módulo →</a></article>
+          <article className="module-card featured"><span className="module-number">01 · DISPONIBLE</span><div className="module-icon">⌗</div><h3>Core & Ledger</h3><p>Cuentas multi-moneda, journals de doble partida, saldos disponibles y contables, holds y reversas.</p><ul><li>Montos BIGINT en unidad mínima</li><li>Postings inmutables</li><li>Idempotencia por tenant</li></ul><a href="/console">Probar en sandbox →</a></article>
+          <article className="module-card"><span className="module-number">02 · SANDBOX</span><div className="module-icon">↔</div><h3>Payments</h3><p>Transferencias internas de prueba con evaluación por monto, reservas y asientos compensatorios.</p><ul><li>Liquidación simulada</li><li>Captura y liberación</li><li>Sin movimiento de fondos reales</li></ul><a href="/developers">Ver API →</a></article>
+          <article className="module-card"><span className="module-number">03 · SANDBOX</span><div className="module-icon">▰</div><h3>Cards</h3><p>Recursos de tarjeta de prueba vinculados a customers y cuentas de la organización.</p><ul><li>Débito, crédito y prepago</li><li>Formato virtual o físico</li><li>Sin conexión a una red</li></ul><a href="/developers">Ver API →</a></article>
+          <article className="module-card"><span className="module-number">04 · ROADMAP</span><div className="module-icon">◒</div><h3>Lending</h3><p>Dominio previsto para originación, decisiones, calendarios, desembolso y servicing.</p><ul><li>No habilitado aún</li><li>Requiere modelo de riesgo</li><li>Requiere marco regulatorio</li></ul><a href="#demo">Diseñar módulo →</a></article>
+          <article className="module-card"><span className="module-number">05 · PARCIAL</span><div className="module-icon">✓</div><h3>Compliance & Risk</h3><p>Evidencia privada, auditoría y reservas por riesgo; las verificaciones KYC/AML externas son el próximo bloque.</p><ul><li>Blob privado y metadata</li><li>Cola de holds</li><li>Sin screening externo aún</li></ul><a href="/console">Probar evidencia →</a></article>
+          <article className="module-card"><span className="module-number">06 · PARCIAL</span><div className="module-icon">⌁</div><h3>Data & Operations</h3><p>Consola unificada, eventos de auditoría y contrato OpenAPI; webhooks y reportes quedan en roadmap.</p><ul><li>Auditoría persistida</li><li>OpenAPI versionado</li><li>Webhooks no habilitados</li></ul><a href="/developers">Abrir documentación →</a></article>
         </div>
       </section>
 
@@ -117,8 +113,8 @@ export default function Home() {
         <div className="orchestration-copy">
           <p className="eyebrow"><span /> ORQUESTACIÓN REGIONAL</p>
           <h2>Una integración.<br />Múltiples rieles.<br /><em>Cero callejones.</em></h2>
-          <p>Cimbra desacopla tu producto de bancos, procesadores y proveedores locales. Enrutamos cada operación por disponibilidad, costo, riesgo y regulación.</p>
-          <div className="check-list"><span><b>✓</b> Failover y reintentos idempotentes</span><span><b>✓</b> Ledger neutral respecto del proveedor</span><span><b>✓</b> Migración gradual, sin big bang</span></div>
+          <p>La arquitectura objetivo desacopla el dominio financiero de bancos, procesadores y proveedores locales. Hoy el ledger y la idempotencia ya son propios; los adaptadores de rieles son la siguiente etapa.</p>
+          <div className="check-list"><span><b>✓</b> Idempotencia financiera implementada</span><span><b>✓</b> Ledger neutral respecto del proveedor</span><span><b>→</b> Routing y failover en roadmap</span></div>
           <a className="text-link" href="#demo">Diseñar mi arquitectura →</a>
         </div>
         <div className="rail-map" aria-label="Arquitectura modular Cimbra">
@@ -127,7 +123,7 @@ export default function Home() {
           <div className="rail-core"><span className="brand-mark"><i /><i /><i /></span><strong>CIMBRA</strong><small>ORCHESTRATION LAYER</small><div><b>Identity</b><b>Ledger</b><b>Risk</b><b>Routing</b></div></div>
           <div className="rail-lines right" aria-hidden="true"><i /><i /><i /><i /></div>
           <div className="rail-column destinations"><small>RIELES</small><span>BANK</span><span>CARD</span><span>QR</span><span>BILL</span></div>
-          <div className="rail-status"><i /> Enrutamiento operativo <b>24/7</b></div>
+          <div className="rail-status"><i /> Arquitectura objetivo <b>PARTNER-FIRST</b></div>
         </div>
       </section>
 
@@ -135,14 +131,14 @@ export default function Home() {
         <div className="code-window">
           <div className="code-top"><span><i /><i /><i /></span><b>create-transfer.ts</b><small>Node.js</small></div>
           <pre><code><span className="code-muted">{'// Una llamada. Idempotencia incluida.'}</span>{'\n'}<span className="code-pink">const</span> transfer = <span className="code-pink">await</span> fetch(<span className="code-yellow">&quot;/api/sandbox/transfers&quot;</span>, {'{'}{'\n'}  <span className="code-blue">method</span>: <span className="code-yellow">&quot;POST&quot;</span>,{'\n'}  <span className="code-blue">headers</span>: {'{'}{'\n'}    <span className="code-yellow">&quot;Content-Type&quot;</span>: <span className="code-yellow">&quot;application/json&quot;</span>,{'\n'}    <span className="code-yellow">&quot;Idempotency-Key&quot;</span>: crypto.randomUUID(){'\n'}  {'}'},{'\n'}  <span className="code-blue">body</span>: JSON.stringify({'{'}{'\n'}    <span className="code-blue">amount</span>: <span className="code-green">250000</span>,{'\n'}    <span className="code-blue">currency</span>: <span className="code-yellow">&quot;ARS&quot;</span>,{'\n'}    <span className="code-blue">counterparty</span>: <span className="code-yellow">&quot;Proveedor Andino&quot;</span>,{'\n'}    <span className="code-blue">description</span>: <span className="code-yellow">&quot;Pago de servicios&quot;</span>{'\n'}  {'}'}){'\n'}{'}'});</code></pre>
-          <div className="code-response"><span>201 CREATED</span><code>{'{ "id": "trf_3x9…", "status": "settled" }'}</code></div>
+          <div className="code-response"><span>201 CREATED</span><code>{'{ "ok": true, "transaction": { "id": "<uuid>", "status": "settled" }, "replayed": false }'}</code></div>
         </div>
-        <div className="developer-copy"><p className="eyebrow"><span /> DEVELOPER FIRST, DE VERDAD</p><h2>Una API que tu equipo va a querer usar.</h2><p>Recursos consistentes, SDKs tipados, sandbox con datos realistas y webhooks firmados. Diseñada para integrar en días y operar durante años.</p><div className="developer-stats"><div><strong>&lt; 10 min</strong><span>primer request</span></div><div><strong>99,99%</strong><span>SLA objetivo enterprise</span></div><div><strong>24/7</strong><span>observabilidad y soporte</span></div></div><a className="button button-coral" href="/developers">Abrir documentación <span>↗</span></a></div>
+        <div className="developer-copy"><p className="eyebrow"><span /> DEVELOPER FIRST, DE VERDAD</p><h2>Una API verificable desde el primer request.</h2><p>Contrato OpenAPI, recursos persistentes, aislamiento por organización e idempotencia obligatoria en movimientos financieros.</p><div className="developer-stats"><div><strong>OpenAPI</strong><span>contrato público</span></div><div><strong>PostgreSQL</strong><span>fuente de verdad</span></div><div><strong>Reversas</strong><span>sin mutar postings</span></div></div><a className="button button-coral" href="/developers">Abrir documentación <span>↗</span></a></div>
       </section>
 
       <section id="empresa" className="principles-section">
         <div className="section-heading"><p className="eyebrow"><span /> CONSTRUIDA PARA INFRAESTRUCTURA CRÍTICA</p><h2>Velocidad sin deuda operativa.</h2><p>Cada decisión técnica reduce riesgo, acelera integración y mantiene la trazabilidad que exige el sistema financiero.</p></div>
-        <div className="principles-grid"><article><span>01</span><h3>Seguridad por diseño</h3><p>Cifrado, segregación de funciones, mínimo privilegio y auditoría inmutable como base, no como add-on.</p></article><article><span>02</span><h3>Control sin lock-in</h3><p>Modelos de datos portables, contratos claros y capas desacopladas para que el cliente conserve el control.</p></article><article><span>03</span><h3>Operación observable</h3><p>Métricas, logs y trazas desde el request hasta la conciliación. Lo que mueve dinero nunca es una caja negra.</p></article><article><span>04</span><h3>Compliance local</h3><p>Políticas configurables por producto y país, con evidencia, versionado y revisión humana cuando corresponde.</p></article></div>
+        <div className="principles-grid"><article><span>01</span><h3>Seguridad por diseño</h3><p>Sesiones opacas, protección de origen, mínimo privilegio por rol y auditoría persistida desde el primer release.</p></article><article><span>02</span><h3>Control sin lock-in</h3><p>PostgreSQL estándar, modelos portables y dominio desacoplado para que el cliente conserve el control.</p></article><article><span>03</span><h3>Operación verificable</h3><p>Healthcheck con dependencia real, eventos de auditoría y estados explícitos desde el request hasta el journal.</p></article><article><span>04</span><h3>Compliance progresivo</h3><p>Evidencia privada y trazabilidad hoy; screening, case management y controles jurisdiccionales en roadmap.</p></article></div>
       </section>
 
       <section className="launch-section">
@@ -155,7 +151,7 @@ export default function Home() {
         <DemoForm />
       </section>
 
-      <footer className="site-footer"><div className="footer-top"><a className="brand footer-brand" href="#inicio"><span className="brand-mark"><i /><i /><i /></span><span>CIMBRA</span></a><p>Infraestructura financiera<br />para Latinoamérica.</p><div className="footer-status"><i /> Todos los sistemas operativos</div></div><div className="footer-links"><div><strong>Plataforma</strong><a href="#plataforma">Core & Ledger</a><a href="#plataforma">Payments</a><a href="#plataforma">Cards</a><a href="#plataforma">Lending</a></div><div><strong>Recursos</strong><a href="/developers">Documentación</a><a href="/console">Sandbox</a><a href="/api/health">Status API</a><a href="#empresa">Seguridad</a></div><div><strong>Compañía</strong><a href="#empresa">Nosotros</a><a href="#demo">Contacto</a><a href="#demo">Partners</a><a href="#demo">Carreras</a></div><div><strong>Regiones</strong><span>Argentina · México</span><span>Colombia · Brasil</span><span>Chile · Perú</span></div></div><div className="footer-bottom"><span>© 2026 Cimbra Technologies. Todos los derechos reservados.</span><div><a href="#demo">Privacidad</a><a href="#demo">Términos</a><a href="#demo">Seguridad</a></div></div></footer>
+      <footer className="site-footer"><div className="footer-top"><a className="brand footer-brand" href="#inicio"><span className="brand-mark"><i /><i /><i /></span><span>CIMBRA</span></a><p>Infraestructura financiera<br />para Latinoamérica.</p><a className="footer-status" href="/api/health"><i /> Healthcheck público</a></div><div className="footer-links"><div><strong>Disponible</strong><a href="#plataforma">Core & Ledger</a><a href="#plataforma">Payments sandbox</a><a href="#plataforma">Cards sandbox</a><a href="#plataforma">Compliance parcial</a></div><div><strong>Recursos</strong><a href="/developers">Documentación</a><a href="/console">Sandbox</a><a href="/openapi.yaml">OpenAPI</a><a href="/api/health">Status API</a></div><div><strong>Compañía</strong><a href="#empresa">Principios</a><a href="#demo">Contacto</a><a href="/terms">Términos</a><a href="/privacy">Privacidad</a></div><div><strong>Mercados objetivo</strong><span>Argentina · México</span><span>Colombia · Brasil</span><span>Chile · Perú</span></div></div><div className="footer-bottom"><span>© 2026 Cimbra Technologies. Todos los derechos reservados.</span><span>Sandbox tecnológico · No mueve fondos reales</span></div></footer>
     </main>
   );
 }

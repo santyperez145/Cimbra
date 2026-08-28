@@ -1,4 +1,5 @@
-import { doublePrecision, index, integer, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import { type AnyPgColumn, bigint, check, index, integer, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
 
 export const organizations = pgTable('organizations', {
   id: text('id').primaryKey(), name: text('name').notNull(), slug: text('slug').notNull(),
@@ -49,13 +50,17 @@ export const transactions = pgTable('transactions', {
   id: text('id').primaryKey(), organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
   idempotencyKey: text('idempotency_key').notNull(), type: text('type').notNull(),
   counterparty: text('counterparty').notNull(), description: text('description').notNull(),
-  amount: doublePrecision('amount').notNull(), currency: text('currency').notNull().default('ARS'),
+  amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(), currency: text('currency').notNull().default('ARS'),
   status: text('status').notNull().default('pending'), riskScore: integer('risk_score').notNull().default(0),
-  createdAt: text('created_at').notNull(),
+  reversalOf: text('reversal_of').references((): AnyPgColumn => transactions.id, { onDelete: 'restrict' }),
+  createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
 }, (table) => [
   uniqueIndex('idx_transactions_org_idempotency').on(table.organizationId, table.idempotencyKey),
   index('idx_transactions_org_created').on(table.organizationId, table.createdAt),
   index('idx_transactions_org_status').on(table.organizationId, table.status),
+  uniqueIndex('idx_transactions_reversal').on(table.reversalOf),
+  check('transactions_amount_nonzero', sql`${table.amountMinor} <> 0`),
+  check('transactions_risk_range', sql`${table.riskScore} BETWEEN 0 AND 100`),
 ]);
 
 export const leads = pgTable('leads', {
@@ -70,12 +75,77 @@ export const customers = pgTable('customers', {
   status: text('status').notNull().default('active'), createdAt: text('created_at').notNull(),
 }, (table) => [index('idx_customers_org_created').on(table.organizationId, table.createdAt)]);
 
+export const financialAccounts = pgTable('financial_accounts', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  purpose: text('purpose').notNull(), name: text('name').notNull(),
+  currency: text('currency').notNull(), accountClass: text('account_class').notNull(),
+  normalBalance: text('normal_balance').notNull(), status: text('status').notNull().default('active'),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_financial_accounts_org_purpose_currency').on(table.organizationId, table.purpose, table.currency),
+  index('idx_financial_accounts_org').on(table.organizationId),
+  check('financial_accounts_class', sql`${table.accountClass} IN ('asset', 'liability', 'equity', 'revenue', 'expense')`),
+  check('financial_accounts_normal_balance', sql`${table.normalBalance} IN ('debit', 'credit')`),
+]);
+
+export const ledgerJournals = pgTable('ledger_journals', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  transactionId: text('transaction_id').references(() => transactions.id, { onDelete: 'restrict' }),
+  idempotencyKey: text('idempotency_key').notNull(), kind: text('kind').notNull(),
+  description: text('description').notNull(), currency: text('currency').notNull(),
+  status: text('status').notNull().default('posted'),
+  reversalOf: text('reversal_of').references((): AnyPgColumn => ledgerJournals.id, { onDelete: 'restrict' }),
+  postedAt: text('posted_at'), createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_ledger_journals_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  uniqueIndex('idx_ledger_journals_transaction').on(table.transactionId),
+  index('idx_ledger_journals_org_created').on(table.organizationId, table.createdAt),
+  index('idx_ledger_journals_reversal').on(table.reversalOf),
+  check('ledger_journals_status', sql`${table.status} IN ('posted', 'reversed')`),
+]);
+
+export const ledgerPostings = pgTable('ledger_postings', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  journalId: text('journal_id').notNull().references(() => ledgerJournals.id, { onDelete: 'restrict' }),
+  accountId: text('account_id').notNull().references(() => financialAccounts.id, { onDelete: 'restrict' }),
+  direction: text('direction').notNull(), amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(),
+  currency: text('currency').notNull(), createdAt: text('created_at').notNull(),
+}, (table) => [
+  index('idx_ledger_postings_journal').on(table.journalId),
+  index('idx_ledger_postings_account_created').on(table.accountId, table.createdAt),
+  check('ledger_postings_direction', sql`${table.direction} IN ('debit', 'credit')`),
+  check('ledger_postings_amount_positive', sql`${table.amountMinor} > 0`),
+]);
+
+export const holds = pgTable('holds', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  accountId: text('account_id').notNull().references(() => financialAccounts.id, { onDelete: 'restrict' }),
+  transactionId: text('transaction_id').references(() => transactions.id, { onDelete: 'restrict' }),
+  idempotencyKey: text('idempotency_key').notNull(), amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(),
+  currency: text('currency').notNull(), status: text('status').notNull().default('active'),
+  expiresAt: text('expires_at'), createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_holds_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  index('idx_holds_account_status').on(table.accountId, table.status),
+  check('holds_amount_positive', sql`${table.amountMinor} > 0`),
+  check('holds_status', sql`${table.status} IN ('active', 'captured', 'released', 'expired')`),
+]);
+
 export const accounts = pgTable('accounts', {
   id: text('id').primaryKey(), organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
   customerId: text('customer_id').notNull().references(() => customers.id, { onDelete: 'restrict' }),
+  ledgerAccountId: text('ledger_account_id').notNull().references(() => financialAccounts.id, { onDelete: 'restrict' }),
   currency: text('currency').notNull(), country: text('country').notNull(), accountReference: text('account_reference').notNull(),
-  balance: doublePrecision('balance').notNull().default(0), status: text('status').notNull().default('active'), createdAt: text('created_at').notNull(),
-}, (table) => [index('idx_accounts_org_created').on(table.organizationId, table.createdAt), index('idx_accounts_customer').on(table.customerId)]);
+  status: text('status').notNull().default('active'), createdAt: text('created_at').notNull(),
+}, (table) => [
+  index('idx_accounts_org_created').on(table.organizationId, table.createdAt),
+  index('idx_accounts_customer').on(table.customerId),
+  uniqueIndex('idx_accounts_ledger_account').on(table.ledgerAccountId),
+]);
 
 export const cards = pgTable('cards', {
   id: text('id').primaryKey(), organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),

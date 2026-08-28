@@ -1,33 +1,44 @@
 openapi: 3.1.0
 info:
   title: Cimbra Sandbox API
-  version: 2026-08-01
-  description: Authenticated sandbox endpoints. They do not move real funds.
+  version: 2026-08-28
+  description: Authenticated sandbox endpoints backed by a persistent double-entry ledger. They do not move real funds.
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
 servers:
   - url: /
+security: []
 paths:
   /api/auth/register:
     post:
+      operationId: registerUser
       summary: Create a first-party account and session
+      security: []
       responses:
         '201': { description: Account created }
         '409': { description: Email or username already exists }
         '429': { description: Too many attempts }
   /api/auth/login:
     post:
+      operationId: loginUser
       summary: Start a session with email/username and password
+      security: []
       responses:
         '200': { description: Authenticated }
         '401': { description: Invalid credentials }
         '429': { description: Too many attempts }
   /api/auth/logout:
     post:
+      operationId: logoutUser
       summary: Revoke the current session
       security: [{ session: [] }]
       responses:
         '200': { description: Session revoked }
+        '401': { description: Authentication required }
   /api/auth/me:
     get:
+      operationId: getCurrentUser
       summary: Read the authenticated user
       security: [{ session: [] }]
       responses:
@@ -35,11 +46,15 @@ paths:
         '401': { description: Authentication required }
   /api/health:
     get:
+      operationId: getHealth
       summary: Platform health
+      security: []
       responses:
         '200': { description: Operational }
+        '503': { description: Database or schema unavailable }
   /api/sandbox/customers:
     post:
+      operationId: createCustomer
       summary: Create a customer
       security: [{ session: [] }]
       requestBody:
@@ -60,6 +75,7 @@ paths:
         '401': { description: Authentication required }
   /api/sandbox/accounts:
     post:
+      operationId: createAccount
       summary: Open an account
       security: [{ session: [] }]
       requestBody:
@@ -78,6 +94,7 @@ paths:
         '404': { description: Customer not found in tenant }
   /api/sandbox/cards:
     post:
+      operationId: createCard
       summary: Issue a sandbox card
       security: [{ session: [] }]
       requestBody:
@@ -96,12 +113,14 @@ paths:
         '404': { description: Account not found in tenant }
   /api/sandbox/transfers:
     post:
+      operationId: createTransfer
       summary: Create an idempotent sandbox transfer
       security: [{ session: [] }]
       parameters:
         - in: header
           name: Idempotency-Key
-          schema: { type: string, maxLength: 100 }
+          required: true
+          schema: { type: string, minLength: 8, maxLength: 100 }
       requestBody:
         required: true
         content:
@@ -112,19 +131,85 @@ paths:
               properties:
                 counterparty: { type: string, minLength: 2 }
                 description: { type: string, minLength: 2 }
-                amount: { type: number, exclusiveMinimum: 0, maximum: 10000000 }
+                amount:
+                  description: Decimal major-unit amount. Prefer a string to avoid floating-point serialization.
+                  oneOf:
+                    - { type: string, pattern: '^\d+(?:\.\d+)?$' }
+                    - { type: number, exclusiveMinimum: 0, maximum: 10000000 }
                 currency: { type: string, enum: [ARS, USD, MXN, COP, BRL, CLP, PEN] }
       responses:
         '201': { description: Transfer created }
         '200': { description: Idempotent replay }
+        '400': { description: Invalid payload or missing idempotency key }
+        '401': { description: Authentication required }
+        '403': { description: Role does not allow mutation }
+        '422': { description: Insufficient available balance }
+  /api/sandbox/transfers/{id}/reverse:
+    post:
+      operationId: reverseTransfer
+      summary: Reverse a settled transfer with a compensating journal
+      security: [{ session: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema: { type: string, minLength: 8, maxLength: 100 }
+      responses:
+        '201': { description: Reversal posted }
+        '200': { description: Existing reversal returned }
+        '404': { description: Original transfer not found }
+        '409': { description: Transfer is not reversible }
+  /api/sandbox/ledger:
+    get:
+      operationId: getLedger
+      summary: Read currency-isolated balances, journals and active holds
+      security: [{ session: [] }]
+      responses:
+        '200': { description: Ledger snapshot }
+        '401': { description: Authentication required }
+  /api/sandbox/holds/{id}/capture:
+    post:
+      operationId: captureHold
+      summary: Capture an active hold and post its financial journal
+      security: [{ session: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Hold captured }
+        '404': { description: Hold not found }
+        '409': { description: Hold already resolved }
+  /api/sandbox/holds/{id}/release:
+    post:
+      operationId: releaseHold
+      summary: Release an active hold without posting a financial journal
+      security: [{ session: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Hold released }
+        '404': { description: Hold not found }
+        '409': { description: Hold already resolved }
   /api/sandbox/events:
     get:
+      operationId: listAuditEvents
       summary: List recent audit events
       security: [{ session: [] }]
       responses:
         '200': { description: Event list }
+        '401': { description: Authentication required }
   /api/compliance/documents:
     post:
+      operationId: uploadComplianceDocument
       summary: Upload private compliance evidence
       security: [{ session: [] }]
       requestBody:
@@ -138,7 +223,7 @@ paths:
                 file: { type: string, format: binary }
       responses:
         '201': { description: Document stored }
-        '400': { description: File must be PDF, JPG or PNG up to 5 MB }
+        '400': { description: 'File must be PDF, JPG or PNG up to 5 MB with a valid signature' }
 components:
   securitySchemes:
     session:

@@ -1,16 +1,59 @@
 import type { AuthUser } from '@/app/lib/auth/types';
+import type { Currency } from '@/app/lib/ledger/money';
+import { minorToMajorNumber } from '@/app/lib/ledger/money';
 import { getDatabaseClient } from './client';
+import { getLedgerBalances, listActiveHolds, seedOrganizationLedger, serializeTransaction, type ActiveHold, type LedgerBalance } from './ledger';
 
 export type DashboardTransaction = {
-  id: string; counterparty: string; description: string; amount: number; currency: string;
-  status: string; riskScore: number; createdAt: string;
+  id: string;
+  counterparty: string;
+  description: string;
+  amount: number;
+  amountMinor: string;
+  currency: Currency;
+  status: string;
+  riskScore: number;
+  reversalOf: string | null;
+  createdAt: string;
 };
 
 export type DashboardData = {
-  organizationId: string; organizationName: string; environment: string; balance: number;
-  processedThisMonth: number; approvalRate: number; activeAccounts: number; riskAlerts: number;
+  organizationId: string;
+  organizationName: string;
+  environment: string;
+  balance: number;
+  processedThisMonth: number;
+  approvalRate: number;
+  transactionCount: number;
+  activeAccounts: number;
+  riskAlerts: number;
+  journalCount: number;
+  cards: Array<{
+    id: string;
+    product: string;
+    format: string;
+    last4: string;
+    status: string;
+    createdAt: string;
+  }>;
+  documents: Array<{
+    id: string;
+    fileName: string;
+    contentType: string;
+    size: number;
+    status: string;
+    createdAt: string;
+  }>;
+  balances: LedgerBalance[];
+  holds: ActiveHold[];
   transactions: DashboardTransaction[];
 };
+
+export type OrganizationRole = 'owner' | 'admin' | 'operator' | 'viewer';
+
+export class OrganizationAccessError extends Error {
+  readonly status = 403;
+}
 
 let schemaReady: Promise<void> | null = null;
 
@@ -19,172 +62,137 @@ export function getDatabase() {
 }
 
 export function ensureDatabase(): Promise<void> {
-  if (!schemaReady) schemaReady = createSchema().catch((error) => { schemaReady = null; throw error; });
+  if (!schemaReady) {
+    schemaReady = getDatabase().prepare('SELECT 1 FROM users LIMIT 1').all()
+      .then(() => undefined)
+      .catch((error) => {
+        schemaReady = null;
+        throw error;
+      });
+  }
   return schemaReady;
 }
 
-async function createSchema() {
-  const db = getDatabase();
-  await db.batch([
-    db.prepare(`CREATE TABLE IF NOT EXISTS users (
-      id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, email TEXT NOT NULL UNIQUE, display_name TEXT NOT NULL,
-      password_hash TEXT, password_salt TEXT, password_iterations INTEGER, email_verified INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-    )`),
-    db.prepare(`CREATE TABLE IF NOT EXISTS oauth_identities (
-      id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, provider TEXT NOT NULL, provider_subject TEXT NOT NULL,
-      provider_email TEXT, created_at TEXT NOT NULL, UNIQUE(provider, provider_subject)
-    )`),
-    db.prepare(`CREATE TABLE IF NOT EXISTS auth_sessions (
-      token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, expires_at TEXT NOT NULL,
-      created_at TEXT NOT NULL, last_seen_at TEXT NOT NULL
-    )`),
-    db.prepare(`CREATE TABLE IF NOT EXISTS oauth_states (
-      state_hash TEXT PRIMARY KEY, provider TEXT NOT NULL, code_verifier TEXT NOT NULL, nonce TEXT NOT NULL,
-      return_to TEXT NOT NULL, expires_at TEXT NOT NULL, created_at TEXT NOT NULL
-    )`),
-    db.prepare(`CREATE TABLE IF NOT EXISTS auth_attempts (
-      id TEXT PRIMARY KEY, action TEXT NOT NULL, identity_hash TEXT NOT NULL, ip_hash TEXT NOT NULL,
-      success INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL
-    )`),
-    db.prepare(`CREATE TABLE IF NOT EXISTS organizations (
-      id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE,
-      country TEXT NOT NULL DEFAULT 'AR', status TEXT NOT NULL DEFAULT 'sandbox', created_at TEXT NOT NULL
-    )`),
-    db.prepare(`CREATE TABLE IF NOT EXISTS members (
-      id TEXT PRIMARY KEY, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-      external_user_id TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
-      email TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'owner', created_at TEXT NOT NULL
-    )`),
-    db.prepare(`CREATE TABLE IF NOT EXISTS transactions (
-      id TEXT PRIMARY KEY, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, idempotency_key TEXT NOT NULL,
-      type TEXT NOT NULL, counterparty TEXT NOT NULL, description TEXT NOT NULL,
-      amount DOUBLE PRECISION NOT NULL, currency TEXT NOT NULL DEFAULT 'ARS', status TEXT NOT NULL DEFAULT 'pending',
-      risk_score INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, UNIQUE(organization_id, idempotency_key)
-    )`),
-    db.prepare(`CREATE TABLE IF NOT EXISTS leads (
-      id TEXT PRIMARY KEY, name TEXT NOT NULL, company TEXT NOT NULL, email TEXT NOT NULL,
-      volume TEXT NOT NULL, message TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'new', created_at TEXT NOT NULL
-    )`),
-    db.prepare(`CREATE TABLE IF NOT EXISTS customers (
-      id TEXT PRIMARY KEY, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, type TEXT NOT NULL, name TEXT NOT NULL,
-      country TEXT NOT NULL, tax_id_last4 TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL
-    )`),
-    db.prepare(`CREATE TABLE IF NOT EXISTS accounts (
-      id TEXT PRIMARY KEY, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-      customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE RESTRICT, currency TEXT NOT NULL,
-      country TEXT NOT NULL, account_reference TEXT NOT NULL, balance DOUBLE PRECISION NOT NULL DEFAULT 0,
-      status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL
-    )`),
-    db.prepare(`CREATE TABLE IF NOT EXISTS cards (
-      id TEXT PRIMARY KEY, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-      account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT,
-      customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
-      product TEXT NOT NULL, format TEXT NOT NULL, last4 TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL
-    )`),
-    db.prepare(`CREATE TABLE IF NOT EXISTS compliance_documents (
-      id TEXT PRIMARY KEY, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE, object_key TEXT NOT NULL,
-      file_name TEXT NOT NULL, content_type TEXT NOT NULL, size INTEGER NOT NULL,
-      status TEXT NOT NULL DEFAULT 'received', uploaded_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT, created_at TEXT NOT NULL
-    )`),
-    db.prepare(`CREATE TABLE IF NOT EXISTS audit_events (
-      id TEXT PRIMARY KEY, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-      actor_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
-      action TEXT NOT NULL, resource_type TEXT NOT NULL, resource_id TEXT NOT NULL,
-      payload TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL
-    )`),
-    db.prepare('CREATE INDEX IF NOT EXISTS idx_members_organization ON members(organization_id)'),
-    db.prepare('DROP INDEX IF EXISTS idx_members_external_user'),
-    db.prepare('CREATE UNIQUE INDEX IF NOT EXISTS idx_members_user ON members(external_user_id)'),
-    db.prepare('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username)'),
-    db.prepare('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email)'),
-    db.prepare('CREATE UNIQUE INDEX IF NOT EXISTS idx_oauth_provider_subject ON oauth_identities(provider, provider_subject)'),
-    db.prepare('CREATE INDEX IF NOT EXISTS idx_oauth_user ON oauth_identities(user_id)'),
-    db.prepare('CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id)'),
-    db.prepare('CREATE INDEX IF NOT EXISTS idx_auth_sessions_expires ON auth_sessions(expires_at)'),
-    db.prepare('CREATE INDEX IF NOT EXISTS idx_oauth_states_expires ON oauth_states(expires_at)'),
-    db.prepare('CREATE INDEX IF NOT EXISTS idx_auth_attempts_identity ON auth_attempts(action, identity_hash, created_at)'),
-    db.prepare('CREATE INDEX IF NOT EXISTS idx_auth_attempts_ip ON auth_attempts(action, ip_hash, created_at)'),
-    db.prepare('CREATE INDEX IF NOT EXISTS idx_transactions_org_created ON transactions(organization_id, created_at)'),
-    db.prepare('CREATE INDEX IF NOT EXISTS idx_transactions_org_status ON transactions(organization_id, status)'),
-    db.prepare('CREATE INDEX IF NOT EXISTS idx_leads_created ON leads(created_at)'),
-    db.prepare('CREATE INDEX IF NOT EXISTS idx_customers_org_created ON customers(organization_id, created_at)'),
-    db.prepare('CREATE INDEX IF NOT EXISTS idx_accounts_org_created ON accounts(organization_id, created_at)'),
-    db.prepare('CREATE INDEX IF NOT EXISTS idx_accounts_customer ON accounts(customer_id)'),
-    db.prepare('CREATE INDEX IF NOT EXISTS idx_cards_org_created ON cards(organization_id, created_at)'),
-    db.prepare('CREATE INDEX IF NOT EXISTS idx_cards_account ON cards(account_id)'),
-    db.prepare('CREATE INDEX IF NOT EXISTS idx_compliance_org_created ON compliance_documents(organization_id, created_at)'),
-    db.prepare('CREATE INDEX IF NOT EXISTS idx_audit_org_created ON audit_events(organization_id, created_at)'),
-  ]);
+export async function getOrganizationContext(user: AuthUser) {
+  await ensureDatabase();
+  const database = getDatabase();
+  let member = await database.prepare(
+    `SELECT organization_id AS organizationId, role FROM members
+     WHERE external_user_id = ? LIMIT 1`,
+  ).bind(user.userId).first<{ organizationId: string; role: OrganizationRole }>();
+  if (!member) {
+    const now = new Date().toISOString();
+    const organizationId = crypto.randomUUID();
+    const safeBase = user.email.split('@')[0].replace(/[^a-z0-9]+/gi, '-').toLowerCase() || 'workspace';
+    try {
+      await database.transaction(async (transaction) => {
+        await transaction.prepare(
+          'INSERT INTO organizations (id, name, slug, country, status, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+        ).bind(organizationId, 'Cimbra Sandbox', `${safeBase}-${organizationId.slice(0, 6)}`, 'AR', 'sandbox', now).run();
+        await transaction.prepare(
+          'INSERT INTO members (id, organization_id, external_user_id, email, role, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+        ).bind(crypto.randomUUID(), organizationId, user.userId, user.email, 'owner', now).run();
+      });
+      member = { organizationId, role: 'owner' };
+    } catch (error) {
+      member = await database.prepare(
+        'SELECT organization_id AS organizationId, role FROM members WHERE external_user_id = ? LIMIT 1',
+      ).bind(user.userId).first<{ organizationId: string; role: OrganizationRole }>();
+      if (!member) throw error;
+    }
+  }
+  await seedOrganizationLedger(member.organizationId);
+  return member;
 }
 
 export async function getOrCreateOrganization(user: AuthUser) {
-  await ensureDatabase();
-  const db = getDatabase();
-  const member = await db.prepare('SELECT organization_id AS organizationId FROM members WHERE external_user_id = ? LIMIT 1')
-    .bind(user.userId).first<{ organizationId: string }>();
-  if (member) return member.organizationId;
-  const now = new Date().toISOString();
-  const organizationId = crypto.randomUUID();
-  const safeBase = user.email.split('@')[0].replace(/[^a-z0-9]+/gi, '-').toLowerCase() || 'workspace';
-  await db.batch([
-    db.prepare('INSERT INTO organizations (id, name, slug, country, status, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-      .bind(organizationId, 'Finanzas Moda', `${safeBase}-${organizationId.slice(0, 6)}`, 'AR', 'sandbox', now),
-    db.prepare('INSERT INTO members (id, organization_id, external_user_id, email, role, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-      .bind(crypto.randomUUID(), organizationId, user.userId, user.email, 'owner', now),
-  ]);
-  await seedTransactions(organizationId);
-  return organizationId;
+  return (await getOrganizationContext(user)).organizationId;
 }
 
-async function seedTransactions(organizationId: string) {
-  const db = getDatabase();
-  const rows = [
-    ['Pago QR · Mercado Uno', 'Cobro QR interoperable', 82450, 'ARS', 'settled', 4],
-    ['Transferencia CVU', 'Ingreso desde cuenta bancaria', 210000, 'ARS', 'settled', 8],
-    ['Cloud Services', 'Tarjeta corporativa terminada en 4821', -480, 'USD', 'authorized', 12],
-    ['Distribuidora Andina', 'Pago a proveedor', -128500, 'ARS', 'settled', 18],
-    ['Marketplace Centro', 'Liquidación split', 315900, 'ARS', 'review', 72],
-  ] as const;
-  const now = Date.now();
-  await db.batch(rows.map((row, index) => db.prepare(
-    `INSERT INTO transactions
-      (id, organization_id, idempotency_key, type, counterparty, description, amount, currency, status, risk_score, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (organization_id, idempotency_key) DO NOTHING`,
-  ).bind(crypto.randomUUID(), organizationId, `seed-${index}`, row[2] >= 0 ? 'credit' : 'debit', row[0], row[1], row[2], row[3], row[4], row[5], new Date(now - index * 2_700_000).toISOString())));
+export async function requireOrganizationRole(user: AuthUser, allowed: readonly OrganizationRole[]) {
+  const context = await getOrganizationContext(user);
+  if (!allowed.includes(context.role)) throw new OrganizationAccessError('Tu rol no permite ejecutar esta operación.');
+  return context;
 }
 
 export async function getDashboardData(user: AuthUser): Promise<DashboardData> {
-  const organizationId = await getOrCreateOrganization(user);
-  const db = getDatabase();
-  const organization = await db.prepare('SELECT name, status FROM organizations WHERE id = ? LIMIT 1')
+  const { organizationId } = await getOrganizationContext(user);
+  const database = getDatabase();
+  const organization = await database.prepare('SELECT name, status FROM organizations WHERE id = ? LIMIT 1')
     .bind(organizationId).first<{ name: string; status: string }>();
-  const transactionResult = await db.prepare(
-    `SELECT id, counterparty, description, amount, currency, status, risk_score AS riskScore, created_at AS createdAt
-     FROM transactions WHERE organization_id = ? ORDER BY created_at DESC LIMIT 8`,
-  ).bind(organizationId).all<DashboardTransaction>();
-  const summary = await db.prepare(
-    `SELECT COALESCE(SUM(CASE WHEN status IN ('settled','authorized') THEN amount ELSE 0 END), 0) AS balance,
-      COALESCE(SUM(ABS(amount)), 0) AS processed,
-      COALESCE(AVG(CASE WHEN status IN ('settled','authorized') THEN 100.0 ELSE 0 END), 0) AS approval,
-      SUM(CASE WHEN risk_score >= 60 OR status = 'review' THEN 1 ELSE 0 END) AS alerts
-     FROM transactions WHERE organization_id = ?`,
-  ).bind(organizationId).first<{ balance: number; processed: number; approval: number; alerts: number }>();
+  const transactionRows = await database.prepare(
+    `SELECT id, counterparty, description, amount_minor::text AS amountMinor, currency, status,
+      risk_score AS riskScore, reversal_of AS reversalOf, created_at AS createdAt
+     FROM transactions WHERE organization_id = ? ORDER BY created_at DESC LIMIT 12`,
+  ).bind(organizationId).all<{
+    id: string; counterparty: string; description: string; amountMinor: string; currency: Currency;
+    status: string; riskScore: number; reversalOf: string | null; createdAt: string;
+  }>();
+  const monthStart = new Date();
+  monthStart.setUTCDate(1);
+  monthStart.setUTCHours(0, 0, 0, 0);
+  const summary = await database.prepare(
+    `SELECT
+      COALESCE(SUM(CASE WHEN currency = 'ARS' AND status IN ('settled', 'reversed') THEN ABS(amount_minor) ELSE 0 END), 0)::text AS processedMinor,
+      COALESCE(AVG(CASE WHEN status IN ('settled', 'authorized', 'reversed') THEN 100.0 ELSE 0 END), 0) AS approval,
+      COUNT(*)::int AS transactionCount
+     FROM transactions WHERE organization_id = ? AND created_at >= ?`,
+  ).bind(organizationId, monthStart.toISOString()).first<{ processedMinor: string; approval: number; transactionCount: number }>();
+  const accountCount = await database.prepare(
+    "SELECT COUNT(*)::int AS count FROM accounts WHERE organization_id = ? AND status = 'active'",
+  ).bind(organizationId).first<{ count: number }>();
+  const [balances, holds, cardRows, documentRows, journalSummary] = await Promise.all([
+    getLedgerBalances(organizationId),
+    listActiveHolds(organizationId),
+    database.prepare(
+      `SELECT id, product, format, last4, status, created_at AS "createdAt"
+       FROM cards WHERE organization_id = ? ORDER BY created_at DESC LIMIT 25`,
+    ).bind(organizationId).all<{
+      id: string; product: string; format: string; last4: string; status: string; createdAt: string;
+    }>(),
+    database.prepare(
+      `SELECT id, file_name AS "fileName", content_type AS "contentType", size, status, created_at AS "createdAt"
+       FROM compliance_documents WHERE organization_id = ? ORDER BY created_at DESC LIMIT 25`,
+    ).bind(organizationId).all<{
+      id: string; fileName: string; contentType: string; size: number; status: string; createdAt: string;
+    }>(),
+    database.prepare(
+      'SELECT COUNT(*)::int AS count FROM ledger_journals WHERE organization_id = ?',
+    ).bind(organizationId).first<{ count: number }>(),
+  ]);
+  const primaryBalance = balances.find((balance) => balance.currency === 'ARS') ?? balances[0];
   return {
-    organizationId, organizationName: organization?.name ?? 'Mi organización', environment: organization?.status ?? 'sandbox',
-    balance: Number(summary?.balance ?? 0), processedThisMonth: Number(summary?.processed ?? 0),
-    approvalRate: Number(summary?.approval ?? 0), activeAccounts: 2481, riskAlerts: Number(summary?.alerts ?? 0),
-    transactions: transactionResult.results ?? [],
+    organizationId,
+    organizationName: organization?.name ?? 'Mi organización',
+    environment: organization?.status ?? 'sandbox',
+    balance: primaryBalance?.available ?? 0,
+    processedThisMonth: minorToMajorNumber(summary?.processedMinor ?? '0', 'ARS'),
+    approvalRate: Number(summary?.approval ?? 0),
+    transactionCount: Number(summary?.transactionCount ?? 0),
+    activeAccounts: Number(accountCount?.count ?? 0),
+    riskAlerts: holds.length,
+    journalCount: Number(journalSummary?.count ?? 0),
+    cards: cardRows.results,
+    documents: documentRows.results,
+    balances,
+    holds,
+    transactions: transactionRows.results.map((transaction) => serializeTransaction(transaction)),
   };
 }
 
 export async function recordAuditEvent(input: {
-  organizationId: string; actorId: string; action: string; resourceType: string;
-  resourceId: string; payload?: Record<string, unknown>;
-}) {
-  await getDatabase().prepare(
+  organizationId: string;
+  actorId: string;
+  action: string;
+  resourceType: string;
+  resourceId: string;
+  payload?: Record<string, unknown>;
+}, database = getDatabase()) {
+  await database.prepare(
     `INSERT INTO audit_events (id, organization_id, actor_id, action, resource_type, resource_id, payload, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).bind(crypto.randomUUID(), input.organizationId, input.actorId, input.action, input.resourceType,
-    input.resourceId, JSON.stringify(input.payload ?? {}), new Date().toISOString()).run();
+  ).bind(
+    crypto.randomUUID(), input.organizationId, input.actorId, input.action, input.resourceType,
+    input.resourceId, JSON.stringify(input.payload ?? {}), new Date().toISOString(),
+  ).run();
 }

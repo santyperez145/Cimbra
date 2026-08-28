@@ -12,6 +12,9 @@
     "deploy": "npx vercel@latest --prod",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "test:db": "node --env-file-if-exists=.env.local tests/ledger-db.mjs",
+    "test:e2e": "node --env-file-if-exists=.env.local tests/app-e2e.mjs",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node --env-file-if-exists=.env.local ./node_modules/drizzle-kit/bin.cjs migrate"
   },

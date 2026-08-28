@@ -1,6 +1,6 @@
 # Cimbra
 
-Cimbra es una plataforma de infraestructura financiera modular para Latinoamérica. Este repositorio contiene el sitio comercial, documentación, consola autenticada y un sandbox persistente con cuentas conceptuales, transferencias, riesgo, compliance, almacenamiento de evidencia y auditoría.
+Cimbra es una plataforma de infraestructura financiera modular para Latinoamérica. Este repositorio contiene el sitio comercial, documentación, consola autenticada y un sandbox persistente con cuentas, ledger de doble partida, transferencias idempotentes, holds, reversas, tarjetas de prueba, evidencia privada y auditoría.
 
 ## Estado del producto
 
@@ -13,7 +13,7 @@ Superficies disponibles:
 - `/login` — registro e inicio de sesión propio con usuario/email y contraseña, Google y Apple.
 - `/console` — consola protegida con sesiones de servidor, organización y datos propios.
 - `/api/health` — healthcheck sin caché.
-- `/api/sandbox/*` — customers, accounts, cards, transfers y audit events.
+- `/api/sandbox/*` — customers, accounts, cards, transfers, reversas, holds, balances, journals y audit events.
 - `/api/compliance/documents` — evidencia privada en almacenamiento de objetos con metadata en base relacional.
 
 ## Desarrollo
@@ -45,7 +45,7 @@ La aplicación corre sobre Next.js en Vercel, PostgreSQL administrado y Vercel B
 3. Creá un Blob store privado y vinculalo al proyecto para obtener `BLOB_READ_WRITE_TOKEN`.
 4. Cargá `CIMBRA_PUBLIC_URL` y `NEXT_PUBLIC_CIMBRA_PUBLIC_URL` con el dominio público HTTPS.
 5. Cargá las credenciales de Google y Apple indicadas en `.env.example`.
-6. Ejecutá `npm run db:migrate` una vez por ambiente; el runtime también crea de manera idempotente las tablas faltantes en un entorno nuevo.
+6. Ejecutá `npm run db:migrate` una vez por ambiente antes de desplegar el código que depende de la migración. Las migraciones son la única fuente de verdad del esquema.
 7. Desplegá con la integración Git o mediante `npm run deploy`.
 
 Redirect URIs a registrar:
@@ -54,6 +54,15 @@ Redirect URIs a registrar:
 - Apple: `https://TU_DOMINIO/api/auth/oauth/apple/callback`
 
 Apple requiere un Services ID asociado a una app habilitada para Sign in with Apple, además de Team ID, Key ID y una clave privada `.p8`. Para desarrollo local copiá `.env.example` a `.env.local`; el archivo local está ignorado por Git.
+
+## Garantías financieras del sandbox
+
+- montos en unidades mínimas enteras (`BIGINT`), con escala por moneda;
+- journals balanceados y separación obligatoria de tenant y moneda en PostgreSQL;
+- postings inmutables; las correcciones crean journals compensatorios;
+- idempotencia por organización para transferencias, journals y holds;
+- saldo disponible derivado del saldo contable menos las reservas activas;
+- escrituras financieras y auditoría dentro de la misma transacción.
 
 ## Documentos de dirección
 

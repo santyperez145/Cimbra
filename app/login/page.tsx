@@ -26,7 +26,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
       </section>
       <section className="auth-form-panel">
         <LoginForm availability={oauthAvailability()} returnTo={returnTo} initialError={error} />
-        <p className="auth-legal">Al continuar aceptás los <Link href="/#demo">Términos</Link> y la <Link href="/#demo">Política de privacidad</Link> de Cimbra.</p>
+        <p className="auth-legal">Al continuar aceptás los <Link href="/terms">Términos</Link> y la <Link href="/privacy">Política de privacidad</Link> de Cimbra.</p>
       </section>
     </main>
   );

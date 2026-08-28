@@ -22,6 +22,6 @@ export default function DemoForm() {
     <label>¿Qué querés lanzar?<textarea name="message" rows={3} placeholder="Contanos sobre el producto, mercado y timing…" /></label>
     {message && <div className={`demo-feedback ${state}`}>{message}</div>}
     <button className="button button-coral" type="submit" disabled={state === 'sending'}>{state === 'sending' ? 'Enviando…' : 'Solicitar sesión de diseño'} <span>↗</span></button>
-    <small>Al enviar aceptás nuestra política de privacidad. Tus datos no se comparten.</small>
+    <small>Usamos estos datos para responder tu solicitud según nuestra <a href="/privacy">política de privacidad</a>. No ingreses información financiera sensible.</small>
   </form>;
 }

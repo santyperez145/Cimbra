@@ -11,9 +11,9 @@
 
 ## Arquitectura del MVP alojado
 
-La versión de este repositorio usa Next.js 16, React 19 y TypeScript sobre Vercel Functions. PostgreSQL administrado guarda usuarios, identidades externas, sesiones, organizaciones, miembros, objetos sandbox, transacciones, leads, metadata documental y eventos; Vercel Blob privado conserva únicamente los bytes de evidencia. La identidad es propia y se resuelve en servidor: credenciales PBKDF2-HMAC-SHA-256, sesiones opacas revocables y OAuth 2.0/OIDC con Google y Apple.
+La versión de este repositorio usa Next.js 16, React 19 y TypeScript sobre Vercel Functions. PostgreSQL administrado guarda usuarios, identidades externas, sesiones, organizaciones, miembros, cuentas financieras, journals, postings, holds, objetos sandbox, transacciones, leads, metadata documental y eventos; Vercel Blob privado conserva únicamente los bytes de evidencia. La identidad es propia y se resuelve en servidor: credenciales PBKDF2-HMAC-SHA-256, sesiones opacas revocables y OAuth 2.0/OIDC con Google y Apple.
 
-Los flujos OAuth usan Authorization Code, `state`, nonce, PKCE en Google y validación de firma, issuer y audience contra JWKS. Los secretos viven sólo en variables cifradas del entorno. Las sesiones viajan en cookies `HttpOnly`, `Secure` y `SameSite`, mientras PostgreSQL conserva únicamente el hash SHA-256 del token. Las restricciones únicas, claves foráneas, transacciones e idempotency keys protegen la integridad de los datos.
+Los flujos OAuth usan Authorization Code, `state`, nonce, PKCE en Google y validación de firma, issuer y audience contra JWKS. Los secretos viven sólo en variables cifradas del entorno. Las sesiones viajan en cookies `HttpOnly`, `Secure` y `SameSite`, mientras PostgreSQL conserva únicamente el hash SHA-256 del token. Las restricciones únicas, claves foráneas, transacciones, idempotency keys y triggers diferidos protegen la integridad de los datos. El sandbox monetario guarda importes en unidades mínimas `BIGINT`, calcula los balances desde postings, impide mezclar monedas o tenants y sólo corrige operaciones mediante reversas compensatorias.
 
 Cada request operativo:
 
@@ -27,7 +27,7 @@ Cada request operativo:
 
 ## Arquitectura objetivo para dinero real
 
-El MVP no debe convertirse por crecimiento accidental en un core productivo. La plataforma de producción se separa en seis dominios desplegables:
+El ledger actual es un núcleo financiero real para sandbox, pero no debe convertirse por crecimiento accidental en un core que mueva dinero. La plataforma de producción se separa en seis dominios desplegables:
 
 - Identity & Tenancy: organizaciones, roles, permisos, claves, políticas y segregación.
 - Financial Core: cuentas, ledger de doble partida, holds, límites, fees, intereses y cierres.
@@ -46,18 +46,17 @@ Stack de referencia para la etapa productiva:
 - OpenTelemetry, métricas RED/USE, trazas con correlation IDs y SIEM centralizado.
 - Vault/KMS/HSM para claves, tokenización y material criptográfico.
 
-## Ledger
+## Ledger implementado
 
-El ledger productivo debe imponer:
+El sandbox ya impone:
 
 - asientos balanceados por transacción;
 - monedas sin mezcla de escalas;
-- estados `pending`, `posted`, `reversed` y vínculos de reversa;
+- journals `posted` y `reversed`, transacciones con estados explícitos y vínculos de reversa;
 - claves idempotentes por tenant y operación;
-- secuencia estable para extractos;
 - prohibición de updates destructivos sobre asientos posteados;
-- conciliación independiente contra cada proveedor y cuenta bancaria;
-- cierres y snapshots reproducibles desde el journal.
+
+Antes de dinero real todavía se requieren secuencia estable para extractos, conciliación independiente contra cada proveedor y banco, cierres, snapshots, operación multi-región y controles regulatorios.
 
 ## Seguridad mínima para producción
 

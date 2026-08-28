@@ -36,17 +36,19 @@ function sqlClient() {
 export class PreparedStatement {
   readonly query: string;
   readonly parameters: readonly SqlParameter[];
+  readonly executor?: SqlExecutor;
 
-  constructor(query: string, parameters: readonly SqlParameter[] = []) {
+  constructor(query: string, parameters: readonly SqlParameter[] = [], executor?: SqlExecutor) {
     this.query = normalizeSql(query);
     this.parameters = parameters;
+    this.executor = executor;
   }
 
   bind(...parameters: SqlParameter[]) {
-    return new PreparedStatement(this.query, parameters);
+    return new PreparedStatement(this.query, parameters, this.executor);
   }
 
-  async execute(executor: SqlExecutor = sqlClient()) {
+  async execute(executor: SqlExecutor = this.executor ?? sqlClient()) {
     return executor.unsafe(this.query, [...this.parameters]);
   }
 
@@ -67,16 +69,26 @@ export class PreparedStatement {
 }
 
 export class DatabaseClient {
+  constructor(private readonly executor?: SqlExecutor) {}
+
   prepare(query: string) {
-    return new PreparedStatement(query);
+    return new PreparedStatement(query, [], this.executor);
   }
 
   async batch(statements: PreparedStatement[]) {
-    return sqlClient().begin(async (transaction) => {
+    const execute = async (executor: SqlExecutor) => {
       const results = [];
-      for (const statement of statements) results.push(await statement.execute(transaction));
+      for (const statement of statements) results.push(await statement.execute(executor));
       return results;
-    });
+    };
+    if (this.executor) return execute(this.executor);
+    return sqlClient().begin(execute);
+  }
+
+  async transaction<T>(callback: (database: DatabaseClient) => Promise<T>): Promise<T> {
+    if (this.executor) return callback(this);
+    const result = await sqlClient().begin(async (transaction) => callback(new DatabaseClient(transaction)));
+    return result as T;
   }
 }
 

@@ -8,8 +8,9 @@
 - identidad y consola multi-tenant básica;
 - registro e inicio de sesión propio, sesiones revocables y OAuth Google/Apple;
 - sandbox persistente para customers, accounts, cards y transfers;
-- idempotencia en transferencias;
-- riesgo por reglas demostrable;
+- ledger de doble partida con montos enteros, balances derivados y garantías en base de datos;
+- idempotencia, holds, captura, liberación y reversas compensatorias;
+- riesgo por monto demostrable;
 - documentos privados en object storage;
 - eventos de auditoría y healthcheck;
 - migraciones, lint, tipos y build automatizables.
