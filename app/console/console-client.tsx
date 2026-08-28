@@ -5,11 +5,12 @@ import Link from 'next/link';
 import { FormEvent, useState, useSyncExternalStore } from 'react';
 import type { DashboardData } from '@/db/runtime';
 import DevelopersPanel from './developers-panel';
+import ConnectionsPanel from './connections-panel';
 import SecurityPanel from './security-panel';
 
 const nav = [
   ['▦', 'Vista general'], ['↔', 'Movimientos'], ['⇄', 'Payments'], ['◉', 'Cuentas'], ['▰', 'Tarjetas'],
-  ['◇', 'Riesgo'], ['✓', 'Compliance'], ['⌁', 'Developers'], ['⌾', 'Seguridad'],
+  ['◇', 'Riesgo'], ['✓', 'Compliance'], ['⌘', 'Conexiones'], ['⌁', 'Developers'], ['⌾', 'Seguridad'],
 ];
 
 function money(value: number, currency = 'ARS') {
@@ -164,6 +165,8 @@ function SecondaryConsoleView({ active, data, busy, feedback, onTransfer, onPaym
   if (active === 'Tarjetas') return <div className="module-view"><div className="module-view-head"><div><p>ISSUING SANDBOX</p><h1>Tarjetas emitidas</h1><span>Instrumentos de prueba vinculados a cuentas persistidas.</span></div><span className="module-health"><i /> {data.cards.filter((card)=>card.status==='active').length} activas</span></div><div className="module-metrics"><article><strong>{data.cards.length}</strong><span>tarjetas registradas</span></article><article><strong>{data.cards.filter((card)=>card.format==='virtual').length}</strong><span>virtuales</span></article><article><strong>{data.cards.filter((card)=>card.format==='physical').length}</strong><span>físicas</span></article></div><article className="module-list"><div className="card-head"><div><h2>Inventario sandbox</h2><p>No representa tarjetas emitidas en redes reales</p></div></div>{data.cards.length===0?<div><span className="movement"><i>▰</i><b>Sin tarjetas<small>Crealas mediante POST /api/sandbox/cards</small></b></span><strong>Vacío</strong></div>:data.cards.map((card)=><div key={card.id}><span className="movement"><i>▰</i><b>•••• {card.last4}<small>{card.format} · {card.product}</small></b></span><strong>{statusLabel(card.status)}</strong></div>)}</article></div>;
 
   if (active === 'Developers') return <DevelopersPanel journalCount={data.journalCount} />;
+
+  if (active === 'Conexiones') return <ConnectionsPanel />;
 
   return null;
 }
