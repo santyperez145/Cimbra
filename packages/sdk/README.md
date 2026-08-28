@@ -58,6 +58,24 @@ await cimbra.payments.create({
 });
 ```
 
+## Conexiones con proveedores
+
+```ts
+const providers = await cimbra.providers.list();
+
+await cimbra.connections.create({
+  provider: 'bindx',
+  name: 'BIND Argentina',
+  environment: 'sandbox',
+  capabilities: ['accounts', 'transfers'],
+  transport: 'rest_api',
+  credentialReference: 'aws-secretsmanager://cimbra/providers/bindx',
+  configuration: { country: 'AR' },
+});
+```
+
+La API no acepta API keys ni secretos del proveedor dentro del payload. Sólo registra referencias a un gestor de secretos, las cifra en reposo y nunca las devuelve.
+
 Las escrituras financieras seguras generan automáticamente una clave de idempotencia y conservan el mismo `X-Request-Id` durante los reintentos. También se puede proporcionar una clave propia:
 
 ```ts

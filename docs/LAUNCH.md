@@ -17,6 +17,7 @@
 - API pública v1 con request IDs, errores normalizados, rate-limit headers e idempotencia de altas;
 - SDK TypeScript empaquetable con reintentos seguros y verificación de webhooks;
 - imagen OCI standalone e infraestructura AWS reproducible y validada estáticamente.
+- migraciones versionadas como gate previo al build productivo de Vercel y como task separada antes del rollout de ECS.
 - verificación de email, recuperación de contraseña con revocación de sesiones y MFA TOTP con recovery codes de un solo uso.
 
 ## Gate 1 — design partners

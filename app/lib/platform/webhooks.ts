@@ -6,7 +6,7 @@ import { assertPublicWebhookDestination } from './webhook-url';
 
 export const WEBHOOK_EVENT_TYPES = [
   'customer.created', 'account.created', 'card.created', 'transfer.created', 'transfer.reversed',
-  'hold.captured', 'hold.released', 'payment.created', 'compliance.document_uploaded',
+  'hold.captured', 'hold.released', 'payment.created', 'connection.created', 'compliance.document_uploaded',
 ] as const;
 
 export type WebhookEventType = typeof WEBHOOK_EVENT_TYPES[number] | '*';

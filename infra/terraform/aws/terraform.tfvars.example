@@ -5,3 +5,4 @@ container_image       = "123456789012.dkr.ecr.sa-east-1.amazonaws.com/cimbra@sha
 certificate_arn       = "arn:aws:acm:sa-east-1:123456789012:certificate/REPLACE"
 public_url            = "https://api.staging.cimbra.example"
 alert_email           = "operations@example.com"
+provider_secret_arns  = [] # Add exact ARNs only after provider contract and security review.

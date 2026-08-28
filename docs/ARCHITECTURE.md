@@ -29,6 +29,10 @@ La API pública se expone bajo `/api/v1`. Todas las respuestas incluyen un `X-Re
 
 La infraestructura reproducible del piloto está en `infra/terraform/aws`: ALB/WAF, ECS Fargate en subredes privadas, PostgreSQL 16 Multi-AZ con PITR, KMS/Secrets Manager y CloudWatch. El outbox de PostgreSQL sigue siendo la cola durable autoritativa en esta etapa; EventBridge ejecuta el recovery dispatcher cada minuto, además del dispatch inmediato post-response.
 
+El control plane de proveedores mantiene un catálogo canónico y conexiones aisladas por organización. Las conexiones declaran proveedor, ambiente, capacidades y transporte, pero nunca reciben credenciales inline: conservan cifrada únicamente una referencia a Secrets Manager, Vault o equivalente. El estado inicial `pending_validation` evita presentar una integración contractual como operativa antes de validar autenticación, red y homologación. Ver [`PROVIDER_CONNECTIVITY.md`](PROVIDER_CONNECTIVITY.md).
+
+Los deployments productivos de Vercel ejecutan las migraciones versionadas antes de compilar y publicar la nueva aplicación. Los previews no mutan la base compartida; ECS conserva una task definition de migración separada y el rollout exige su finalización correcta.
+
 ## Arquitectura objetivo para dinero real
 
 El ledger actual es un núcleo financiero real para sandbox, pero no debe convertirse por crecimiento accidental en un core que mueva dinero. La plataforma de producción se separa en seis dominios desplegables:

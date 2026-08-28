@@ -9,6 +9,18 @@ export type Customer = { id: string; type: 'individual' | 'business'; name: stri
 export type Account = { id: string; customerId: string; currency: Currency; country: string; accountReference: string; balance?: number; balanceMinor?: string; status: string; createdAt: string };
 export type Card = { id: string; accountId: string; customerId: string; product: 'debit' | 'credit' | 'prepaid'; format: 'virtual' | 'physical'; last4: string; status: string; createdAt: string };
 export type Transaction = { id: string; counterparty: string; description: string; amount: number; amountMinor: string; currency: Currency; status: string; riskScore: number; reversalOf: string | null; createdAt: string };
+export type ProviderCapability = 'accounts' | 'transfers' | 'cash_in' | 'cash_out' | 'cards' | 'bill_payments' | 'kyc_kyb' | 'reconciliation' | 'lending' | 'acquiring' | 'checks' | 'webhooks';
+export type ConnectionTransport = 'rest_api' | 'webhook' | 'batch_file' | 'sftp' | 'vpn' | 'iso8583';
+export type Provider = {
+  id: 'bindx' | 'dock' | 'tapi' | 'pismo' | 'pomelo' | 'wibond'; name: string; role: string;
+  capabilities: ProviderCapability[]; transports: ConnectionTransport[]; coverage: 'argentina' | 'latam' | 'global';
+  onboarding: 'commercial_contract_required'; documentationUrl: string;
+};
+export type ProviderConnection = {
+  id: string; provider: Provider['id']; name: string; environment: 'sandbox' | 'production'; capabilities: ProviderCapability[];
+  transport: ConnectionTransport; configuration: Record<string, string>; credentialConfigured: true;
+  status: 'pending_validation' | 'active' | 'degraded' | 'disabled'; lastCheckedAt: string | null; createdAt: string; updatedAt: string;
+};
 export type Hold = { id: string; transactionId: string; amountMinor: string; amount: number; currency: Currency; status: string; expiresAt: string | null; createdAt: string; counterparty: string; description: string };
 export type LedgerBalance = { currency: Currency; currentMinor: string; heldMinor: string; availableMinor: string; current: number; held: number; available: number };
 export type LedgerJournal = { id: string; transactionId: string | null; kind: string; description: string; currency: Currency; status: string; reversalOf: string | null; postedAt: string | null; amountMinor: string; amount: number; postingCount: number };
@@ -26,4 +38,9 @@ export type CreateAccountInput = { customerId: string; currency: Currency; count
 export type CreateCardInput = { accountId: string; product?: Card['product']; format?: Card['format'] };
 export type CreateTransferInput = { counterparty: string; description: string; amount: string; currency?: Currency };
 export type CreatePaymentInput = { accountId: string; direction: 'cash_in' | 'cash_out'; counterparty: string; description: string; amount: string; currency: Currency };
+export type CreateProviderConnectionInput = {
+  provider: Provider['id']; name: string; environment: 'sandbox' | 'production'; capabilities: ProviderCapability[];
+  transport: ConnectionTransport; credentialReference: string;
+  configuration?: Partial<Record<'country' | 'programId' | 'tenantId' | 'accountId' | 'webhookProfile', string>>;
+};
 export type CreateWebhookInput = { name: string; url: string; eventTypes: string[] };

@@ -216,6 +216,26 @@ export const apiKeys = pgTable('api_keys', {
   check('api_keys_rate_limit_positive', sql`${table.rateLimitPerMinute} > 0 AND ${table.rateWindowCount} >= 0`),
 ]);
 
+export const providerConnections = pgTable('provider_connections', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  idempotencyKey: text('idempotency_key').notNull(), requestFingerprint: text('request_fingerprint').notNull(),
+  provider: text('provider').notNull(), name: text('name').notNull(), environment: text('environment').notNull(),
+  capabilities: text('capabilities').notNull().default('[]'), transport: text('transport').notNull(),
+  credentialRefCiphertext: text('credential_ref_ciphertext').notNull(), configuration: text('configuration').notNull().default('{}'),
+  status: text('status').notNull().default('pending_validation'),
+  createdBy: text('created_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
+  lastCheckedAt: text('last_checked_at'), createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_provider_connections_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  uniqueIndex('idx_provider_connections_org_name').on(table.organizationId, table.name),
+  index('idx_provider_connections_org_created').on(table.organizationId, table.createdAt),
+  check('provider_connections_provider', sql`${table.provider} IN ('bindx', 'dock', 'tapi', 'pismo', 'pomelo', 'wibond')`),
+  check('provider_connections_environment', sql`${table.environment} IN ('sandbox', 'production')`),
+  check('provider_connections_transport', sql`${table.transport} IN ('rest_api', 'webhook', 'batch_file', 'sftp', 'vpn', 'iso8583')`),
+  check('provider_connections_status', sql`${table.status} IN ('pending_validation', 'active', 'degraded', 'disabled')`),
+]);
+
 export const webhookEndpoints = pgTable('webhook_endpoints', {
   id: text('id').primaryKey(),
   organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),

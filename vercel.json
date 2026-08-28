@@ -1,6 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
+  "buildCommand": "node scripts/vercel-build.mjs",
   "regions": ["gru1"],
   "crons": [
     {

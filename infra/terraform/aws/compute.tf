@@ -260,6 +260,14 @@ data "aws_iam_policy_document" "task" {
     actions   = ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey"]
     resources = [aws_kms_key.platform.arn]
   }
+  dynamic "statement" {
+    for_each = length(var.provider_secret_arns) > 0 ? [1] : []
+    content {
+      sid       = "ResolveApprovedProviderCredentials"
+      actions   = ["secretsmanager:GetSecretValue"]
+      resources = var.provider_secret_arns
+    }
+  }
 }
 
 resource "aws_iam_role_policy" "task" {

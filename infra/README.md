@@ -13,6 +13,7 @@ La aplicación pública actual corre en Vercel con PostgreSQL administrado. `ter
 - Secretos de aplicación y conexión en Secrets Manager, cifrados con KMS e inyectados sólo en runtime.
 - Bucket privado, versionado y cifrado conectado mediante el adaptador S3 de evidencia de compliance. El despliegue Vercel conserva su adapter de Blob.
 - Logs y alarmas en CloudWatch, flow logs de VPC y autoscaling por CPU y cantidad de requests.
+- Egress redundante mediante NAT por zona para APIs y webhooks de proveedores; las credenciales de adaptadores se autorizan por ARN exacto con `provider_secret_arns`, nunca con acceso wildcard. VPN, mTLS o PrivateLink se agregan por proveedor durante homologación.
 
 Esta topología evita incorporar Kafka, Temporal, Redis o Kubernetes antes de tener carga que los justifique. Se agregan cuando aparecen workflows multi-servicio, partición del throughput, consumidores independientes o límites operativos que no pueda resolver el outbox de PostgreSQL.
 

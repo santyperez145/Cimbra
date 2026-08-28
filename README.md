@@ -102,6 +102,7 @@ El `Dockerfile` produce una imagen standalone sin proceso root. [`infra/README.m
 
 - [Arquitectura objetivo](docs/ARCHITECTURE.md)
 - [Estrategia competitiva y negocio](docs/STRATEGY.md)
+- [Conectividad y benchmark de proveedores](docs/PROVIDER_CONNECTIVITY.md)
 - [Plan de lanzamiento y gates](docs/LAUNCH.md)
 
 ## Marca
