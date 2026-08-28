@@ -2,8 +2,33 @@ import { NextResponse } from 'next/server';
 import { authorizationErrorResponse, authorizeApiRequest, rateLimitHeaders } from '@/app/lib/platform/authorization';
 import { scheduleWebhookDispatch } from '@/app/lib/platform/dispatch';
 import { majorToMinor, normalizeCurrency } from '@/app/lib/ledger/money';
-import { createTransfer, LedgerError } from '@/db/ledger';
-import { ensureDatabase, OrganizationAccessError } from '@/db/runtime';
+import { decodePageCursor, pageLimit, paginatedResponse } from '@/app/lib/platform/pagination';
+import { createTransfer, LedgerError, serializeTransaction } from '@/db/ledger';
+import { ensureDatabase, getDatabase, OrganizationAccessError } from '@/db/runtime';
+
+export async function GET(request: Request) {
+  try {
+    const principal = await authorizeApiRequest(request, { scope: 'transfers:read', roles: ['owner', 'admin', 'operator', 'viewer'] });
+    const url = new URL(request.url);
+    const limit = pageLimit(url.searchParams.get('limit'));
+    const cursor = decodePageCursor(url.searchParams.get('cursor'));
+    if (limit === null || cursor === undefined) return NextResponse.json({ error: 'Paginación inválida.' }, { status: 400 });
+    await ensureDatabase();
+    const query = `SELECT id, counterparty, description, amount_minor::text AS "amountMinor", currency, status,
+      risk_score AS "riskScore", reversal_of AS "reversalOf", created_at AS "createdAt"
+      FROM transactions WHERE organization_id = ? ${cursor ? 'AND (created_at, id) < (?, ?)' : ''}
+      ORDER BY created_at DESC, id DESC LIMIT ?`;
+    const statement = getDatabase().prepare(query);
+    const rows = cursor
+      ? await statement.bind(principal.organizationId, cursor.createdAt, cursor.id, limit + 1).all<Parameters<typeof serializeTransaction>[0]>()
+      : await statement.bind(principal.organizationId, limit + 1).all<Parameters<typeof serializeTransaction>[0]>();
+    return NextResponse.json(paginatedResponse(rows.results.map(serializeTransaction), limit), { headers: { 'Cache-Control': 'no-store', ...rateLimitHeaders(principal) } });
+  } catch (error) {
+    const response = authorizationErrorResponse(error);
+    if (response) return response;
+    throw error;
+  }
+}
 
 export async function POST(request: Request) {
   try {

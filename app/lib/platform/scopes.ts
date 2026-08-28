@@ -1,7 +1,11 @@
 export const API_SCOPES = [
+  'customers:read',
   'customers:write',
+  'accounts:read',
   'accounts:write',
+  'cards:read',
   'cards:write',
+  'transfers:read',
   'transfers:write',
   'ledger:read',
   'events:read',

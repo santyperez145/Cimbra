@@ -1,15 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {
-  apiKeyPrefix,
-  createApiKey,
-  decryptPlatformSecret,
-  encryptPlatformSecret,
-  hashApiKey,
-  signWebhook,
-  verifyApiKey,
-  verifyWebhookSignature,
-} from '../app/lib/platform/crypto.ts';
+import { apiKeyPrefix, createApiKey, decryptPlatformSecret, encryptPlatformSecret, hashApiKey, signWebhook, verifyApiKey, verifyWebhookSignature } from '../app/lib/platform/crypto.ts';
+import { decodePageCursor, encodePageCursor, pageLimit, paginatedResponse } from '../app/lib/platform/pagination.ts';
 import { isPrivateAddress, normalizeWebhookUrl } from '../app/lib/platform/webhook-url.ts';
 
 process.env.CIMBRA_ENCRYPTION_KEY = '3ea72fc13c567057870342c6ebd34d88f58f6d80b1dba61c4be4e1c2f1406afb';
@@ -39,12 +31,25 @@ test('firma timestamp y cuerpo de webhook con HMAC-SHA256', async () => {
 });
 
 test('rechaza destinos privados, reservados o sin HTTPS', () => {
-  for (const address of ['127.0.0.1', '10.2.3.4', '172.20.1.2', '192.168.1.1', '169.254.169.254', '::1', 'fd00::1']) {
-    assert.equal(isPrivateAddress(address), true, address);
-  }
+  for (const address of ['127.0.0.1', '10.2.3.4', '172.20.1.2', '192.168.1.1', '169.254.169.254', '::1', 'fd00::1']) assert.equal(isPrivateAddress(address), true, address);
   assert.equal(isPrivateAddress('8.8.8.8'), false);
   assert.equal(normalizeWebhookUrl('https://hooks.example.com/cimbra'), 'https://hooks.example.com/cimbra');
   assert.throws(() => normalizeWebhookUrl('http://hooks.example.com/cimbra'), /HTTPS/);
   assert.throws(() => normalizeWebhookUrl('https://127.0.0.1/cimbra'), /privada/);
   assert.throws(() => normalizeWebhookUrl('https://user:pass@hooks.example.com/cimbra'), /credenciales/);
+});
+
+test('pagina colecciones con cursores opacos y límites acotados', () => {
+  const rows = [
+    { id: '00000000-0000-4000-8000-000000000003', createdAt: '2026-08-28T12:00:00.000Z' },
+    { id: '00000000-0000-4000-8000-000000000002', createdAt: '2026-08-28T11:00:00.000Z' },
+  ];
+  const page = paginatedResponse(rows, 1);
+  assert.equal(page.data.length, 1);
+  assert.equal(page.hasMore, true);
+  assert.deepEqual(decodePageCursor(page.nextCursor), rows[0]);
+  assert.deepEqual(decodePageCursor(encodePageCursor(rows[1])), rows[1]);
+  assert.equal(decodePageCursor('invalid'), undefined);
+  assert.equal(pageLimit('101'), null);
+  assert.equal(pageLimit('25'), 25);
 });

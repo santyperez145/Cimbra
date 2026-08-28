@@ -2,9 +2,33 @@ import { NextResponse } from 'next/server';
 import { authorizationErrorResponse, authorizeApiRequest, rateLimitHeaders } from '@/app/lib/platform/authorization';
 import { scheduleWebhookDispatch } from '@/app/lib/platform/dispatch';
 import { IdempotencyError, requestIdempotencyKey } from '@/app/lib/platform/idempotency';
+import { decodePageCursor, pageLimit, paginatedResponse } from '@/app/lib/platform/pagination';
 import { ensureDatabase, getDatabase, OrganizationAccessError, recordAuditEvent } from '@/db/runtime';
 
 const countries = new Set(['AR', 'MX', 'CO', 'BR', 'CL', 'PE']);
+
+export async function GET(request: Request) {
+  try {
+    const principal = await authorizeApiRequest(request, { scope: 'customers:read', roles: ['owner', 'admin', 'operator', 'viewer'] });
+    const url = new URL(request.url);
+    const limit = pageLimit(url.searchParams.get('limit'));
+    const cursor = decodePageCursor(url.searchParams.get('cursor'));
+    if (limit === null || cursor === undefined) return NextResponse.json({ error: 'Paginación inválida.' }, { status: 400 });
+    await ensureDatabase();
+    const query = `SELECT id, type, name, country, tax_id_last4 AS "taxIdLast4", status, created_at AS "createdAt"
+      FROM customers WHERE organization_id = ? ${cursor ? 'AND (created_at, id) < (?, ?)' : ''}
+      ORDER BY created_at DESC, id DESC LIMIT ?`;
+    const statement = getDatabase().prepare(query);
+    const rows = cursor
+      ? await statement.bind(principal.organizationId, cursor.createdAt, cursor.id, limit + 1).all<{ id: string; type: string; name: string; country: string; taxIdLast4: string; status: string; createdAt: string }>()
+      : await statement.bind(principal.organizationId, limit + 1).all<{ id: string; type: string; name: string; country: string; taxIdLast4: string; status: string; createdAt: string }>();
+    return NextResponse.json(paginatedResponse(rows.results, limit), { headers: { 'Cache-Control': 'no-store', ...rateLimitHeaders(principal) } });
+  } catch (error) {
+    const response = authorizationErrorResponse(error);
+    if (response) return response;
+    throw error;
+  }
+}
 
 export async function POST(request: Request) {
   try {

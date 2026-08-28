@@ -2,9 +2,37 @@ import { NextResponse } from 'next/server';
 import { authorizationErrorResponse, authorizeApiRequest, rateLimitHeaders } from '@/app/lib/platform/authorization';
 import { scheduleWebhookDispatch } from '@/app/lib/platform/dispatch';
 import { IdempotencyError, requestIdempotencyKey } from '@/app/lib/platform/idempotency';
+import { decodePageCursor, pageLimit, paginatedResponse } from '@/app/lib/platform/pagination';
 import { normalizeCurrency } from '@/app/lib/ledger/money';
 import { createProductLedgerAccount } from '@/db/ledger';
 import { ensureDatabase, getDatabase, OrganizationAccessError, recordAuditEvent } from '@/db/runtime';
+
+export async function GET(request: Request) {
+  try {
+    const principal = await authorizeApiRequest(request, { scope: 'accounts:read', roles: ['owner', 'admin', 'operator', 'viewer'] });
+    const url = new URL(request.url);
+    const limit = pageLimit(url.searchParams.get('limit'));
+    const cursor = decodePageCursor(url.searchParams.get('cursor'));
+    if (limit === null || cursor === undefined) return NextResponse.json({ error: 'Paginación inválida.' }, { status: 400 });
+    await ensureDatabase();
+    const query = `SELECT a.id, a.customer_id AS "customerId", a.currency, a.country, a.account_reference AS "accountReference",
+      COALESCE(SUM(CASE WHEN p.direction = f.normal_balance THEN p.amount_minor ELSE -p.amount_minor END), 0)::text AS "balanceMinor",
+      a.status, a.created_at AS "createdAt"
+      FROM accounts a JOIN financial_accounts f ON f.id = a.ledger_account_id
+      LEFT JOIN ledger_postings p ON p.account_id = f.id
+      WHERE a.organization_id = ? ${cursor ? 'AND (a.created_at, a.id) < (?, ?)' : ''}
+      GROUP BY a.id ORDER BY a.created_at DESC, a.id DESC LIMIT ?`;
+    const statement = getDatabase().prepare(query);
+    const rows = cursor
+      ? await statement.bind(principal.organizationId, cursor.createdAt, cursor.id, limit + 1).all<{ id: string; customerId: string; currency: string; country: string; accountReference: string; balanceMinor: string; status: string; createdAt: string }>()
+      : await statement.bind(principal.organizationId, limit + 1).all<{ id: string; customerId: string; currency: string; country: string; accountReference: string; balanceMinor: string; status: string; createdAt: string }>();
+    return NextResponse.json(paginatedResponse(rows.results, limit), { headers: { 'Cache-Control': 'no-store', ...rateLimitHeaders(principal) } });
+  } catch (error) {
+    const response = authorizationErrorResponse(error);
+    if (response) return response;
+    throw error;
+  }
+}
 
 export async function POST(request: Request) {
   try {

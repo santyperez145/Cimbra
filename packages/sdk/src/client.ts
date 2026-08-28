@@ -2,7 +2,7 @@ import { CimbraApiError, CimbraConnectionError, CimbraTimeoutError } from './err
 import type {
   Account, AuditEvent, Card, CimbraResult, CreateAccountInput, CreateCardInput, CreateCustomerInput,
   CreateTransferInput, CreateWebhookInput, Customer, Hold, HoldResolution, LedgerBalance, LedgerJournal,
-  RequestOptions, Transaction, WebhookOperationalState,
+  ListOptions, Page, RequestOptions, Transaction, WebhookOperationalState,
 } from './types.ts';
 
 type Fetch = typeof globalThis.fetch;
@@ -36,23 +36,35 @@ function shouldRetryStatus(status: number) {
   return status === 408 || status === 429 || status >= 500;
 }
 
+function listPath(path: string, options?: ListOptions) {
+  const parameters = new URLSearchParams();
+  if (options?.limit !== undefined) parameters.set('limit', String(options.limit));
+  if (options?.cursor) parameters.set('cursor', options.cursor);
+  const query = parameters.toString();
+  return query ? `${path}?${query}` : path;
+}
+
 export class Cimbra {
   readonly customers = {
+    list: (options?: ListOptions) => this.request<Page<Customer>>('GET', listPath('/api/v1/customers', options), undefined, options),
     create: (input: CreateCustomerInput, options?: RequestOptions) =>
       this.post<{ ok: true; customer: Customer; replayed: boolean }>('/api/v1/customers', input, options, true),
   };
 
   readonly accounts = {
+    list: (options?: ListOptions) => this.request<Page<Account>>('GET', listPath('/api/v1/accounts', options), undefined, options),
     create: (input: CreateAccountInput, options?: RequestOptions) =>
       this.post<{ ok: true; account: Account; replayed: boolean }>('/api/v1/accounts', input, options, true),
   };
 
   readonly cards = {
+    list: (options?: ListOptions) => this.request<Page<Card>>('GET', listPath('/api/v1/cards', options), undefined, options),
     create: (input: CreateCardInput, options?: RequestOptions) =>
       this.post<{ ok: true; card: Card; replayed: boolean }>('/api/v1/cards', input, options, true),
   };
 
   readonly transfers = {
+    list: (options?: ListOptions) => this.request<Page<Transaction>>('GET', listPath('/api/v1/transfers', options), undefined, options),
     create: (input: CreateTransferInput, options?: RequestOptions) =>
       this.post<{ ok: true; transaction: Transaction; replayed: boolean }>('/api/v1/transfers', input, options, true),
     reverse: (id: string, options?: RequestOptions) =>

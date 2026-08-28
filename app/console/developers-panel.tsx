@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import Link from 'next/link';
 
-const scopes = ['customers:write', 'accounts:write', 'cards:write', 'transfers:write', 'ledger:read', 'events:read', 'compliance:write', 'webhooks:manage'];
+const scopes = ['customers:read', 'customers:write', 'accounts:read', 'accounts:write', 'cards:read', 'cards:write', 'transfers:read', 'transfers:write', 'ledger:read', 'events:read', 'compliance:write', 'webhooks:manage'];
 const eventTypes = ['customer.created', 'account.created', 'card.created', 'transfer.created', 'transfer.reversed', 'hold.captured', 'hold.released', 'compliance.document_uploaded'];
 
 type ApiKey = { id: string; name: string; prefix: string; scopes: string[]; status: string; rateLimitPerMinute: number; lastUsedAt: string | null; expiresAt: string | null; createdAt: string };
@@ -107,7 +107,7 @@ export default function DevelopersPanel({ journalCount }: { journalCount: number
 
     <div className="integration-grid">
       <article className="integration-card"><div className="card-head"><div><h2>API keys</h2><p>Bearer tokens almacenados como hash</p></div><Link href="/developers">OpenAPI →</Link></div>
-        <form className="integration-form" onSubmit={createKey}><div className="integration-fields"><label>Nombre<input name="name" placeholder="Backend producción" minLength={2} required /></label><label>Vence en<select name="expiresInDays" defaultValue="90"><option value="30">30 días</option><option value="90">90 días</option><option value="180">180 días</option><option value="365">365 días</option></select></label></div><fieldset><legend>Scopes</legend>{scopes.map((scope, index) => <label key={scope}><input type="checkbox" name="scopes" value={scope} defaultChecked={index === 3 || index === 4} />{scope}</label>)}</fieldset><button disabled={busy}>Crear API key</button></form>
+        <form className="integration-form" onSubmit={createKey}><div className="integration-fields"><label>Nombre<input name="name" placeholder="Backend producción" minLength={2} required /></label><label>Vence en<select name="expiresInDays" defaultValue="90"><option value="30">30 días</option><option value="90">90 días</option><option value="180">180 días</option><option value="365">365 días</option></select></label></div><fieldset><legend>Scopes</legend>{scopes.map((scope) => <label key={scope}><input type="checkbox" name="scopes" value={scope} defaultChecked={['transfers:read', 'transfers:write', 'ledger:read'].includes(scope)} />{scope}</label>)}</fieldset><button disabled={busy}>Crear API key</button></form>
         <div className="integration-list">{apiKeys.length === 0 ? <p>Sin API keys creadas.</p> : apiKeys.map((key) => <div key={key.id}><span><strong>{key.name}</strong><small>cim_sk_test_{key.prefix}_•••• · {key.rateLimitPerMinute}/min · {key.scopes.join(', ')}</small></span><b className={key.status}>{key.status}</b>{key.status === 'active' && <span className="integration-actions"><button disabled={busy} onClick={() => void keyAction(key.id, 'rotate')}>Rotar</button><button disabled={busy} onClick={() => void keyAction(key.id, 'revoke')}>Revocar</button></span>}</div>)}</div>
       </article>
 

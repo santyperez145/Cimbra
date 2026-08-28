@@ -20,6 +20,15 @@ const result = await cimbra.customers.create({
 console.log(result.data.customer.id, result.requestId);
 ```
 
+Las colecciones exponen paginación por cursor estable:
+
+```ts
+const page = await cimbra.customers.list({ limit: 25 });
+const next = page.data.nextCursor
+  ? await cimbra.customers.list({ limit: 25, cursor: page.data.nextCursor })
+  : null;
+```
+
 Las escrituras financieras seguras generan automáticamente una clave de idempotencia y conservan el mismo `X-Request-Id` durante los reintentos. También se puede proporcionar una clave propia:
 
 ```ts
