@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Cimbra Sandbox API
   version: 2026-08-28
-  description: Authenticated sandbox endpoints backed by a persistent double-entry ledger. They do not move real funds.
+  description: Authenticated sandbox endpoints backed by a persistent double-entry ledger, scoped S2S API keys and signed durable webhooks. They do not move real funds.
   license:
     name: Proprietary
     identifier: LicenseRef-Proprietary
@@ -56,7 +56,7 @@ paths:
     post:
       operationId: createCustomer
       summary: Create a customer
-      security: [{ session: [] }]
+      security: [{ session: [] }, { bearerApiKey: [] }]
       requestBody:
         required: true
         content:
@@ -77,7 +77,7 @@ paths:
     post:
       operationId: createAccount
       summary: Open an account
-      security: [{ session: [] }]
+      security: [{ session: [] }, { bearerApiKey: [] }]
       requestBody:
         required: true
         content:
@@ -96,7 +96,7 @@ paths:
     post:
       operationId: createCard
       summary: Issue a sandbox card
-      security: [{ session: [] }]
+      security: [{ session: [] }, { bearerApiKey: [] }]
       requestBody:
         required: true
         content:
@@ -115,7 +115,7 @@ paths:
     post:
       operationId: createTransfer
       summary: Create an idempotent sandbox transfer
-      security: [{ session: [] }]
+      security: [{ session: [] }, { bearerApiKey: [] }]
       parameters:
         - in: header
           name: Idempotency-Key
@@ -148,7 +148,7 @@ paths:
     post:
       operationId: reverseTransfer
       summary: Reverse a settled transfer with a compensating journal
-      security: [{ session: [] }]
+      security: [{ session: [] }, { bearerApiKey: [] }]
       parameters:
         - in: path
           name: id
@@ -167,7 +167,7 @@ paths:
     get:
       operationId: getLedger
       summary: Read currency-isolated balances, journals and active holds
-      security: [{ session: [] }]
+      security: [{ session: [] }, { bearerApiKey: [] }]
       responses:
         '200': { description: Ledger snapshot }
         '401': { description: Authentication required }
@@ -175,7 +175,7 @@ paths:
     post:
       operationId: captureHold
       summary: Capture an active hold and post its financial journal
-      security: [{ session: [] }]
+      security: [{ session: [] }, { bearerApiKey: [] }]
       parameters:
         - in: path
           name: id
@@ -189,7 +189,7 @@ paths:
     post:
       operationId: releaseHold
       summary: Release an active hold without posting a financial journal
-      security: [{ session: [] }]
+      security: [{ session: [] }, { bearerApiKey: [] }]
       parameters:
         - in: path
           name: id
@@ -203,7 +203,7 @@ paths:
     get:
       operationId: listAuditEvents
       summary: List recent audit events
-      security: [{ session: [] }]
+      security: [{ session: [] }, { bearerApiKey: [] }]
       responses:
         '200': { description: Event list }
         '401': { description: Authentication required }
@@ -211,7 +211,7 @@ paths:
     post:
       operationId: uploadComplianceDocument
       summary: Upload private compliance evidence
-      security: [{ session: [] }]
+      security: [{ session: [] }, { bearerApiKey: [] }]
       requestBody:
         required: true
         content:
@@ -224,6 +224,124 @@ paths:
       responses:
         '201': { description: Document stored }
         '400': { description: 'File must be PDF, JPG or PNG up to 5 MB with a valid signature' }
+  /api/platform/api-keys:
+    get:
+      operationId: listApiKeys
+      summary: List safe API key metadata
+      security: [{ session: [] }]
+      responses:
+        '200': { description: API key list without secrets }
+    post:
+      operationId: createApiKey
+      summary: Create an S2S API key; the secret is returned once
+      security: [{ session: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, scopes]
+              properties:
+                name: { type: string, minLength: 2, maxLength: 80 }
+                scopes:
+                  type: array
+                  minItems: 1
+                  uniqueItems: true
+                  items: { type: string, enum: ['customers:write', 'accounts:write', 'cards:write', 'transfers:write', 'ledger:read', 'events:read', 'compliance:write', 'webhooks:manage'] }
+                expiresInDays: { type: integer, minimum: 1, maximum: 365 }
+      responses:
+        '201': { description: API key created and secret returned once }
+  /api/platform/api-keys/{id}:
+    delete:
+      operationId: revokeApiKey
+      summary: Revoke an API key immediately
+      security: [{ session: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: API key revoked }
+        '404': { description: Active key not found }
+  /api/platform/api-keys/{id}/rotate:
+    post:
+      operationId: rotateApiKey
+      summary: Atomically replace and revoke an API key
+      security: [{ session: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '201': { description: Replacement key created and old key revoked }
+  /api/platform/webhooks:
+    get:
+      operationId: listWebhooks
+      summary: List endpoints, deliveries and attempt logs
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      responses:
+        '200': { description: Webhook operational state }
+    post:
+      operationId: createWebhook
+      summary: Register a public HTTPS webhook and return its signing secret once
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, url, eventTypes]
+              properties:
+                name: { type: string, minLength: 2, maxLength: 80 }
+                url: { type: string, format: uri, maxLength: 2048 }
+                eventTypes:
+                  type: array
+                  minItems: 1
+                  uniqueItems: true
+                  items: { type: string }
+      responses:
+        '201': { description: Webhook created and signing secret returned once }
+        '400': { description: 'Invalid, private or non-HTTPS destination' }
+  /api/platform/webhooks/{id}:
+    delete:
+      operationId: disableWebhook
+      summary: Disable an endpoint and cancel pending deliveries
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Webhook disabled }
+  /api/platform/webhooks/{id}/rotate:
+    post:
+      operationId: rotateWebhookSecret
+      summary: Rotate a webhook signing secret
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Signing secret rotated and returned once }
+  /api/platform/webhooks/deliveries/{id}/replay:
+    post:
+      operationId: replayWebhookDelivery
+      summary: Requeue a webhook delivery while retaining prior attempt logs
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Delivery requeued }
 components:
   securitySchemes:
     session:
@@ -231,3 +349,8 @@ components:
       in: cookie
       name: __Host-cimbra_session
       description: First-party opaque session token. Only its SHA-256 hash is stored server-side.
+    bearerApiKey:
+      type: http
+      scheme: bearer
+      bearerFormat: Cimbra API key
+      description: S2S key with a cim_sk_test_ prefix. The plaintext secret is shown once and only its SHA-256 hash is stored.

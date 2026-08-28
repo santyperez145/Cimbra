@@ -3,6 +3,7 @@ import type { Currency } from '@/app/lib/ledger/money';
 import { minorToMajorNumber } from '@/app/lib/ledger/money';
 import { getDatabaseClient } from './client';
 import { getLedgerBalances, listActiveHolds, seedOrganizationLedger, serializeTransaction, type ActiveHold, type LedgerBalance } from './ledger';
+import { enqueueWebhookEvent } from './platform';
 
 export type DashboardTransaction = {
   id: string;
@@ -195,4 +196,11 @@ export async function recordAuditEvent(input: {
     crypto.randomUUID(), input.organizationId, input.actorId, input.action, input.resourceType,
     input.resourceId, JSON.stringify(input.payload ?? {}), new Date().toISOString(),
   ).run();
+  return enqueueWebhookEvent(database, {
+    organizationId: input.organizationId,
+    eventType: input.action,
+    resourceType: input.resourceType,
+    resourceId: input.resourceId,
+    data: input.payload,
+  });
 }

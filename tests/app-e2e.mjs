@@ -41,6 +41,11 @@ async function cleanup() {
     await Promise.all(blobs.map((blob) => del(blob.object_key).catch(() => undefined)));
     await sql.begin(async (transaction) => {
       await transaction`UPDATE organizations SET status = 'deleting' WHERE id = ${organizationId}`;
+      await transaction`DELETE FROM webhook_delivery_attempts WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM webhook_deliveries WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM webhook_events WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM webhook_endpoints WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM api_keys WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM holds WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM ledger_postings WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM ledger_journals WHERE organization_id = ${organizationId} AND reversal_of IS NOT NULL`;
@@ -92,6 +97,48 @@ try {
     { current: usd.currentMinor, held: usd.heldMinor, available: usd.availableMinor },
     { current: '1000000', held: '48000', available: '952000' },
   );
+
+  const createdKey = await json(await request('/api/platform/api-keys', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'QA integration', scopes: ['ledger:read', 'customers:write'], expiresInDays: 30 }),
+  }), 201);
+  assert.match(createdKey.secret, /^cim_sk_test_/);
+  const keyList = (await json(await request('/api/platform/api-keys'), 200)).data;
+  assert.equal(keyList.some((key) => key.id === createdKey.key.id), true);
+  assert.equal(JSON.stringify(keyList).includes(createdKey.secret), false);
+  const bearerLedger = await fetch(new URL('/api/sandbox/ledger', target), { headers: { Authorization: `Bearer ${createdKey.secret}` } });
+  await json(bearerLedger, 200);
+  const bearerCustomer = await json(await fetch(new URL('/api/sandbox/customers', target), {
+    method: 'POST', headers: { Authorization: `Bearer ${createdKey.secret}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type: 'business', name: 'QA API Company', country: 'AR', taxId: '30700111222' }),
+  }), 201);
+  assert.equal(bearerCustomer.customer.name, 'QA API Company');
+  const deniedByScope = await json(await fetch(new URL('/api/sandbox/transfers', target), {
+    method: 'POST', headers: { Authorization: `Bearer ${createdKey.secret}`, 'Content-Type': 'application/json', 'Idempotency-Key': `qa-denied-${runId}` },
+    body: JSON.stringify({ counterparty: 'QA Supplier', description: 'Must be denied by scope', amount: '10', currency: 'ARS' }),
+  }), 403);
+  assert.equal(deniedByScope.code, 'insufficient_scope');
+  await json(await request(`/api/platform/api-keys/${createdKey.key.id}`, { method: 'DELETE' }), 200);
+  const revokedKey = await json(await fetch(new URL('/api/sandbox/ledger', target), { headers: { Authorization: `Bearer ${createdKey.secret}` } }), 401);
+  assert.equal(revokedKey.code, 'invalid_api_key');
+
+  const privateWebhook = await json(await request('/api/platform/webhooks', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'Private target', url: 'https://127.0.0.1/events', eventTypes: ['transfer.created'] }),
+  }), 400);
+  assert.match(privateWebhook.error, /privada|público/);
+  const webhook = await json(await request('/api/platform/webhooks', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'QA receiver', url: 'https://example.com/cimbra-qa', eventTypes: ['compliance.document_uploaded'] }),
+  }), 201);
+  assert.match(webhook.secret, /^whsec_/);
+  const webhookList = (await json(await request('/api/platform/webhooks'), 200)).data;
+  assert.equal(webhookList.endpoints.some((endpoint) => endpoint.id === webhook.endpoint.id), true);
+  assert.equal(JSON.stringify(webhookList).includes(webhook.secret), false);
+  const rotatedWebhook = await json(await request(`/api/platform/webhooks/${webhook.endpoint.id}/rotate`, { method: 'POST' }), 200);
+  assert.match(rotatedWebhook.secret, /^whsec_/);
+  assert.notEqual(rotatedWebhook.secret, webhook.secret);
+  await json(await request(`/api/platform/webhooks/${webhook.endpoint.id}`, { method: 'DELETE' }), 200);
 
   const customer = (await json(await request('/api/sandbox/customers', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -178,7 +225,7 @@ try {
 
   console.log(JSON.stringify({
     ok: true,
-    checks: ['auth', 'tenant-seed', 'customers', 'accounts', 'cards', 'idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'private-evidence', 'audit'],
+    checks: ['auth', 'tenant-seed', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers', 'accounts', 'cards', 'idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'private-evidence', 'audit'],
   }));
 } finally {
   await cleanup();

@@ -15,6 +15,7 @@ const contentSecurityPolicy = [
 ].join('; ');
 
 const nextConfig: NextConfig = {
+  agentRules: false,
   poweredByHeader: false,
   experimental: {
     serverActions: {

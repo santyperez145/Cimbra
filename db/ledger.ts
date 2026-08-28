@@ -1,6 +1,7 @@
 import type { AuthUser } from '@/app/lib/auth/types';
 import { type Currency, majorToMinor, minorToMajorNumber } from '@/app/lib/ledger/money';
 import { DatabaseClient, getDatabaseClient } from './client';
+import { enqueueWebhookEvent } from './platform';
 
 type Direction = 'debit' | 'credit';
 
@@ -43,6 +44,13 @@ async function insertAudit(database: DatabaseClient, input: {
     crypto.randomUUID(), input.organizationId, input.actorId, input.action, input.resourceType,
     input.resourceId, JSON.stringify(input.payload ?? {}), new Date().toISOString(),
   ).run();
+  await enqueueWebhookEvent(database, {
+    organizationId: input.organizationId,
+    eventType: input.action,
+    resourceType: input.resourceType,
+    resourceId: input.resourceId,
+    data: input.payload,
+  });
 }
 
 export async function getOrCreateCoreAccounts(

@@ -168,3 +168,71 @@ export const auditEvents = pgTable('audit_events', {
   action: text('action').notNull(), resourceType: text('resource_type').notNull(), resourceId: text('resource_id').notNull(),
   payload: text('payload').notNull().default('{}'), createdAt: text('created_at').notNull(),
 }, (table) => [index('idx_audit_org_created').on(table.organizationId, table.createdAt)]);
+
+export const apiKeys = pgTable('api_keys', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(), prefix: text('prefix').notNull(), secretHash: text('secret_hash').notNull(),
+  scopes: text('scopes').notNull().default('[]'), status: text('status').notNull().default('active'),
+  rateLimitPerMinute: integer('rate_limit_per_minute').notNull().default(300),
+  rateWindowStartedAt: text('rate_window_started_at'), rateWindowCount: integer('rate_window_count').notNull().default(0),
+  createdBy: text('created_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
+  lastUsedAt: text('last_used_at'), expiresAt: text('expires_at'), revokedAt: text('revoked_at'), createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_api_keys_prefix').on(table.prefix),
+  index('idx_api_keys_org_created').on(table.organizationId, table.createdAt),
+  check('api_keys_status', sql`${table.status} IN ('active', 'revoked')`),
+  check('api_keys_rate_limit_positive', sql`${table.rateLimitPerMinute} > 0 AND ${table.rateWindowCount} >= 0`),
+]);
+
+export const webhookEndpoints = pgTable('webhook_endpoints', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(), url: text('url').notNull(), eventTypes: text('event_types').notNull().default('[]'),
+  secretCiphertext: text('secret_ciphertext').notNull(), status: text('status').notNull().default('active'),
+  createdBy: text('created_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
+  secretRotatedAt: text('secret_rotated_at').notNull(), createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_webhook_endpoints_org_url').on(table.organizationId, table.url),
+  index('idx_webhook_endpoints_org_created').on(table.organizationId, table.createdAt),
+  check('webhook_endpoints_status', sql`${table.status} IN ('active', 'disabled')`),
+]);
+
+export const webhookEvents = pgTable('webhook_events', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  eventType: text('event_type').notNull(), resourceType: text('resource_type').notNull(), resourceId: text('resource_id').notNull(),
+  payload: text('payload').notNull(), status: text('status').notNull().default('pending'), createdAt: text('created_at').notNull(),
+}, (table) => [
+  index('idx_webhook_events_org_created').on(table.organizationId, table.createdAt),
+  check('webhook_events_status', sql`${table.status} IN ('pending', 'delivered', 'partial', 'exhausted', 'skipped')`),
+]);
+
+export const webhookDeliveries = pgTable('webhook_deliveries', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  eventId: text('event_id').notNull().references(() => webhookEvents.id, { onDelete: 'cascade' }),
+  endpointId: text('endpoint_id').notNull().references(() => webhookEndpoints.id, { onDelete: 'cascade' }),
+  status: text('status').notNull().default('pending'), attemptCount: integer('attempt_count').notNull().default(0),
+  retryCount: integer('retry_count').notNull().default(0), nextAttemptAt: text('next_attempt_at').notNull(), lockedUntil: text('locked_until'),
+  responseStatus: integer('response_status'), responseExcerpt: text('response_excerpt'), lastError: text('last_error'),
+  deliveredAt: text('delivered_at'), createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_webhook_deliveries_event_endpoint').on(table.eventId, table.endpointId),
+  index('idx_webhook_deliveries_due').on(table.status, table.nextAttemptAt, table.lockedUntil),
+  index('idx_webhook_deliveries_org_created').on(table.organizationId, table.createdAt),
+  check('webhook_deliveries_status', sql`${table.status} IN ('pending', 'processing', 'retry', 'delivered', 'exhausted', 'cancelled')`),
+  check('webhook_deliveries_attempts_nonnegative', sql`${table.attemptCount} >= 0 AND ${table.retryCount} >= 0`),
+]);
+
+export const webhookDeliveryAttempts = pgTable('webhook_delivery_attempts', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  deliveryId: text('delivery_id').notNull().references(() => webhookDeliveries.id, { onDelete: 'cascade' }),
+  attemptNumber: integer('attempt_number').notNull(), status: text('status').notNull(), responseStatus: integer('response_status'),
+  responseExcerpt: text('response_excerpt'), error: text('error'), startedAt: text('started_at').notNull(), completedAt: text('completed_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_webhook_attempt_delivery_number').on(table.deliveryId, table.attemptNumber),
+  index('idx_webhook_attempts_org_started').on(table.organizationId, table.startedAt),
+  check('webhook_attempts_status', sql`${table.status} IN ('delivered', 'failed')`),
+]);

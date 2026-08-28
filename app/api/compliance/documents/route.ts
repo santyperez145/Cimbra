@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 import { del, put } from '@vercel/blob';
-import { getCurrentUser } from '@/app/lib/auth/session';
-import { mutationAllowed } from '@/app/lib/auth/http';
-import { ensureDatabase, getDatabase, OrganizationAccessError, recordAuditEvent, requireOrganizationRole } from '@/db/runtime';
+import { authorizationErrorResponse, authorizeApiRequest } from '@/app/lib/platform/authorization';
+import { scheduleWebhookDispatch } from '@/app/lib/platform/dispatch';
+import { ensureDatabase, getDatabase, OrganizationAccessError, recordAuditEvent } from '@/db/runtime';
 
 const allowedTypes = new Set(['application/pdf', 'image/jpeg', 'image/png']);
 
@@ -15,18 +15,22 @@ async function hasExpectedSignature(file: File) {
 }
 
 export async function POST(request: Request) {
-  if (!mutationAllowed(request)) return NextResponse.json({ error: 'Origen de solicitud no permitido.' }, { status: 403 });
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: 'Autenticación requerida.' }, { status: 401 });
+  let principal;
+  try {
+    principal = await authorizeApiRequest(request, { scope: 'compliance:write', roles: ['owner', 'admin', 'operator'], mutation: true });
+  } catch (error) {
+    const response = authorizationErrorResponse(error);
+    if (response) return response;
+    throw error;
+  }
+  const { user, organizationId } = principal;
   const form = await request.formData();
   const file = form.get('file');
   if (!(file instanceof File) || file.size === 0 || file.size > 5 * 1024 * 1024 || !allowedTypes.has(file.type) || !(await hasExpectedSignature(file))) {
     return NextResponse.json({ error: 'Adjuntá un PDF, JPG o PNG de hasta 5 MB.' }, { status: 400 });
   }
-  let organizationId: string;
   try {
     await ensureDatabase();
-    ({ organizationId } = await requireOrganizationRole(user, ['owner', 'admin', 'operator']));
   } catch (error) {
     if (error instanceof OrganizationAccessError) return NextResponse.json({ error: error.message }, { status: error.status });
     throw error;
@@ -53,5 +57,6 @@ export async function POST(request: Request) {
     await del(blob.url).catch(() => undefined);
     throw error;
   }
+  scheduleWebhookDispatch(organizationId);
   return NextResponse.json({ ok: true, document: { id, fileName: safeName, status: 'received' } }, { status: 201 });
 }

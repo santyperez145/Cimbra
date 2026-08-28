@@ -1,14 +1,14 @@
 import { NextResponse } from 'next/server';
-import { getCurrentUser } from '@/app/lib/auth/session';
-import { mutationAllowed } from '@/app/lib/auth/http';
+import { authorizationErrorResponse, authorizeApiRequest } from '@/app/lib/platform/authorization';
+import { scheduleWebhookDispatch } from '@/app/lib/platform/dispatch';
 import { majorToMinor, normalizeCurrency } from '@/app/lib/ledger/money';
 import { createTransfer, LedgerError } from '@/db/ledger';
-import { ensureDatabase, OrganizationAccessError, requireOrganizationRole } from '@/db/runtime';
+import { ensureDatabase, OrganizationAccessError } from '@/db/runtime';
 
 export async function POST(request: Request) {
-  if (!mutationAllowed(request)) return NextResponse.json({ error: 'Origen de solicitud no permitido.' }, { status: 403 });
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: 'Autenticación requerida.' }, { status: 401 });
+  try {
+  const principal = await authorizeApiRequest(request, { scope: 'transfers:write', roles: ['owner', 'admin', 'operator'], mutation: true });
+  const { user, organizationId } = principal;
   const body = await request.json().catch(() => null) as Record<string, unknown> | null;
   const counterparty = typeof body?.counterparty === 'string' ? body.counterparty.trim().slice(0, 120) : '';
   const description = typeof body?.description === 'string' ? body.description.trim().slice(0, 180) : '';
@@ -29,15 +29,16 @@ export async function POST(request: Request) {
   if (!idempotencyKey || idempotencyKey.length < 8) {
     return NextResponse.json({ error: 'Idempotency-Key es requerido y debe tener al menos 8 caracteres.' }, { status: 400 });
   }
-  try {
     await ensureDatabase();
-    const { organizationId } = await requireOrganizationRole(user, ['owner', 'admin', 'operator']);
     const riskScore = amountMinor >= majorToMinor('2000000', currency) ? 68 : amountMinor >= majorToMinor('750000', currency) ? 32 : 7;
     const result = await createTransfer({
       organizationId, actor: user, idempotencyKey, counterparty, description, amountMinor, currency, riskScore,
     });
+    if (!result.replayed) scheduleWebhookDispatch(organizationId);
     return NextResponse.json({ ok: true, ...result }, { status: result.replayed ? 200 : 201 });
   } catch (error) {
+    const authorizationResponse = authorizationErrorResponse(error);
+    if (authorizationResponse) return authorizationResponse;
     if (error instanceof LedgerError || error instanceof OrganizationAccessError) {
       return NextResponse.json({ error: error.message, code: error instanceof LedgerError ? error.code : 'forbidden' }, { status: error.status });
     }

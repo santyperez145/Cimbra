@@ -22,6 +22,20 @@
       "when": 1787939000000,
       "tag": "0002_ledger_trigger_fix",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1787940696384,
+      "tag": "0003_special_lady_bullseye",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1787941489424,
+      "tag": "0004_glossy_ben_parker",
+      "breakpoints": true
     }
   ]
 }

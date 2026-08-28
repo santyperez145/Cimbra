@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { FormEvent, useState } from 'react';
 import type { DashboardData } from '@/db/runtime';
+import DevelopersPanel from './developers-panel';
 
 const nav = [
   ['▦', 'Vista general'], ['↔', 'Movimientos'], ['◉', 'Cuentas'], ['▰', 'Tarjetas'],
@@ -131,7 +132,7 @@ function SecondaryConsoleView({ active, data, busy, feedback, onTransfer, onReve
 
   if (active === 'Tarjetas') return <div className="module-view"><div className="module-view-head"><div><p>ISSUING SANDBOX</p><h1>Tarjetas emitidas</h1><span>Instrumentos de prueba vinculados a cuentas persistidas.</span></div><span className="module-health"><i /> {data.cards.filter((card)=>card.status==='active').length} activas</span></div><div className="module-metrics"><article><strong>{data.cards.length}</strong><span>tarjetas registradas</span></article><article><strong>{data.cards.filter((card)=>card.format==='virtual').length}</strong><span>virtuales</span></article><article><strong>{data.cards.filter((card)=>card.format==='physical').length}</strong><span>físicas</span></article></div><article className="module-list"><div className="card-head"><div><h2>Inventario sandbox</h2><p>No representa tarjetas emitidas en redes reales</p></div></div>{data.cards.length===0?<div><span className="movement"><i>▰</i><b>Sin tarjetas<small>Crealas mediante POST /api/sandbox/cards</small></b></span><strong>Vacío</strong></div>:data.cards.map((card)=><div key={card.id}><span className="movement"><i>▰</i><b>•••• {card.last4}<small>{card.format} · {card.product}</small></b></span><strong>{statusLabel(card.status)}</strong></div>)}</article></div>;
 
-  if (active === 'Developers') return <div className="module-view"><div className="module-view-head"><div><p>INTEGRACIÓN</p><h1>API sandbox</h1><span>Los endpoints actuales usan la sesión propia de Cimbra. API keys y webhooks todavía no están habilitados.</span></div><span className="module-health"><i /> v2026-08-28</span></div><div className="module-metrics"><article><strong>Session</strong><span>autenticación activa</span></article><article><strong>OpenAPI</strong><span>contrato público versionado</span></article><article><strong>{data.journalCount}</strong><span>journals del tenant</span></article></div><article className="module-list"><div className="card-head"><div><h2>Capacidades disponibles</h2><p>Estado real del entorno sandbox</p></div><Link href="/developers">Abrir documentación →</Link></div><div><span className="movement"><i>✓</i><b>Sesión first-party<small>Cookie opaca, revocable y almacenada como hash</small></b></span><strong>Activa</strong></div><div><span className="movement"><i>◇</i><b>API keys<small>Autenticación servidor a servidor</small></b></span><strong>No habilitadas</strong></div><div><span className="movement"><i>◇</i><b>Webhooks<small>Entrega firmada, reintentos y replay</small></b></span><strong>No habilitados</strong></div></article></div>;
+  if (active === 'Developers') return <DevelopersPanel journalCount={data.journalCount} />;
 
   return null;
 }
