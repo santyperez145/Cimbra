@@ -343,8 +343,20 @@ export async function resolveHold(input: {
   actor: AuthUser;
   holdId: string;
   action: 'capture' | 'release';
+  idempotencyKey: string;
 }) {
   return getDatabaseClient().transaction(async (transaction) => {
+    await transaction.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:hold-resolution:${input.idempotencyKey}`).run();
+    const keyOwner = await transaction.prepare(
+      `SELECT resource_id AS id FROM audit_events
+       WHERE organization_id = ? AND resource_type = 'hold'
+         AND action IN ('hold.captured', 'hold.released')
+         AND payload::jsonb->>'idempotencyKey' = ? LIMIT 1`,
+    ).bind(input.organizationId, input.idempotencyKey).first<{ id: string }>();
+    if (keyOwner && keyOwner.id !== input.holdId) {
+      throw new LedgerError('Idempotency-Key ya fue usado para resolver otra reserva.', 409, 'idempotency_mismatch');
+    }
     const hold = await transaction.prepare(
       `SELECT h.id, h.account_id AS accountId, h.transaction_id AS transactionId, h.amount_minor::text AS amountMinor,
         h.currency, h.status, t.description
@@ -355,7 +367,19 @@ export async function resolveHold(input: {
       currency: Currency; status: string; description: string;
     }>();
     if (!hold) throw new LedgerError('Reserva no encontrada.', 404, 'hold_not_found');
-    if (hold.status !== 'active') return { id: hold.id, status: hold.status, replayed: true };
+    if (hold.status !== 'active') {
+      const expectedStatus = input.action === 'capture' ? 'captured' : 'released';
+      const resolution = await transaction.prepare(
+        `SELECT payload FROM audit_events WHERE organization_id = ? AND resource_type = 'hold' AND resource_id = ?
+         AND action IN ('hold.captured', 'hold.released') ORDER BY created_at DESC LIMIT 1`,
+      ).bind(input.organizationId, hold.id).first<{ payload: string }>();
+      let priorKey: string | null = null;
+      try { priorKey = resolution ? String((JSON.parse(resolution.payload) as { idempotencyKey?: unknown }).idempotencyKey ?? '') || null : null; } catch { /* legacy audit payload */ }
+      if (hold.status === expectedStatus && (priorKey === null || priorKey === input.idempotencyKey)) {
+        return { id: hold.id, status: hold.status, replayed: true };
+      }
+      throw new LedgerError('La reserva ya fue resuelta con otra operación.', 409, 'hold_already_resolved');
+    }
     await transaction.prepare('SELECT id FROM financial_accounts WHERE id = ? FOR UPDATE')
       .bind(hold.accountId).first();
     const now = new Date().toISOString();
@@ -386,7 +410,7 @@ export async function resolveHold(input: {
       action: `hold.${input.action === 'capture' ? 'captured' : 'released'}`,
       resourceType: 'hold',
       resourceId: hold.id,
-      payload: { transactionId: hold.transactionId },
+      payload: { transactionId: hold.transactionId, idempotencyKey: input.idempotencyKey },
     });
     return { id: hold.id, status: input.action === 'capture' ? 'captured' : 'released', replayed: false };
   });

@@ -251,6 +251,7 @@ paths:
           name: id
           required: true
           schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/IdempotencyKey'
       responses:
         '200': { description: Hold captured }
         '404': { description: Hold not found }
@@ -265,6 +266,7 @@ paths:
           name: id
           required: true
           schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/IdempotencyKey'
       responses:
         '200': { description: Hold released }
         '404': { description: Hold not found }

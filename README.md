@@ -70,7 +70,7 @@ Apple requiere un Services ID asociado a una app habilitada para Sign in with Ap
 - montos en unidades mínimas enteras (`BIGINT`), con escala por moneda;
 - journals balanceados y separación obligatoria de tenant y moneda en PostgreSQL;
 - postings inmutables; las correcciones crean journals compensatorios;
-- idempotencia por organización para customers, accounts, cards, transferencias, journals y holds;
+- idempotencia por organización para customers, accounts, cards, transferencias, journals, creación y resolución de holds;
 - saldo disponible derivado del saldo contable menos las reservas activas;
 - escrituras financieras y auditoría dentro de la misma transacción.
 

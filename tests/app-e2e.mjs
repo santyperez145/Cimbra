@@ -317,8 +317,19 @@ try {
   const afterHigh = (await json(await request('/api/v1/ledger'), 200)).data;
   const highHold = afterHigh.holds.find((hold) => hold.transactionId === high.transaction.id);
   assert.ok(highHold);
-  const captured = await json(await request(`/api/v1/holds/${highHold.id}/capture`, { method: 'POST' }), 200);
+  const captureKey = `qa-capture-${runId}`;
+  const captured = await json(await request(`/api/v1/holds/${highHold.id}/capture`, {
+    method: 'POST', headers: { 'Idempotency-Key': captureKey },
+  }), 200);
   assert.equal(captured.hold.status, 'captured');
+  const captureReplay = await json(await request(`/api/v1/holds/${highHold.id}/capture`, {
+    method: 'POST', headers: { 'Idempotency-Key': captureKey },
+  }), 200);
+  assert.equal(captureReplay.hold.replayed, true);
+  const captureConflict = await json(await request(`/api/v1/holds/${highHold.id}/release`, {
+    method: 'POST', headers: { 'Idempotency-Key': `qa-conflict-${runId}` },
+  }), 409);
+  assert.equal(captureConflict.error.code, 'hold_already_resolved');
 
   const reversed = await json(await request(`/api/v1/transfers/${low.transaction.id}/reverse`, {
     method: 'POST', headers: { 'Idempotency-Key': `qa-reverse-${runId}` },
@@ -331,8 +342,15 @@ try {
 
   const releasable = afterHigh.holds.find((hold) => hold.currency === 'ARS' && hold.id !== highHold.id);
   assert.ok(releasable);
-  const released = await json(await request(`/api/v1/holds/${releasable.id}/release`, { method: 'POST' }), 200);
+  const releaseKey = `qa-release-${runId}`;
+  const released = await json(await request(`/api/v1/holds/${releasable.id}/release`, {
+    method: 'POST', headers: { 'Idempotency-Key': releaseKey },
+  }), 200);
   assert.equal(released.hold.status, 'released');
+  const releaseReplay = await json(await request(`/api/v1/holds/${releasable.id}/release`, {
+    method: 'POST', headers: { 'Idempotency-Key': releaseKey },
+  }), 200);
+  assert.equal(releaseReplay.hold.replayed, true);
 
   const insufficient = await json(await request('/api/v1/transfers', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-insufficient-${runId}` },

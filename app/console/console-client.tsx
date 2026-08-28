@@ -64,7 +64,9 @@ export default function ConsoleClient({ data, user }: {
 
   async function resolveReview(holdId: string, action: 'capture' | 'release') {
     setBusy(true); setFeedback('');
-    const response = await fetch(`/api/v1/holds/${holdId}/${action}`, { method: 'POST' });
+    const response = await fetch(`/api/v1/holds/${holdId}/${action}`, {
+      method: 'POST', headers: { 'Idempotency-Key': `hold-${action}-${holdId}` },
+    });
     const result = await response.json() as { error?: string };
     setFeedback(response.ok ? action === 'capture' ? 'Reserva capturada y contabilizada.' : 'Reserva liberada sin afectar el saldo contable.' : result.error ?? 'No pudimos resolver la reserva.');
     setBusy(false); router.refresh();
