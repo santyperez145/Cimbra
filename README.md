@@ -13,7 +13,7 @@ Superficies disponibles:
 - `/login` — registro e inicio de sesión propio con usuario/email y contraseña; OAuth Google y Apple se activa al configurar sus credenciales.
 - `/forgot-password`, `/reset-password` y `/verify-email` — ciclo de vida de cuenta con tokens opacos, expiración, uso único y respuestas anti-enumeración.
 - `/console` — consola protegida y consciente del rol; owner/admin administran miembros e invitaciones, operator ejecuta, viewer trabaja en modo lectura y Operaciones unifica ownership, SLA y expedientes de riesgo/conciliación.
-- `/api/health` — healthcheck sin caché.
+- `/api/health` — readiness sin caché para esquema PostgreSQL y secretos críticos de cifrado/dispatcher, sin exponer sus valores.
 - `/api/v1/*` — API pública versionada para customers, accounts, cards, transfers, payments, riesgo, conciliación CSV/API, work items operativos, settlement sandbox, aprobaciones, holds, ledger, events, compliance y webhooks.
 - `/api/sandbox/*` — alias de compatibilidad deprecado; las integraciones nuevas deben usar v1.
 - `/api/platform/api-keys` — claves Bearer con scopes, vencimiento, rate limit, rotación y revocación inmediata.
@@ -43,6 +43,7 @@ npm run test:db
 npm run typecheck
 npm run lint
 npm run build
+npm run start:smoke
 ```
 
 La identidad de Cimbra usa PBKDF2-HMAC-SHA-256 con 600.000 iteraciones, sesiones opacas revocables en PostgreSQL, cookies `HttpOnly`, protección de origen y límites de intentos. Incluye verificación de email, recuperación con cierre global de sesiones y MFA TOTP interoperable con bloqueo de replay; los ocho recovery codes de 80 bits se muestran una vez y sólo se persisten como hash. Las API keys sólo se almacenan como hash. Los secretos TOTP y de firma usan AES-256-GCM en reposo y los webhooks HMAC-SHA256 en tránsito. Ningún secreto se guarda en el cliente ni en el repositorio.
@@ -115,7 +116,7 @@ npm run sdk:artifact
 
 ## Infraestructura propia
 
-El `Dockerfile` produce una imagen standalone sin proceso root. El build genera siempre ese mismo runtime, incluso si el entorno local fue descargado desde Vercel, y falla si faltan `server.js` o los assets estáticos requeridos por `npm start` y la imagen OCI. [`infra/README.md`](infra/README.md) y `infra/terraform/aws` definen el piloto sobre ECS/Fargate, PostgreSQL Multi-AZ con PITR, KMS/Secrets Manager, WAF, autoscaling, observabilidad y el recovery dispatcher del outbox. Terraform sólo debe aplicarse después de revisar plan, costo y cuenta de destino.
+El `Dockerfile` produce una imagen standalone sin proceso root. El build genera siempre ese mismo runtime, incluso si el entorno local fue descargado desde Vercel, e incorpora en el artefacto sus assets públicos y de Next.js. Como parte obligatoria de `npm run build`, el smoke levanta ese servidor sin base de datos y comprueba por HTTP una página renderizada, un asset compilado y el favicon; `npm run start:smoke` permite repetirlo sin recompilar. Así el workflow existente de CI también ejecuta la prueba sin un gate paralelo. [`infra/README.md`](infra/README.md) y `infra/terraform/aws` definen el piloto sobre ECS/Fargate, PostgreSQL Multi-AZ con PITR, KMS/Secrets Manager, WAF, autoscaling, observabilidad y el recovery dispatcher del outbox. Terraform sólo debe aplicarse después de revisar plan, costo y cuenta de destino.
 
 ## Documentos de dirección
 

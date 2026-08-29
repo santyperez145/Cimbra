@@ -13,6 +13,10 @@ function encryptionKeyBytes() {
   return bytes;
 }
 
+export function validateEncryptionKeyConfiguration() {
+  encryptionKeyBytes();
+}
+
 async function encryptionKey(usage: KeyUsage[]) {
   return crypto.subtle.importKey('raw', encryptionKeyBytes() as BufferSource, { name: 'AES-GCM' }, false, usage);
 }

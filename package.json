@@ -12,6 +12,7 @@
     "dev": "next dev",
     "build": "node scripts/build-next.mjs",
     "start": "node --env-file-if-exists=.env.local .next/standalone/server.js",
+    "start:smoke": "node scripts/smoke-standalone.mjs",
     "deploy": "npx vercel@latest --prod",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "typecheck": "tsc --noEmit",

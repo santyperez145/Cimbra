@@ -11,6 +11,7 @@ test('el build siempre produce el runtime standalone usado por start y la imagen
   };
   const nextConfig = readFileSync(join(root, 'next.config.ts'), 'utf8');
   const buildScript = readFileSync(join(root, 'scripts', 'build-next.mjs'), 'utf8');
+  const smokeScript = readFileSync(join(root, 'scripts', 'smoke-standalone.mjs'), 'utf8');
   const vercelBuild = readFileSync(join(root, 'scripts', 'vercel-build.mjs'), 'utf8');
   const dockerfile = readFileSync(join(root, 'Dockerfile'), 'utf8');
 
@@ -19,10 +20,32 @@ test('el build siempre produce el runtime standalone usado por start y la imagen
   assert.match(nextConfig, /CIMBRA_STANDALONE === '1'/);
   assert.match(packageJson.scripts.build, /build-next\.mjs/);
   assert.match(buildScript, /CIMBRA_STANDALONE: '1'/);
+  assert.match(buildScript, /cpSync\(join\(root, '\.next', 'static'\), join\(standaloneRoot, '\.next', 'static'\)/);
+  assert.match(buildScript, /cpSync\(join\(root, 'public'\), join\(standaloneRoot, 'public'\)/);
   assert.match(buildScript, /verify-standalone\.mjs/);
+  assert.match(buildScript, /smoke-standalone\.mjs/);
   assert.doesNotMatch(vercelBuild, /CIMBRA_STANDALONE/);
   assert.match(packageJson.scripts.start, /\.next\/standalone\/server\.js/);
+  assert.match(packageJson.scripts['start:smoke'], /smoke-standalone\.mjs/);
+  assert.match(smokeScript, /fetchRequired\('\/terms'\)/);
+  assert.match(smokeScript, /\/_next\\\/static\\\//);
+  assert.match(smokeScript, /fetchRequired\('\/favicon\.svg'\)/);
   assert.match(dockerfile, /\/app\/\.next\/standalone/);
+});
+
+test('la navegación global ofrece 404 y recuperación explícita sin interceptar el redirect de sesión', () => {
+  const routeError = readFileSync(join(root, 'app', 'error.tsx'), 'utf8');
+  const globalError = readFileSync(join(root, 'app', 'global-error.tsx'), 'utf8');
+  const notFound = readFileSync(join(root, 'app', 'not-found.tsx'), 'utf8');
+
+  assert.match(routeError, /onClick=\{reset\}/);
+  assert.match(routeError, /error\.digest/);
+  assert.match(routeError, /href="\/console"/);
+  assert.match(globalError, /<html lang="es">/);
+  assert.match(globalError, /onClick=\{reset\}/);
+  assert.match(notFound, /404 · RUTA NO ENCONTRADA/);
+  assert.match(notFound, /href="\/developers"/);
+  assert.throws(() => readFileSync(join(root, 'app', 'loading.tsx'), 'utf8'));
 });
 
 test('el selector de período gobierna métricas y actividad persistidas', () => {

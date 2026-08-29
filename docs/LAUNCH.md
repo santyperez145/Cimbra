@@ -12,11 +12,12 @@
 - idempotencia, holds, captura, liberación y reversas compensatorias;
 - riesgo por monto demostrable;
 - documentos privados en object storage;
-- eventos de auditoría y healthcheck;
+- eventos de auditoría y readiness que falla cerrado ante esquema o secretos críticos inválidos;
 - migraciones, lint, tipos y build automatizables.
 - API pública v1 con request IDs, errores normalizados, rate-limit headers e idempotencia de altas;
 - SDK TypeScript empaquetable y descargable con SHA-256, reintentos seguros y verificación de webhooks;
-- imagen OCI standalone e infraestructura AWS reproducible y validada estáticamente; el build verifica el artefacto ejecutable que comparten `npm start` y la imagen.
+- imagen OCI standalone e infraestructura AWS reproducible; el build empaqueta assets públicos/compilados y CI levanta el proceso real para verificar por HTTP HTML, assets de Next.js y archivos públicos.
+- estados globales responsive para rutas inexistentes y fallos recuperables, sin interceptar el redirect HTTP de sesión ni presentar una mutación financiera incierta como confirmada.
 - métricas de overview calculadas en PostgreSQL para ventanas reales de 7 y 30 días, con selector funcional y actividad consistente con el período.
 - migraciones versionadas como gate previo al build productivo de Vercel y como task separada antes del rollout de ECS.
 - verificación de email, recuperación de contraseña con revocación de sesiones y MFA TOTP con recovery codes de un solo uso.

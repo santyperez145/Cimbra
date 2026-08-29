@@ -5,7 +5,8 @@ import { join } from 'node:path';
 const root = process.cwd();
 const requiredArtifacts = [
   join(root, '.next', 'standalone', 'server.js'),
-  join(root, '.next', 'static'),
+  join(root, '.next', 'standalone', '.next', 'static'),
+  join(root, '.next', 'standalone', 'public', 'favicon.svg'),
 ];
 
 for (const artifact of requiredArtifacts) {
