@@ -70,6 +70,12 @@ Las superficies públicas de Pismo y Dock priorizan una promesa modular, una int
 
 La decisión propia es no fingir clientes, volumen, uptime, tiempos de integración ni conectividad. La landing usa evidencia que existe en el repositorio —API v1, OpenAPI, SDK, ledger, RBAC, maker/checker y webhooks— y etiqueta sandbox, foundation y roadmap. Los plazos comerciales se expresan como gates de fit, build, homologación y operación; producción sólo se presenta después de riel, contrato, licencia o sponsor, certificación, SLO y runbooks. El estado de sesión también es real: una persona autenticada abre su consola y una anónima ingresa o solicita una sesión de diseño.
 
+## Benchmark aplicado — developer experience verificable (29/08/2026)
+
+Pismo reúne guías, referencia REST, esquemas de eventos, changelog, consola interactiva y colección Postman; además documenta autenticación S2S y verificación de webhooks como contratos separados. Pomelo hace explícitos OAuth 2.0, scopes, montos decimales, idempotencia y firma HMAC de webhooks. BIND PSP publica URLs distintas para staging y producción, autenticación, scopes, ejemplos curl, códigos de error y política de reintentos de webhooks. Esos patrones reducen el tiempo hasta el primer request y, sobre todo, evitan que el integrador tenga que adivinar límites operativos.
+
+Cimbra adopta el estándar de claridad como propiedad propia: `/developers` publica la única base URL activa, diferencia sandbox de producción no habilitada, genera la referencia de 61 operaciones desde OpenAPI, consume scopes y eventos canónicos, ofrece quickstarts exactos, errores estructurados, rate limits, paginación, modelo monetario, contrato de firma y calendario de reintentos. El SDK TypeScript se distribuye como artefacto real con checksum mientras no exista publicación npm. Postman y SDKs adicionales se muestran explícitamente como backlog; no se ofrecen botones ni instalaciones ficticias. La consola interactiva contra endpoints mutantes se posterga hasta poder aislar credenciales y datos de forma segura. Dock, tapi y Wibond continúan como benchmarks de producto; no se atribuyen contratos técnicos específicos cuando la documentación pública consultada no alcanza para verificarlos.
+
 ## Wedge recomendado
 
 Primer segmento: marketplaces, SaaS vertical y plataformas de workforce con volumen mensual entre USD 1M y USD 20M que necesitan cuentas virtuales, payouts, conciliación y tarjetas corporativas en Argentina y México.
@@ -127,6 +133,8 @@ Una ronda pre-seed debe financiar 18 meses para cerrar el producto inicial, cont
 - https://developers.pismo.io/pismo-docs/docs/main-solutions
 - https://developers.pismo.io/pismo-docs/docs/anti-fraud-integration
 - https://developers.pismo.io/pismo-docs/docs/security-guide-for-apis
+- https://developers.pismo.io/pismo-docs/docs/security
+- https://developers.pismo.io/pismo-docs/docs/verifying-webhook-requests
 - https://developers.pismo.io/pismo-docs/docs/get-started-with-sso-for-control-center
 - https://developers.pismo.io/pismo-docs/docs/security-guide-for-control-center
 - https://developers.pismo.io/pismo-docs/docs/control-center-access-profiles-and-roles
@@ -134,6 +142,9 @@ Una ronda pre-seed debe financiar 18 meses para cerrar el producto inicial, cont
 - https://developers.pismo.io/pismo-docs/changelog/6-march-2026
 - https://developers.pismo.io/pismo-docs/docs/file-based-check-processing-and-bulk-settlement
 - https://developers.pomelo.la/api-reference/processing/transactions
+- https://developers.pomelo.la/api-reference/home/auth
+- https://developers.pomelo.la/api-reference/get-started/idempotency
+- https://developers.pomelo.la/api-reference/Identity/webhooks
 - https://www.pomelo.la/es/
 - https://docs.pomelo.la/en/docs/cards/processing/reports/download-report
 - https://developers.pomelo.la/guides/solutions/processing/reports

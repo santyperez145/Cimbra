@@ -4,7 +4,7 @@
 
 - marca y narrativa comercial orientada a compradores, con capacidades y límites verificables;
 - sitio responsive, sesión contextual y captación persistente;
-- documentación conectada a endpoints existentes;
+- portal developer conectado al OpenAPI real, con las 61 operaciones, parámetros, respuestas, búsqueda, quickstart ejecutable, límites del sandbox y changelog;
 - identidad y consola multi-tenant básica;
 - registro e inicio de sesión propio, sesiones revocables y OAuth Google/Apple;
 - sandbox persistente para customers, accounts, cards y transfers;
@@ -15,7 +15,7 @@
 - eventos de auditoría y healthcheck;
 - migraciones, lint, tipos y build automatizables.
 - API pública v1 con request IDs, errores normalizados, rate-limit headers e idempotencia de altas;
-- SDK TypeScript empaquetable con reintentos seguros y verificación de webhooks;
+- SDK TypeScript empaquetable y descargable con SHA-256, reintentos seguros y verificación de webhooks;
 - imagen OCI standalone e infraestructura AWS reproducible y validada estáticamente.
 - migraciones versionadas como gate previo al build productivo de Vercel y como task separada antes del rollout de ECS.
 - verificación de email, recuperación de contraseña con revocación de sesiones y MFA TOTP con recovery codes de un solo uso.

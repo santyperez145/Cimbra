@@ -29,7 +29,7 @@ Cada request operativo:
 6. registra el evento de auditoría;
 7. devuelve una representación sin secretos ni PII completa.
 
-La API pública se expone bajo `/api/v1`. Todas las respuestas incluyen un `X-Request-Id` estable y los consumidores S2S reciben sus límites en headers. Customers, accounts, cards y movimientos aceptan claves de idempotencia protegidas con advisory locks y constraints únicos por organización. El SDK TypeScript conserva request e idempotency IDs a través de reintentos seguros y expone errores tipados.
+La API pública se expone bajo `/api/v1`. Todas las respuestas incluyen un `X-Request-Id` estable y los consumidores S2S reciben sus límites en headers. Customers, accounts, cards y movimientos aceptan claves de idempotencia protegidas con advisory locks y constraints únicos por organización. El SDK TypeScript conserva request e idempotency IDs a través de reintentos seguros y expone errores tipados. OpenAPI 3.1 es el contrato canónico del portal para desarrolladores: una prueba compara cada handler real con su operación documentada y rechaza rutas faltantes o sobrantes. El SDK se distribuye como artefacto versionado con SHA-256; el portal distingue explícitamente las operaciones que todavía no son replay-idempotent y no las reintenta automáticamente.
 
 La infraestructura reproducible del piloto está en `infra/terraform/aws`: ALB/WAF, ECS Fargate en subredes privadas, PostgreSQL 16 Multi-AZ con PITR, KMS/Secrets Manager y CloudWatch. El outbox de PostgreSQL sigue siendo la cola durable autoritativa en esta etapa; EventBridge ejecuta el recovery dispatcher cada minuto, además del dispatch inmediato post-response.
 

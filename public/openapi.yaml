@@ -1,13 +1,22 @@
 openapi: 3.1.0
 info:
   title: Cimbra API v1
-  version: 2026-08-29
-  description: Versioned financial infrastructure API backed by a persistent double-entry ledger, scoped S2S API keys and signed durable webhooks. This deployment is a sandbox and does not move real funds. Every response includes X-Request-Id and Cimbra-Version; API-key responses also expose X-RateLimit-Limit, X-RateLimit-Remaining and X-RateLimit-Reset. Mutations replayed from an idempotency key include Idempotent-Replayed, while error responses may include Cimbra-Should-Retry so official SDKs can make safe retry decisions.
+  version: '2026-08-29'
+  description: Versioned financial infrastructure API backed by a persistent double-entry ledger, scoped S2S API keys and signed durable webhooks. This deployment is a sandbox and does not move real funds. Every response includes X-Request-Id and Cimbra-Version; responses after successful API-key authorization also expose X-RateLimit-Limit, X-RateLimit-Remaining and X-RateLimit-Reset. Mutations replayed from an idempotency key include Idempotent-Replayed, while error responses may include Cimbra-Should-Retry so official SDKs can make safe retry decisions.
   license:
     name: Proprietary
     identifier: LicenseRef-Proprietary
+externalDocs:
+  description: Cimbra developer portal, quickstarts and operational limits
+  url: https://cimbra-rose.vercel.app/developers
+x-cimbra-environment: sandbox
+x-cimbra-sdk:
+  language: TypeScript
+  version: 0.1.0
+  url: https://cimbra-rose.vercel.app/sdk/cimbra-sdk-0.1.0.tgz
 servers:
-  - url: /
+  - url: https://cimbra-rose.vercel.app
+    description: Persistent sandbox. Does not move real funds.
 security: []
 paths:
   /api/auth/register:

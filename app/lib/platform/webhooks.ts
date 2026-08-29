@@ -3,20 +3,7 @@ import { getDatabase, recordAuditEvent } from '@/db/runtime';
 import { refreshWebhookEventStatus } from '@/db/platform';
 import { createWebhookSecret, encryptPlatformSecret } from './crypto';
 import { assertPublicWebhookDestination } from './webhook-url';
-
-export const WEBHOOK_EVENT_TYPES = [
-  'customer.created', 'account.created', 'card.created', 'transfer.created', 'transfer.reversed',
-  'hold.captured', 'hold.released', 'payment.created', 'risk.rule_created', 'risk.rule_disabled',
-  'risk.case_created', 'risk.case_resolved', 'reconciliation.run_created', 'reconciliation.exception_resolved',
-  'settlement.cycle_created', 'settlement.cycle_settled',
-  'approval.policy_updated', 'approval.request_created', 'approval.request_executed',
-  'approval.request_rejected', 'approval.request_cancelled', 'approval.request_expired', 'approval.request_failed',
-  'organization.invitation_created', 'organization.invitation_accepted', 'organization.invitation_revoked',
-  'organization.member_role_updated', 'organization.member_removed',
-  'compliance.document_uploaded',
-] as const;
-
-export type WebhookEventType = typeof WEBHOOK_EVENT_TYPES[number] | '*';
+import { WEBHOOK_EVENT_TYPES, type WebhookEventType } from './webhook-events';
 
 export function normalizeWebhookEventTypes(value: unknown): WebhookEventType[] | null {
   if (!Array.isArray(value) || value.length === 0) return null;

@@ -71,7 +71,7 @@ export type WebhookDelivery = { id: string; eventId: string; endpointId: string;
 export type WebhookDeliveryAttempt = { id: string; deliveryId: string; attemptNumber: number; status: string; responseStatus: number | null; responseExcerpt: string | null; error: string | null; startedAt: string; completedAt: string };
 export type WebhookOperationalState = { endpoints: WebhookEndpoint[]; deliveries: WebhookDelivery[]; attempts: WebhookDeliveryAttempt[] };
 export type HoldResolution = { id: string; status: string; replayed: boolean };
-export type WebhookEvent<T = unknown> = { id: string; type: string; createdAt: string; data: T };
+export type WebhookEvent<T = unknown> = { id: string; type: string; created_at: string; data: T };
 export type CreateResult<T> = { ok: true; replayed: boolean; customer?: T; account?: T; card?: T };
 
 export type CreateCustomerInput = { type?: 'individual' | 'business'; name: string; country: string; taxId: string };

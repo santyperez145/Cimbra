@@ -9,7 +9,7 @@ La aplicación es un MVP lanzable para venta, discovery e integración en sandbo
 Superficies disponibles:
 
 - `/` — propuesta comercial profesional, estado de sesión contextual, prueba técnica, casos de uso, modelo de acceso y captación persistente de leads.
-- `/developers` — quickstart y referencia de los endpoints implementados.
+- `/developers` — portal técnico generado desde OpenAPI con entornos, quickstart ejecutable, auth/RBAC/scopes, errores, rate limits, SDK descargable, webhooks, catálogo de eventos y las 61 operaciones publicadas.
 - `/login` — registro e inicio de sesión propio con usuario/email y contraseña; OAuth Google y Apple se activa al configurar sus credenciales.
 - `/forgot-password`, `/reset-password` y `/verify-email` — ciclo de vida de cuenta con tokens opacos, expiración, uso único y respuestas anti-enumeración.
 - `/console` — consola protegida y consciente del rol; owner/admin administran miembros e invitaciones, operator ejecuta y viewer trabaja en modo lectura.
@@ -38,6 +38,7 @@ npm run db:generate
 npm test
 npm run sdk:build
 npm run sdk:pack
+npm run sdk:artifact
 npm run test:db
 npm run typecheck
 npm run lint
@@ -95,14 +96,21 @@ Apple requiere un Services ID asociado a una app habilitada para Sign in with Ap
 
 ## SDK TypeScript
 
-El paquete `@cimbra/sdk` vive en el monorepo. Genera idempotency keys para escrituras reintentables, conserva el mismo `X-Request-Id`, tipa errores HTTP/conexión/timeout y verifica firmas de webhook sobre el cuerpo crudo.
+El paquete `@cimbra/sdk` vive en el monorepo. Genera idempotency keys para escrituras reintentables, conserva el mismo `X-Request-Id`, tipa errores HTTP/conexión/timeout y verifica firmas de webhook sobre el cuerpo crudo. La versión preview publicada puede instalarse directamente desde Cimbra:
+
+```bash
+npm install https://cimbra-rose.vercel.app/sdk/cimbra-sdk-0.1.0.tgz
+```
+
+El artefacto y su checksum SHA-256 se sirven bajo `/sdk`. Todavía no existe una publicación en el registry público de npm.
 
 ```bash
 npm run sdk:build
 npm run sdk:pack
+npm run sdk:artifact
 ```
 
-La publicación en un registry requiere credenciales y aprobación de release; el tarball se valida en CI sin publicar artefactos por accidente.
+`sdk:artifact` recompila el paquete, genera el tarball público y actualiza su checksum. La publicación en un registry sigue requiriendo credenciales y aprobación explícita de release.
 
 ## Infraestructura propia
 

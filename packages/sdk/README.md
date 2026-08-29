@@ -2,9 +2,14 @@
 
 Cliente oficial y tipado para la API v1 de Cimbra. Requiere Node.js 20 o superior.
 
+La versión `0.1.0` se distribuye hoy como artefacto verificable desde el sandbox. Todavía no está publicada en el registry público de npm.
+
 ```bash
-npm install @cimbra/sdk
+npm install https://cimbra-rose.vercel.app/sdk/cimbra-sdk-0.1.0.tgz
 ```
+
+El checksum SHA-256 se publica junto al paquete en
+`https://cimbra-rose.vercel.app/sdk/cimbra-sdk-0.1.0.sha256`.
 
 ```ts
 import { Cimbra } from '@cimbra/sdk';
