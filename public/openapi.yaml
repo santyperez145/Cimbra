@@ -617,6 +617,81 @@ paths:
       responses:
         '201': { description: Document stored }
         '400': { description: 'File must be PDF, JPG or PNG up to 5 MB with a valid signature' }
+  /api/platform/access:
+    get:
+      operationId: listOrganizationAccess
+      summary: List tenant members and invitation history for owner or admin
+      security: [{ session: [] }]
+      responses:
+        '200':
+          description: Effective organization access state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      members: { type: array, items: { $ref: '#/components/schemas/OrganizationMember' } }
+                      invitations: { type: array, items: { $ref: '#/components/schemas/OrganizationInvitation' } }
+        '403': { description: Owner or admin role required }
+    post:
+      operationId: inviteOrganizationMember
+      summary: Invite an email to the tenant with an assignable role
+      description: The invitation expires after seven days. A verified email is required before membership is accepted automatically.
+      security: [{ session: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, role]
+              properties:
+                email: { type: string, format: email, maxLength: 254 }
+                role: { type: string, enum: [admin, operator, viewer] }
+      responses:
+        '201': { description: Invitation created or safely reissued }
+        '403': { description: Role hierarchy violation }
+        '409': { description: Email is already assigned or has another active invitation }
+  /api/platform/access/members/{id}:
+    patch:
+      operationId: updateOrganizationMemberRole
+      summary: Change a member role within the owner/admin hierarchy
+      security: [{ session: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role: { type: string, enum: [admin, operator, viewer] }
+      responses:
+        '200': { description: Role changed and audit event emitted }
+        '403': { description: Role hierarchy violation }
+        '409': { description: Owner or own role is protected }
+    delete:
+      operationId: removeOrganizationMember
+      summary: Remove a member from the tenant without deleting their identity
+      security: [{ session: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses:
+        '200': { description: Membership removed and audit event emitted }
+        '403': { description: Role hierarchy violation }
+        '409': { description: Owner or own membership is protected }
+  /api/platform/access/invitations/{id}:
+    delete:
+      operationId: revokeOrganizationInvitation
+      summary: Revoke a pending organization invitation
+      security: [{ session: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses:
+        '200': { description: Invitation revoked }
+        '409': { description: Invitation is no longer pending }
   /api/platform/api-keys:
     get:
       operationId: listApiKeys
@@ -759,13 +834,34 @@ components:
       required: true
       description: Stable unique key for this logical write. Replays return the original resource; reusing it with a different payload returns 409.
       schema: { type: string, minLength: 8, maxLength: 100, pattern: '^[A-Za-z0-9._:-]+$' }
-    RequestId:
-      in: header
-      name: X-Request-Id
-      required: false
-      description: Caller-provided correlation identifier. Cimbra returns the accepted or generated value in every response.
-      schema: { type: string, minLength: 8, maxLength: 100, pattern: '^[A-Za-z0-9_-]+$' }
   schemas:
+    OrganizationMember:
+      type: object
+      required: [id, userId, email, displayName, role, emailVerified, mfaEnabled, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        userId: { type: string, format: uuid }
+        email: { type: string, format: email }
+        displayName: { type: string }
+        role: { type: string, enum: [owner, admin, operator, viewer] }
+        emailVerified: { type: boolean }
+        mfaEnabled: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    OrganizationInvitation:
+      type: object
+      required: [id, email, role, status, invitedBy, invitedByName, expiresAt, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        role: { type: string, enum: [admin, operator, viewer] }
+        status: { type: string, enum: [pending, accepted, revoked, expired] }
+        invitedBy: { type: string, format: uuid }
+        invitedByName: { type: string }
+        acceptedBy: { type: [string, 'null'], format: uuid }
+        expiresAt: { type: string, format: date-time }
+        acceptedAt: { type: [string, 'null'], format: date-time }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
     RiskEvaluation:
       type: object
       required: [id, operationType, amountMinor, currency, counterparty, score, decision, matchedRuleIds, reasons, createdAt]
@@ -833,18 +929,6 @@ components:
         availability: { type: string, enum: [sandbox, foundation, roadmap] }
         delivery: { type: string, const: cimbra_native }
         regulatoryBoundary: { type: string }
-    ApiError:
-      type: object
-      required: [error]
-      properties:
-        error:
-          type: object
-          required: [type, code, message, requestId]
-          properties:
-            type: { type: string, const: cimbra_api_error }
-            code: { type: string }
-            message: { type: string }
-            requestId: { type: string }
   securitySchemes:
     session:
       type: apiKey

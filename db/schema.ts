@@ -65,7 +65,23 @@ export const members = pgTable('members', {
   id: text('id').primaryKey(), organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
   userId: text('external_user_id').notNull().references(() => users.id, { onDelete: 'cascade' }), email: text('email').notNull(),
   role: text('role').notNull().default('owner'), createdAt: text('created_at').notNull(),
-}, (table) => [uniqueIndex('idx_members_user').on(table.userId), index('idx_members_organization').on(table.organizationId)]);
+}, (table) => [
+  uniqueIndex('idx_members_user').on(table.userId), index('idx_members_organization').on(table.organizationId),
+  check('members_role', sql`${table.role} IN ('owner', 'admin', 'operator', 'viewer')`),
+]);
+
+export const organizationInvitations = pgTable('organization_invitations', {
+  id: text('id').primaryKey(), organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  email: text('email').notNull(), role: text('role').notNull(), status: text('status').notNull().default('pending'),
+  invitedBy: text('invited_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
+  acceptedBy: text('accepted_by').references(() => users.id, { onDelete: 'set null' }), expiresAt: text('expires_at').notNull(),
+  acceptedAt: text('accepted_at'), createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_organization_invitations_org_email').on(table.organizationId, table.email),
+  index('idx_organization_invitations_email_status').on(table.email, table.status, table.expiresAt),
+  check('organization_invitations_role', sql`${table.role} IN ('admin', 'operator', 'viewer')`),
+  check('organization_invitations_status', sql`${table.status} IN ('pending', 'accepted', 'revoked', 'expired')`),
+]);
 
 export const transactions = pgTable('transactions', {
   id: text('id').primaryKey(), organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),

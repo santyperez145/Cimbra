@@ -19,9 +19,9 @@ export type PlatformCapability = {
 export const PLATFORM_CAPABILITIES: readonly PlatformCapability[] = [
   {
     id: 'identity-tenancy', name: 'Identity & Tenancy', domain: 'platform', availability: 'sandbox', delivery: 'cimbra_native',
-    summary: 'Identidad, organizaciones, roles, API keys, sesiones, MFA y aislamiento por tenant.',
-    features: ['RBAC multi-tenant', 'OAuth/OIDC', 'MFA TOTP', 'API keys con scopes', 'auditoría'],
-    interfaces: ['rest_api', 'console'], regulatoryBoundary: 'Cimbra administra identidad y autorización; cada cliente conserva la responsabilidad sobre sus usuarios autorizados.',
+    summary: 'Identidad, organizaciones, invitaciones, roles, API keys, sesiones, MFA y aislamiento por tenant.',
+    features: ['RBAC multi-tenant', 'invitaciones verificadas', 'jerarquía owner/admin', 'OAuth/OIDC', 'MFA TOTP', 'API keys con scopes', 'auditoría'],
+    interfaces: ['rest_api', 'webhooks', 'console'], regulatoryBoundary: 'Cimbra administra identidad y autorización; cada cliente conserva la responsabilidad sobre sus usuarios autorizados.',
   },
   {
     id: 'customers-kyc', name: 'Customers, KYC & KYB', domain: 'risk', availability: 'foundation', delivery: 'cimbra_native',

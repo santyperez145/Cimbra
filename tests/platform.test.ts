@@ -8,6 +8,7 @@ import { CAPABILITY_AVAILABILITY, PLATFORM_CAPABILITIES, PLATFORM_SUMMARY } from
 import { matchReconciliationEntries } from '../app/lib/platform/reconciliation.ts';
 import { systemAmountRisk } from '../app/lib/platform/risk-engine.ts';
 import { csvObjects, CsvError } from '../app/lib/platform/csv.ts';
+import { assignableRole, canManageRole, normalizeAccessEmail } from '../app/lib/platform/access-policy.ts';
 
 process.env.CIMBRA_ENCRYPTION_KEY = '3ea72fc13c567057870342c6ebd34d88f58f6d80b1dba61c4be4e1c2f1406afb';
 
@@ -84,6 +85,18 @@ test('el catálogo sólo declara servicios propios y estados verificables', () =
     assert.ok(capability.interfaces.length > 0);
     assert.ok(capability.regulatoryBoundary.length > 20);
   }
+});
+
+test('la jerarquía RBAC protege owner, admins y emails de invitación', () => {
+  assert.equal(normalizeAccessEmail('  Operador@Empresa.COM '), 'operador@empresa.com');
+  assert.equal(normalizeAccessEmail('correo-invalido'), null);
+  assert.equal(assignableRole('owner'), null);
+  assert.equal(assignableRole('operator'), 'operator');
+  assert.equal(canManageRole('owner', 'admin', 'viewer'), true);
+  assert.equal(canManageRole('admin', 'admin', 'viewer'), false);
+  assert.equal(canManageRole('admin', 'operator', 'admin'), false);
+  assert.equal(canManageRole('admin', 'operator', 'viewer'), true);
+  assert.equal(canManageRole('owner', 'owner', 'admin'), false);
 });
 
 test('las políticas de monto son regionales y explicables', () => {

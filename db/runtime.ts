@@ -1,9 +1,11 @@
 import type { AuthUser } from '@/app/lib/auth/types';
 import type { Currency } from '@/app/lib/ledger/money';
 import { minorToMajorNumber } from '@/app/lib/ledger/money';
+import type { OrganizationRole } from '@/app/lib/platform/access-policy';
 import { getDatabaseClient } from './client';
 import { getLedgerBalances, listActiveHolds, seedOrganizationLedger, serializeTransaction, type ActiveHold, type LedgerBalance } from './ledger';
 import { enqueueWebhookEvent } from './platform';
+import { ensureOrganizationMembership } from './access';
 
 export type DashboardTransaction = {
   id: string;
@@ -22,6 +24,7 @@ export type DashboardData = {
   organizationId: string;
   organizationName: string;
   environment: string;
+  role: OrganizationRole;
   balance: number;
   processedThisMonth: number;
   approvalRate: number;
@@ -54,7 +57,7 @@ export type DashboardData = {
   transactions: DashboardTransaction[];
 };
 
-export type OrganizationRole = 'owner' | 'admin' | 'operator' | 'viewer';
+export type { OrganizationRole } from '@/app/lib/platform/access-policy';
 
 export class OrganizationAccessError extends Error {
   readonly status = 403;
@@ -80,32 +83,7 @@ export function ensureDatabase(): Promise<void> {
 
 export async function getOrganizationContext(user: AuthUser) {
   await ensureDatabase();
-  const database = getDatabase();
-  let member = await database.prepare(
-    `SELECT organization_id AS organizationId, role FROM members
-     WHERE external_user_id = ? LIMIT 1`,
-  ).bind(user.userId).first<{ organizationId: string; role: OrganizationRole }>();
-  if (!member) {
-    const now = new Date().toISOString();
-    const organizationId = crypto.randomUUID();
-    const safeBase = user.email.split('@')[0].replace(/[^a-z0-9]+/gi, '-').toLowerCase() || 'workspace';
-    try {
-      await database.transaction(async (transaction) => {
-        await transaction.prepare(
-          'INSERT INTO organizations (id, name, slug, country, status, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-        ).bind(organizationId, 'Cimbra Sandbox', `${safeBase}-${organizationId.slice(0, 6)}`, 'AR', 'sandbox', now).run();
-        await transaction.prepare(
-          'INSERT INTO members (id, organization_id, external_user_id, email, role, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-        ).bind(crypto.randomUUID(), organizationId, user.userId, user.email, 'owner', now).run();
-      });
-      member = { organizationId, role: 'owner' };
-    } catch (error) {
-      member = await database.prepare(
-        'SELECT organization_id AS organizationId, role FROM members WHERE external_user_id = ? LIMIT 1',
-      ).bind(user.userId).first<{ organizationId: string; role: OrganizationRole }>();
-      if (!member) throw error;
-    }
-  }
+  const member = await ensureOrganizationMembership(user);
   await seedOrganizationLedger(member.organizationId);
   return member;
 }
@@ -121,14 +99,14 @@ export async function requireOrganizationRole(user: AuthUser, allowed: readonly 
 }
 
 export async function getDashboardData(user: AuthUser): Promise<DashboardData> {
-  const { organizationId } = await getOrganizationContext(user);
+  const { organizationId, role } = await getOrganizationContext(user);
   const database = getDatabase();
   const organization = await database.prepare('SELECT name, status FROM organizations WHERE id = ? LIMIT 1')
     .bind(organizationId).first<{ name: string; status: string }>();
   const transactionRows = await database.prepare(
     `SELECT id, counterparty, description, amount_minor::text AS amountMinor, currency, status,
       risk_score AS riskScore, reversal_of AS reversalOf, created_at AS createdAt
-     FROM transactions WHERE organization_id = ? ORDER BY created_at DESC LIMIT 12`,
+     FROM transactions WHERE organization_id = ? ORDER BY created_at DESC LIMIT 100`,
   ).bind(organizationId).all<{
     id: string; counterparty: string; description: string; amountMinor: string; currency: Currency;
     status: string; riskScore: number; reversalOf: string | null; createdAt: string;
@@ -181,6 +159,7 @@ export async function getDashboardData(user: AuthUser): Promise<DashboardData> {
     organizationId,
     organizationName: organization?.name ?? 'Mi organización',
     environment: organization?.status ?? 'sandbox',
+    role,
     balance: primaryBalance?.available ?? 0,
     processedThisMonth: minorToMajorNumber(summary?.processedMinor ?? '0', 'ARS'),
     approvalRate: Number(summary?.approval ?? 0),

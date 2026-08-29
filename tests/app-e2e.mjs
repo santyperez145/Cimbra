@@ -93,6 +93,7 @@ async function cleanup() {
       await transaction`DELETE FROM compliance_documents WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM audit_events WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM customers WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM organization_invitations WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM members WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM organizations WHERE id = ${organizationId}`;
     });
@@ -188,6 +189,22 @@ try {
   cookie = mfaLogin.headers.get('set-cookie')?.split(';', 1)[0] ?? '';
   const securedMe = await json(await request('/api/auth/me'), 200);
   assert.equal(securedMe.user.mfaEnabled, true);
+
+  const accessState = await json(await request('/api/platform/access'), 200);
+  const ownerMember = accessState.data.members.find((member) => member.userId === accessState.current.userId);
+  assert.equal(ownerMember.role, 'owner');
+  assert.equal(ownerMember.mfaEnabled, true);
+  const invited = await json(await request('/api/platform/access', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: `operator-${runId}@example.test`, role: 'operator' }),
+  }), 201);
+  assert.equal(invited.invitation.role, 'operator');
+  await json(await request(`/api/platform/access/members/${ownerMember.id}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role: 'viewer' }),
+  }), 409);
+  await json(await request(`/api/platform/access/invitations/${invited.invitation.id}`, { method: 'DELETE' }), 200);
+  const revokedAccess = await json(await request('/api/platform/access'), 200);
+  assert.equal(revokedAccess.data.invitations.find((item) => item.id === invited.invitation.id).status, 'revoked');
 
   const initialLedgerResponse = await request('/api/v1/ledger', { headers: { 'X-Request-Id': `qa-request-${runId}` } });
   const initialLedger = (await json(initialLedgerResponse, 200)).data;
@@ -443,7 +460,7 @@ try {
 
   console.log(JSON.stringify({
     ok: true,
-    checks: ['auth', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'reconciliation', 'csv-import', 'settlement', 'private-evidence', 'audit'],
+    checks: ['auth', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'member-invitations', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'reconciliation', 'csv-import', 'settlement', 'private-evidence', 'audit'],
   }));
 } finally {
   await cleanup();

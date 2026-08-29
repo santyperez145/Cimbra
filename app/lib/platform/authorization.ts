@@ -3,6 +3,7 @@ import { getCurrentUser } from '@/app/lib/auth/session';
 import { mutationAllowed } from '@/app/lib/auth/http';
 import type { AuthUser } from '@/app/lib/auth/types';
 import { ensureDatabase, getDatabase, requireOrganizationRole, type OrganizationRole } from '@/db/runtime';
+import { AccessControlError } from '@/db/access';
 import { apiKeyPrefix, verifyApiKey } from './crypto';
 import type { ApiScope } from './scopes';
 
@@ -121,6 +122,9 @@ export function rateLimitHeaders(principal: ApiPrincipal): HeadersInit | undefin
 }
 
 export function authorizationErrorResponse(error: unknown) {
+  if (error instanceof AccessControlError) {
+    return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
+  }
   if (error instanceof ApiAuthorizationError) {
     return NextResponse.json({ error: error.message, code: error.code }, {
       status: error.status,

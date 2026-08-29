@@ -54,6 +54,10 @@ Prioridad de producto resultante:
 
 Ninguno de estos gaps autoriza conectar Cimbra con un competidor. Las únicas dependencias externas admisibles para operación real son bancos, cámaras, esquemas, redes, fuentes oficiales y sponsors regulados donde sean jurídicamente necesarios.
 
+## Benchmark aplicado — identidad y operación por rol (28/08/2026)
+
+Pismo documenta roles predefinidos por función, permission groups, acceso por organización, SSO y perfiles separados de operador, viewer, auditor y approver. Pomelo permite crear operadores, asignar roles y limitar pantallas y acciones, con alta por email y 2FA. Cimbra adopta ahora el núcleo propio necesario: invitaciones verificadas y vencibles, owner protegido, administración delegada sin escalamiento, operator mutante, viewer de lectura y eventos auditables. Roles personalizados, SSO empresarial y perfiles approver específicos permanecen como evolución posterior; no se presentan como terminados.
+
 ## Wedge recomendado
 
 Primer segmento: marketplaces, SaaS vertical y plataformas de workforce con volumen mensual entre USD 1M y USD 20M que necesitan cuentas virtuales, payouts, conciliación y tarjetas corporativas en Argentina y México.
@@ -105,12 +109,15 @@ Una ronda pre-seed debe financiar 18 meses para cerrar el producto inicial, cont
 - https://www.tapila.dev/docs
 - https://developers.pismo.io/pismo-docs/docs/welcome
 - https://developers.pismo.io/pismo-docs/docs/anti-fraud-integration
+- https://developers.pismo.io/pismo-docs/docs/security-guide-for-apis
+- https://developers.pismo.io/pismo-docs/docs/get-started-with-sso-for-control-center
 - https://developers.pismo.io/pismo-docs/changelog/6-march-2026
 - https://developers.pismo.io/pismo-docs/docs/file-based-check-processing-and-bulk-settlement
 - https://developers.pomelo.la/api-reference/processing/transactions
 - https://docs.pomelo.la/en/docs/cards/processing/reports/download-report
 - https://developers.pomelo.la/guides/solutions/processing/reports
 - https://developers.pomelo.la/api-reference/fraud/remedies/tx-remedy
+- https://developers.pomelo.la/guides/dashboard/company/administration
 - https://www.wibond.co/
 
 La información pública cambia; validar métricas, cobertura, licencias y precios directamente en diligence antes de usarla en un pitch.

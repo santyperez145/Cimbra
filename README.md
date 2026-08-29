@@ -1,6 +1,6 @@
 # Cimbra
 
-Cimbra es una plataforma de infraestructura financiera modular para Latinoamérica. Este repositorio contiene el sitio comercial, documentación, consola autenticada y un sandbox persistente con cuentas, ledger de doble partida, transferencias idempotentes, motor de riesgo, casos, holds, conciliación, excepciones, reversas, tarjetas de prueba, evidencia privada, credenciales S2S y webhooks firmados.
+Cimbra es una plataforma de infraestructura financiera modular para Latinoamérica. Este repositorio contiene el sitio comercial, documentación, consola autenticada y un sandbox persistente con tenancy/RBAC, cuentas, ledger de doble partida, transferencias idempotentes, motor de riesgo, casos, holds, conciliación, excepciones, reversas, tarjetas de prueba, evidencia privada, credenciales S2S y webhooks firmados.
 
 ## Estado del producto
 
@@ -12,11 +12,12 @@ Superficies disponibles:
 - `/developers` — quickstart y referencia de los endpoints implementados.
 - `/login` — registro e inicio de sesión propio con usuario/email y contraseña; OAuth Google y Apple se activa al configurar sus credenciales.
 - `/forgot-password`, `/reset-password` y `/verify-email` — ciclo de vida de cuenta con tokens opacos, expiración, uso único y respuestas anti-enumeración.
-- `/console` — consola protegida con sesiones de servidor, organización y datos propios.
+- `/console` — consola protegida y consciente del rol; owner/admin administran miembros e invitaciones, operator ejecuta y viewer trabaja en modo lectura.
 - `/api/health` — healthcheck sin caché.
 - `/api/v1/*` — API pública versionada para customers, accounts, cards, transfers, payments, riesgo, conciliación CSV/API, settlement sandbox, holds, ledger, events, compliance y webhooks.
 - `/api/sandbox/*` — alias de compatibilidad deprecado; las integraciones nuevas deben usar v1.
 - `/api/platform/api-keys` — claves Bearer con scopes, vencimiento, rate limit, rotación y revocación inmediata.
+- `/api/platform/access` — miembros, invitaciones verificadas, jerarquía de roles, revocación y trazabilidad del tenant.
 - `/api/platform/webhooks` — administración de compatibilidad; la superficie pública está en `/api/v1/webhooks`.
 - `packages/sdk` — SDK TypeScript oficial, tipado, empaquetable y con verificación de webhooks.
 
@@ -43,6 +44,8 @@ npm run build
 ```
 
 La identidad de Cimbra usa PBKDF2-HMAC-SHA-256 con 600.000 iteraciones, sesiones opacas revocables en PostgreSQL, cookies `HttpOnly`, protección de origen y límites de intentos. Incluye verificación de email, recuperación con cierre global de sesiones y MFA TOTP interoperable con bloqueo de replay; los ocho recovery codes de 80 bits se muestran una vez y sólo se persisten como hash. Las API keys sólo se almacenan como hash. Los secretos TOTP y de firma usan AES-256-GCM en reposo y los webhooks HMAC-SHA256 en tránsito. Ningún secreto se guarda en el cliente ni en el repositorio.
+
+El acceso de consola usa roles canónicos `owner`, `admin`, `operator` y `viewer`. Las invitaciones duran siete días, sólo se aceptan al ingresar con el email verificado, no permiten que un admin eleve o administre otros admins y nunca permiten modificar o eliminar al owner desde el flujo delegado. Cada alta, aceptación, revocación, cambio de rol y baja genera auditoría y webhook.
 
 ## Infraestructura y despliegue
 

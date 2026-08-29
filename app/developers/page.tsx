@@ -20,6 +20,8 @@ const resources = [
   ['POST', '/api/v1/holds/{id}/release', 'Liberar una reserva activa'],
   ['GET', '/api/v1/events', 'Consultar eventos de auditoría'],
   ['POST', '/api/v1/compliance/documents', 'Guardar evidencia privada'],
+  ['GET', '/api/platform/access', 'Listar miembros e invitaciones del tenant'],
+  ['POST', '/api/platform/access', 'Invitar un operador con rol y vencimiento'],
   ['POST', '/api/platform/api-keys', 'Crear credenciales S2S desde la consola'],
   ['POST', '/api/v1/webhooks', 'Registrar un endpoint HTTPS firmado'],
   ['POST', '/api/v1/webhooks/deliveries/{id}/replay', 'Reencolar una entrega fallida'],
@@ -34,7 +36,7 @@ export default function DevelopersPage() {
   return (
     <main className="docs-shell">
       <header className="docs-topbar"><Link className="brand" href="/"><span className="brand-mark"><i /><i /><i /></span><span>CIMBRA</span></Link><span className="docs-product">DOCUMENTACIÓN</span><div><Link href="/openapi.yaml">OpenAPI</Link><Link href="/console">Sandbox</Link><Link className="docs-cta" href="/console">Abrir consola ↗</Link></div></header>
-      <aside className="docs-sidebar"><nav><strong>COMENZAR</strong><a className="active" href="#quickstart">Introducción</a><a href="#auth">Autenticación</a><a href="#api-keys">API keys</a><a href="#webhooks">Webhooks</a><strong>RECURSOS IMPLEMENTADOS</strong><a href="#resources">Customers</a><a href="#resources">Accounts</a><a href="#resources">Transfers</a><a href="#resources">Ledger y holds</a><a href="#resources">Risk y casos</a><a href="#resources">Reconciliation y settlement</a><a href="#resources">Cards</a><a href="#resources">Compliance</a><a href="#idempotency">Idempotencia</a></nav><div className="docs-version">API VERSION <b>2026-08-28</b></div></aside>
+      <aside className="docs-sidebar"><nav><strong>COMENZAR</strong><a className="active" href="#quickstart">Introducción</a><a href="#auth">Autenticación</a><a href="#api-keys">API keys</a><a href="#webhooks">Webhooks</a><strong>RECURSOS IMPLEMENTADOS</strong><a href="#resources">Organization access</a><a href="#resources">Customers</a><a href="#resources">Accounts</a><a href="#resources">Transfers</a><a href="#resources">Ledger y holds</a><a href="#resources">Risk y casos</a><a href="#resources">Reconciliation y settlement</a><a href="#resources">Cards</a><a href="#resources">Compliance</a><a href="#idempotency">Idempotencia</a></nav><div className="docs-version">API VERSION <b>2026-08-28</b></div></aside>
       <article className="docs-content">
         <div className="docs-breadcrumb">DOCUMENTACIÓN <span>/</span> COMENZAR</div>
         <section id="quickstart"><p className="eyebrow"><span /> QUICKSTART</p><h1>Construí tu primera<br />integración.</h1><p className="docs-lede">Creá un cliente, abrí una cuenta y ejecutá una transferencia en sandbox con una API consistente y recursos predecibles.</p><div className="docs-callout"><i>i</i><div><strong>Sandbox seguro</strong><p>Las operaciones usan un ledger persistente y webhooks reales, pero no mueven dinero real ni emiten instrumentos en redes de pago.</p></div></div></section>

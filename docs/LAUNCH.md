@@ -19,6 +19,7 @@
 - imagen OCI standalone e infraestructura AWS reproducible y validada estáticamente.
 - migraciones versionadas como gate previo al build productivo de Vercel y como task separada antes del rollout de ECS.
 - verificación de email, recuperación de contraseña con revocación de sesiones y MFA TOTP con recovery codes de un solo uso.
+- miembros e invitaciones verificadas con roles owner/admin/operator/viewer, jerarquía, auditoría, webhooks y consola adaptada al permiso efectivo.
 - motor de riesgo propio con políticas regionales, reglas por tenant, velocity, evaluaciones, casos y resolución sincronizada con holds.
 - conciliación propia de lotes contra el ledger con matches, diferencias, faltantes, cola de excepciones y resolución idempotente.
 - importación CSV canónica y ciclos de settlement sandbox programables, únicos por conciliación y entregados por webhooks.
