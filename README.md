@@ -18,7 +18,7 @@ Superficies disponibles:
 - `/api/sandbox/*` — alias de compatibilidad deprecado; las integraciones nuevas deben usar v1.
 - `/api/platform/api-keys` — claves Bearer con scopes, vencimiento, rate limit, rotación y revocación inmediata.
 - `/api/platform/access` — miembros, invitaciones verificadas, jerarquía de roles, revocación y trazabilidad del tenant.
-- `/api/platform/approval-policy` — política de doble control del tenant; habilitarla requiere owner con MFA y otro owner/admin con MFA.
+- `/api/platform/approval-policy` — políticas de doble control por acción; habilitarlas requiere owner con MFA y otro owner/admin con MFA.
 - `/api/platform/webhooks` — administración de compatibilidad; la superficie pública está en `/api/v1/webhooks`.
 - `packages/sdk` — SDK TypeScript oficial, tipado, empaquetable y con verificación de webhooks.
 
@@ -48,7 +48,7 @@ La identidad de Cimbra usa PBKDF2-HMAC-SHA-256 con 600.000 iteraciones, sesiones
 
 El acceso de consola usa roles canónicos `owner`, `admin`, `operator` y `viewer`. Las invitaciones duran siete días, sólo se aceptan al ingresar con el email verificado, no permiten que un admin eleve o administre otros admins y nunca permiten modificar o eliminar al owner desde el flujo delegado. Cada alta, aceptación, revocación, cambio de rol y baja genera auditoría y webhook.
 
-El settlement sandbox admite doble aprobación. El maker crea la solicitud y nunca puede resolverla; un owner/admin distinto, con MFA, actúa como checker. Aprobar ejecuta el ciclo y registra la decisión dentro de la misma transacción. Rechazo, cancelación, expiración, auditoría y webhooks conservan el historial. Las API keys sólo pueden consultar aprobaciones mediante `approvals:read`: aprobar o rechazar exige una sesión humana.
+Settlement y transferencias salientes admiten políticas de doble aprobación independientes. El maker crea la solicitud y nunca puede resolverla; un owner/admin distinto, con MFA, actúa como checker. Aprobar ejecuta el ciclo o vuelve a validar saldo y riesgo antes de crear la transferencia, su hold o sus postings, todo dentro de la misma transacción. Una transferencia pendiente no reserva fondos y puede finalizar `failed` si cambian el saldo o el riesgo. Rechazo, cancelación, fallo, expiración, auditoría y webhooks conservan el historial. Una API key con `transfers:write` puede originar una solicitud y con `approvals:read` consultar su estado, pero aprobar o rechazar siempre exige una sesión humana.
 
 ## Infraestructura y despliegue
 
@@ -82,7 +82,7 @@ Apple requiere un Services ID asociado a una app habilitada para Sign in with Ap
 - evaluaciones de riesgo explicables vinculadas a cada movimiento, con reglas por tenant, casos y holds sincronizados;
 - conciliación exacta de lotes contra el ledger, faltantes en ambos sentidos y excepciones resolubles con idempotencia.
 - importación CSV UTF-8 con checksum y ciclos de settlement sandbox únicos, programables, auditados y emitidos por webhook.
-- política maker/checker que impide el bypass manual o programado del settlement, con ejecución y aprobación atómicas.
+- políticas maker/checker fail-closed para settlement y transferencias, con locks concurrentes, revalidación financiera y decisión/ejecución atómicas.
 
 ## Garantías de integración
 

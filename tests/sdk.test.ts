@@ -102,6 +102,16 @@ test('el SDK crea payments regionales con idempotencia automática', async () =>
   assert.equal(result.data.payment.id, 'pay_1');
 });
 
+test('el SDK representa transferencias pendientes de aprobación humana', async () => {
+  const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async () =>
+    Response.json({ ok: true, requiresApproval: true, replayed: false, deduplicated: false,
+      approval: { id: 'approval_1', actionType: 'transfer.create', resourceType: 'transfer', resourceId: 'transfer_1', status: 'pending' } },
+    { status: 202 }) });
+  const result = await client.transfers.create({ counterparty: 'Proveedor', description: 'Pago protegido', amount: '25.00', currency: 'ARS' });
+  assert.equal(result.data.requiresApproval, true);
+  if (result.data.requiresApproval) assert.equal(result.data.approval.actionType, 'transfer.create');
+});
+
 test('el SDK expone el catálogo de servicios nativos de Cimbra', async () => {
   let requestUrl = '';
   const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async (input) => {

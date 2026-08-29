@@ -101,7 +101,7 @@ export async function executeSettlementCycleInTransaction(database: DatabaseClie
   organizationId: string; actorId: string; cycleId: string; idempotencyKey: string; executionMode: 'manual' | 'scheduled';
   approvalAuthorized?: boolean;
 }) {
-  await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+  await database.prepare('SELECT pg_advisory_xact_lock_shared(hashtextextended(?, 0::bigint))')
     .bind(`${input.organizationId}:approval-policy:settlement.execute`).first();
   if (!input.approvalAuthorized) {
     const policy = await database.prepare(

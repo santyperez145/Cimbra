@@ -102,6 +102,7 @@ test('la jerarquía RBAC protege owner, admins y emails de invitación', () => {
 
 test('maker/checker exige otro actor privilegiado con MFA y políticas acotadas', () => {
   assert.equal(approvalActionType('settlement.execute'), 'settlement.execute');
+  assert.equal(approvalActionType('transfer.create'), 'transfer.create');
   assert.equal(approvalActionType('competitor.execute'), null);
   assert.equal(approvalExpiryMinutes(15), 15);
   assert.equal(approvalExpiryMinutes(10_081), null);

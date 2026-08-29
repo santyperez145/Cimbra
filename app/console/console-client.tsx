@@ -62,8 +62,10 @@ export default function ConsoleClient({ data, user }: {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
       body: JSON.stringify({ counterparty: form.get('counterparty'), description: form.get('description'), amount: form.get('amount'), currency: form.get('currency') }),
     });
-    const result = await response.json() as { error?: string; transaction?: { status: string } };
-    if (!response.ok) setFeedback(result.error ?? 'No pudimos crear la transferencia.');
+    const result = await response.json() as { error?: string | { message?: string }; requiresApproval?: boolean; transaction?: { status: string } };
+    const errorMessage = typeof result.error === 'string' ? result.error : result.error?.message;
+    if (!response.ok) setFeedback(errorMessage ?? 'No pudimos crear la transferencia.');
+    else if (result.requiresApproval) setFeedback('Solicitud creada. Otro owner/admin con MFA debe aprobarla desde Aprobaciones.');
     else { setFeedback(result.transaction?.status === 'review' ? 'Transferencia creada y enviada a revisión.' : 'Transferencia liquidada en sandbox.'); router.refresh(); }
     setBusy(false);
   }

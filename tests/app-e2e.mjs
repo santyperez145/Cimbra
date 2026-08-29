@@ -494,6 +494,63 @@ try {
   }), 200);
   assert.equal(approvalList.data.some((item) => item.id === approvalPending.approval.id && item.status === 'executed'), true);
 
+  const transferPolicy = await json(await request('/api/platform/approval-policy', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actionType: 'transfer.create', enabled: true, expiresInMinutes: 1440 }),
+  }), 200);
+  assert.equal(transferPolicy.policy.actionType, 'transfer.create');
+  assert.equal(transferPolicy.policy.enabled, true);
+  const protectedTransfer = await json(await request('/api/v1/transfers', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-protected-transfer-${runId}` },
+    body: JSON.stringify({ counterparty: 'QA Protected Supplier', description: 'Maker checker transfer', amount: '25.00', currency: 'ARS' }),
+  }), 202);
+  assert.equal(protectedTransfer.requiresApproval, true);
+  assert.equal(protectedTransfer.approval.actionType, 'transfer.create');
+  const protectedTransferReplay = await json(await request('/api/v1/transfers', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-protected-transfer-${runId}` },
+    body: JSON.stringify({ counterparty: 'QA Protected Supplier', description: 'Maker checker transfer', amount: '25.00', currency: 'ARS' }),
+  }), 202);
+  assert.equal(protectedTransferReplay.replayed, true);
+  assert.equal(protectedTransferReplay.approval.id, protectedTransfer.approval.id);
+  const protectedTransferMismatch = await json(await request('/api/v1/transfers', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-protected-transfer-${runId}` },
+    body: JSON.stringify({ counterparty: 'QA Protected Supplier', description: 'Maker checker transfer', amount: '26.00', currency: 'ARS' }),
+  }), 409);
+  assert.equal(protectedTransferMismatch.error.code, 'idempotency_mismatch');
+  await json(await request(`/api/v1/approvals/${protectedTransfer.approval.id}/approve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-transfer-self-${runId}` },
+    body: JSON.stringify({ reason: 'self approval must fail' }),
+  }), 409);
+  cookie = checkerCookie;
+  const protectedExecution = await json(await request(`/api/v1/approvals/${protectedTransfer.approval.id}/approve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-transfer-checker-${runId}` },
+    body: JSON.stringify({ reason: 'Independent transfer checker' }),
+  }), 200);
+  assert.equal(protectedExecution.approval.status, 'executed');
+  assert.equal(protectedExecution.transaction.id, protectedTransfer.approval.resourceId);
+  assert.equal(protectedExecution.transaction.status, 'settled');
+  const protectedDecisionReplay = await json(await request(`/api/v1/approvals/${protectedTransfer.approval.id}/approve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-transfer-checker-${runId}` },
+    body: JSON.stringify({ reason: 'Independent transfer checker' }),
+  }), 200);
+  assert.equal(protectedDecisionReplay.replayed, true);
+  assert.equal(protectedDecisionReplay.approval.status, 'executed');
+  cookie = ownerCookieAfterRequest;
+
+  const unfundedTransfer = await json(await request('/api/v1/transfers', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-protected-unfunded-${runId}` },
+    body: JSON.stringify({ counterparty: 'QA Protected Supplier', description: 'Approval-time balance recheck', amount: '9000000', currency: 'ARS' }),
+  }), 202);
+  cookie = checkerCookie;
+  const unfundedDecision = await json(await request(`/api/v1/approvals/${unfundedTransfer.approval.id}/approve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-transfer-unfunded-checker-${runId}` },
+    body: JSON.stringify({ reason: 'Validate approval-time funds' }),
+  }), 422);
+  assert.equal(unfundedDecision.error.code, 'insufficient_funds');
+  const failedApproval = await json(await request(`/api/v1/approvals/${unfundedTransfer.approval.id}`), 200);
+  assert.equal(failedApproval.status, 'failed');
+  cookie = ownerCookieAfterRequest;
+
   const csv = new FormData();
   csv.set('name', 'QA CSV import'); csv.set('source', 'bank'); csv.set('currency', 'ARS');
   csv.set('periodStart', new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString());
@@ -530,7 +587,7 @@ try {
 
   console.log(JSON.stringify({
     ok: true,
-    checks: ['auth', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'member-invitations', 'dual-control', 'maker-checker', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'reconciliation', 'csv-import', 'settlement', 'private-evidence', 'audit'],
+    checks: ['auth', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'member-invitations', 'dual-control', 'maker-checker', 'transfer-approval', 'approval-replay', 'approval-fail-closed', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'reconciliation', 'csv-import', 'settlement', 'private-evidence', 'audit'],
   }));
 } finally {
   await cleanup();

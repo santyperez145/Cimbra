@@ -340,7 +340,7 @@ export const approvalPolicies = pgTable('approval_policies', {
   createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
 }, (table) => [
   uniqueIndex('idx_approval_policies_org_action').on(table.organizationId, table.actionType),
-  check('approval_policies_action', sql`${table.actionType} IN ('settlement.execute')`),
+  check('approval_policies_action', sql`${table.actionType} IN ('settlement.execute', 'transfer.create')`),
   check('approval_policies_enabled', sql`${table.enabled} IN (0, 1)`),
   check('approval_policies_expiry', sql`${table.expiresInMinutes} BETWEEN 15 AND 10080`),
 ]);
@@ -359,9 +359,11 @@ export const approvalRequests = pgTable('approval_requests', {
   uniqueIndex('idx_approval_requests_org_idempotency').on(table.organizationId, table.idempotencyKey),
   index('idx_approval_requests_org_status').on(table.organizationId, table.status, table.createdAt),
   index('idx_approval_requests_org_resource').on(table.organizationId, table.actionType, table.resourceId),
-  check('approval_requests_action', sql`${table.actionType} IN ('settlement.execute')`),
-  check('approval_requests_resource', sql`${table.resourceType} IN ('settlement_cycle')`),
-  check('approval_requests_status', sql`${table.status} IN ('pending', 'executed', 'rejected', 'cancelled', 'expired')`),
+  check('approval_requests_action_resource', sql`(
+    (${table.actionType} = 'settlement.execute' AND ${table.resourceType} = 'settlement_cycle') OR
+    (${table.actionType} = 'transfer.create' AND ${table.resourceType} = 'transfer')
+  )`),
+  check('approval_requests_status', sql`${table.status} IN ('pending', 'executed', 'rejected', 'cancelled', 'expired', 'failed')`),
 ]);
 
 export const reconciliationItems = pgTable('reconciliation_items', {

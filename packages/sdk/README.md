@@ -140,13 +140,17 @@ Sólo una conciliación `completed` puede generar un ciclo y cada corrida admite
 Las escrituras financieras seguras generan automáticamente una clave de idempotencia y conservan el mismo `X-Request-Id` durante los reintentos. También se puede proporcionar una clave propia:
 
 ```ts
-await cimbra.transfers.create(
+const transfer = await cimbra.transfers.create(
   { counterparty: 'Proveedor', description: 'Liquidación', amount: '1250.50', currency: 'ARS' },
   { idempotencyKey: 'liquidacion-2026-08-28-001' },
 );
+
+if (transfer.data.requiresApproval) {
+  console.log('Transferencia pendiente de checker:', transfer.data.approval.id);
+}
 ```
 
-Los montos enviados se representan como strings decimales y los montos contables de respuesta incluyen su valor en unidades menores como string. Esto evita errores de punto flotante.
+Si la política `transfer.create` está activa, la llamada no crea aún un movimiento: devuelve `202` y una solicitud. Otro owner/admin con MFA debe aprobar desde una sesión humana; recién entonces Cimbra vuelve a validar saldo y riesgo y crea la transferencia, el hold o el ledger correspondiente dentro de la misma transacción. Un pending no reserva fondos, por lo que una aprobación puede finalizar como `failed` si el saldo o riesgo cambian. Los montos enviados se representan como strings decimales y los montos contables de respuesta incluyen su valor en unidades menores como string. Esto evita errores de punto flotante.
 
 ## Verificar webhooks
 

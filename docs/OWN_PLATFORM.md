@@ -13,7 +13,7 @@ La independencia tecnológica no elimina la realidad de los rieles. Para mover f
 | Identity & Tenancy | organizaciones, invitaciones verificadas, RBAC, API keys, MFA, maker/checker, auditoría | API, webhooks, consola | Sandbox operativo |
 | Customers, KYC & KYB | personas/empresas, evidencia, screening, casos | API, webhooks, SDK, consola | Base técnica |
 | Financial Core | cuentas, ledger, holds, límites, fees, reversas | API, webhooks, SDK, consola | Sandbox operativo |
-| Payment Orchestration | intents, cash-in/out, transfers, routing, estados | API, webhooks, SDK, consola | Sandbox operativo |
+| Payment Orchestration | intents, cash-in/out, transfers, routing, estados y doble aprobación | API, webhooks, SDK, consola | Sandbox operativo |
 | Instant Payments | transferencias, alias, QR, request-to-pay, returns | API, webhooks, archivos | Roadmap |
 | Card Issuing | programas, lifecycle, controles, tokenización | API, webhooks, SDK, consola | Base técnica |
 | Card Processing | autorización, stand-in, clearing, disputes, 3DS | API, ISO 8583, eventos, archivos | Roadmap |

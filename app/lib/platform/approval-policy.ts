@@ -1,8 +1,8 @@
 import type { OrganizationRole } from './access-policy';
 
-export const APPROVAL_ACTION_TYPES = ['settlement.execute'] as const;
+export const APPROVAL_ACTION_TYPES = ['settlement.execute', 'transfer.create'] as const;
 export type ApprovalActionType = typeof APPROVAL_ACTION_TYPES[number];
-export type ApprovalStatus = 'pending' | 'executed' | 'rejected' | 'cancelled' | 'expired';
+export type ApprovalStatus = 'pending' | 'executed' | 'rejected' | 'cancelled' | 'expired' | 'failed';
 
 export function approvalActionType(value: unknown): ApprovalActionType | null {
   return typeof value === 'string' && APPROVAL_ACTION_TYPES.includes(value as ApprovalActionType)

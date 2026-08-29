@@ -39,6 +39,8 @@ Reconciliation toma partidas API o un CSV UTF-8 versionado por Idempotency-Key y
 
 Una conciliación `completed` puede originar un único ciclo de settlement sandbox. El ciclo conserva neto, diferencia, rail lógico, programación y ejecución idempotente. Cuando el tenant activa doble control, ejecutar no modifica el ciclo: crea una solicitud `pending`, con expiración e idempotencia, y exige un checker owner/admin con MFA distinto del maker. La aprobación, el settlement, la auditoría y el outbox se confirman en una misma transacción; rechazo, cancelación y expiración son estados terminales preservados. El dispatcher diario atraviesa el mismo orquestador y no puede eludir la política. Es una confirmación operativa de sandbox: los settlement instructions, el intercambio de archivos con rieles y el movimiento de fondos permanecen fuera hasta homologar conectividad directa.
 
+El mismo motor protege `transfer.create` mediante una política separada y opt-in. La llamada API o la consola persisten la intención y devuelven `202` sin crear la transacción ni reservar fondos. Otro owner/admin con MFA aprueba desde sesión humana; bajo el lock de cuenta, Cimbra recalcula saldo disponible y riesgo y recién entonces crea el movimiento, hold/caso o postings. Saldo insuficiente o decline de riesgo deja la solicitud en `failed`, sin asiento parcial. Los locks de política son compartidos por las operaciones concurrentes y exclusivos para cambios de configuración, evitando tanto el bypass como la serialización global de transferencias.
+
 Los deployments productivos de Vercel ejecutan las migraciones versionadas antes de compilar y publicar la nueva aplicación. Los previews no mutan la base compartida; ECS conserva una task definition de migración separada y el rollout exige su finalización correcta.
 
 ## Arquitectura objetivo para dinero real
@@ -74,7 +76,7 @@ El sandbox ya impone:
 - decisiones de riesgo persistidas y explicables antes de contabilizar;
 - conciliaciones reproducibles con cola de excepciones y cierre explícito;
 - importaciones con checksum y settlement sandbox sin doble ejecución;
-- doble control maker/checker para settlement, con identidad humana, MFA, separación de funciones y decisión atómica;
+- doble control maker/checker para settlement y transferencias, con identidad humana, MFA, separación de funciones, revalidación y decisión atómica;
 
 Antes de dinero real todavía se requieren secuencia estable para extractos, conciliación independiente contra Cimbra, banco/cámara y settlement, cierres, snapshots, operación multi-región y controles regulatorios.
 

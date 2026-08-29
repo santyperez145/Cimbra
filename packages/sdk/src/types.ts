@@ -41,10 +41,11 @@ export type SettlementCycle = {
   status: 'ready' | 'scheduled' | 'settled'; scheduledFor: string | null; settledAt: string | null; createdAt: string; updatedAt: string;
 };
 export type ApprovalRequest = {
-  id: string; actionType: 'settlement.execute'; resourceType: 'settlement_cycle'; resourceId: string;
-  status: 'pending' | 'executed' | 'rejected' | 'cancelled' | 'expired'; requestPayload: {
+  id: string; actionType: 'settlement.execute' | 'transfer.create'; resourceType: 'settlement_cycle' | 'transfer'; resourceId: string;
+  status: 'pending' | 'executed' | 'rejected' | 'cancelled' | 'expired' | 'failed'; requestPayload: {
     name?: string; rail?: ReconciliationRun['source']; currency?: Currency; netMinor?: string; differenceMinor?: string;
-    scheduledFor?: string | null; executionMode?: 'manual' | 'scheduled'; sandbox?: boolean;
+    scheduledFor?: string | null; executionMode?: 'manual' | 'scheduled'; counterparty?: string; description?: string;
+    amountMinor?: string; origin?: 'session' | 'api_key'; apiKeyId?: string | null; sandbox?: boolean;
   };
   requestedBy: string; requestedByName: string; resolvedBy: string | null; resolvedByName: string | null;
   resolutionReason: string | null; expiresAt: string; resolvedAt: string | null; executedAt: string | null;
@@ -52,6 +53,9 @@ export type ApprovalRequest = {
 };
 export type SettlementExecutionResult =
   | { ok: true; cycle: SettlementCycle; replayed: boolean; requiresApproval?: false }
+  | { ok: true; requiresApproval: true; approval: ApprovalRequest; replayed: boolean; deduplicated: boolean };
+export type TransferCreationResult =
+  | { ok: true; requiresApproval: false; transaction: Transaction; replayed: boolean }
   | { ok: true; requiresApproval: true; approval: ApprovalRequest; replayed: boolean; deduplicated: boolean };
 export type ReconciliationException = {
   id: string; runId: string; itemId: string; kind: 'amount_mismatch' | 'missing_internal' | 'missing_external'; status: 'open' | 'resolved' | 'accepted';

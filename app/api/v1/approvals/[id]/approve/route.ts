@@ -19,6 +19,7 @@ async function approve(request: Request, id: string) {
       actorRole: principal.role as OrganizationRole, requestId: id, decision: 'approve', reason, idempotencyKey });
     if (!result.replayed) scheduleWebhookDispatch(principal.organizationId);
     if (result.expired) return NextResponse.json({ error: 'La solicitud venció.', code: 'approval_expired' }, { status: 409 });
+    if (result.failed) return NextResponse.json({ error: result.failed.message, code: result.failed.code }, { status: result.failed.status });
     return NextResponse.json({ ok: true, ...result }, { headers: rateLimitHeaders(principal) });
   } catch (error) {
     const authorization = authorizationErrorResponse(error); if (authorization) return authorization;

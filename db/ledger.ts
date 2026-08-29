@@ -152,7 +152,7 @@ async function activeHoldsMinor(accountId: string, database: DatabaseClient) {
   return BigInt(result?.heldMinor ?? '0');
 }
 
-export async function createTransfer(input: {
+export type TransferCreationInput = {
   organizationId: string;
   actor: AuthUser;
   idempotencyKey: string;
@@ -160,79 +160,87 @@ export async function createTransfer(input: {
   description: string;
   amountMinor: bigint;
   currency: Currency;
-}) {
-  const database = getDatabaseClient();
-  return database.transaction(async (transaction) => {
-    const operationKey = `transfer:${input.idempotencyKey}`;
-    await transaction.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
-      .bind(`${input.organizationId}:${operationKey}`).first();
-    const existing = await transaction.prepare(
-      `SELECT id, counterparty, description, amount_minor::text AS amountMinor, currency, status,
-        risk_score AS riskScore, reversal_of AS reversalOf, created_at AS createdAt
-       FROM transactions WHERE organization_id = ? AND idempotency_key = ? LIMIT 1`,
-    ).bind(input.organizationId, operationKey).first<StoredTransaction>();
-    if (existing) {
-      if (
-        existing.counterparty !== input.counterparty || existing.description !== input.description ||
-        BigInt(existing.amountMinor) !== -input.amountMinor || existing.currency !== input.currency
-      ) {
-        throw new LedgerError('La Idempotency-Key ya fue usada con otro payload.', 409, 'idempotency_mismatch');
-      }
-      return { transaction: serializeTransaction(existing), replayed: true };
-    }
+  transactionId?: string;
+  approvalContext?: { requestId: string; requestedBy: string };
+};
 
-    const accounts = await getOrCreateCoreAccounts(input.organizationId, input.currency, transaction);
-    await transaction.prepare('SELECT id FROM financial_accounts WHERE id = ? FOR UPDATE')
-      .bind(accounts.customerFunds).first();
-    const current = await accountBalanceMinor(accounts.customerFunds, transaction);
-    const held = await activeHoldsMinor(accounts.customerFunds, transaction);
-    if (input.amountMinor > current - held) {
-      throw new LedgerError('Saldo disponible insuficiente para completar la transferencia.', 422, 'insufficient_funds');
-    }
+export async function findTransferByIdempotency(input: TransferCreationInput, database: DatabaseClient) {
+  const existing = await database.prepare(
+    `SELECT id, counterparty, description, amount_minor::text AS "amountMinor", currency, status,
+      risk_score AS "riskScore", reversal_of AS "reversalOf", created_at AS "createdAt"
+     FROM transactions WHERE organization_id = ? AND idempotency_key = ? LIMIT 1`,
+  ).bind(input.organizationId, `transfer:${input.idempotencyKey}`).first<StoredTransaction>();
+  if (!existing) return null;
+  if (
+    existing.counterparty !== input.counterparty || existing.description !== input.description ||
+    BigInt(existing.amountMinor) !== -input.amountMinor || existing.currency !== input.currency
+  ) {
+    throw new LedgerError('La Idempotency-Key ya fue usada con otro payload.', 409, 'idempotency_mismatch');
+  }
+  return serializeTransaction(existing);
+}
 
-    const assessment = await assessRisk({
-      organizationId: input.organizationId, idempotencyKey: operationKey, operationType: 'transfer',
-      amountMinor: input.amountMinor, currency: input.currency, counterparty: input.counterparty,
-    }, transaction);
-    if (assessment.decision === 'decline') {
-      const declined = await persistRiskAssessment({ organizationId: input.organizationId, idempotencyKey: operationKey, actor: input.actor, assessment }, transaction);
-      return { declined, replayed: declined.replayed };
-    }
-    const id = crypto.randomUUID();
-    const now = new Date().toISOString();
-    const status = assessment.decision === 'review' ? 'review' : 'settled';
-    const inserted = await transaction.prepare(
+export async function createTransferInTransaction(input: TransferCreationInput, transaction: DatabaseClient) {
+  const operationKey = `transfer:${input.idempotencyKey}`;
+  await transaction.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+    .bind(`${input.organizationId}:${operationKey}`).first();
+  const existing = await findTransferByIdempotency(input, transaction);
+  if (existing) {
+    return { transaction: existing, replayed: true };
+  }
+
+  const accounts = await getOrCreateCoreAccounts(input.organizationId, input.currency, transaction);
+  await transaction.prepare('SELECT id FROM financial_accounts WHERE id = ? FOR UPDATE')
+    .bind(accounts.customerFunds).first();
+  const current = await accountBalanceMinor(accounts.customerFunds, transaction);
+  const held = await activeHoldsMinor(accounts.customerFunds, transaction);
+  if (input.amountMinor > current - held) {
+    throw new LedgerError('Saldo disponible insuficiente para completar la transferencia.', 422, 'insufficient_funds');
+  }
+
+  const assessment = await assessRisk({
+    organizationId: input.organizationId, idempotencyKey: operationKey, operationType: 'transfer',
+    amountMinor: input.amountMinor, currency: input.currency, counterparty: input.counterparty,
+  }, transaction);
+  if (assessment.decision === 'decline') {
+    const declined = await persistRiskAssessment({ organizationId: input.organizationId, idempotencyKey: operationKey, actor: input.actor, assessment }, transaction);
+    return { declined, replayed: declined.replayed };
+  }
+  const id = input.transactionId ?? crypto.randomUUID();
+  const now = new Date().toISOString();
+  const status = assessment.decision === 'review' ? 'review' : 'settled';
+  const inserted = await transaction.prepare(
       `INSERT INTO transactions
         (id, organization_id, idempotency_key, type, counterparty, description, amount_minor, currency, status, risk_score, reversal_of, created_at, updated_at)
        VALUES (?, ?, ?, 'debit', ?, ?, ?, ?, ?, ?, NULL, ?, ?)
        ON CONFLICT (organization_id, idempotency_key) DO NOTHING RETURNING id`,
-    ).bind(
+  ).bind(
       id, input.organizationId, operationKey, input.counterparty, input.description,
       (-input.amountMinor).toString(), input.currency, status, assessment.score, now, now,
-    ).first<{ id: string }>();
-    if (!inserted) {
-      const replay = await transaction.prepare(
+  ).first<{ id: string }>();
+  if (!inserted) {
+    const replay = await transaction.prepare(
         `SELECT id, counterparty, description, amount_minor::text AS amountMinor, currency, status,
           risk_score AS riskScore, reversal_of AS reversalOf, created_at AS createdAt
          FROM transactions WHERE organization_id = ? AND idempotency_key = ? LIMIT 1`,
-      ).bind(input.organizationId, operationKey).first<StoredTransaction>();
-      if (!replay) throw new LedgerError('No se pudo resolver la operación idempotente.', 409, 'idempotency_conflict');
-      return { transaction: serializeTransaction(replay), replayed: true };
-    }
+    ).bind(input.organizationId, operationKey).first<StoredTransaction>();
+    if (!replay) throw new LedgerError('No se pudo resolver la operación idempotente.', 409, 'idempotency_conflict');
+    return { transaction: serializeTransaction(replay), replayed: true };
+  }
 
-    let holdId: string | null = null;
-    if (status === 'review') {
-      holdId = crypto.randomUUID();
-      await transaction.prepare(
+  let holdId: string | null = null;
+  if (status === 'review') {
+    holdId = crypto.randomUUID();
+    await transaction.prepare(
         `INSERT INTO holds
           (id, organization_id, account_id, transaction_id, idempotency_key, amount_minor, currency, status, expires_at, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
-      ).bind(
+    ).bind(
         holdId, input.organizationId, accounts.customerFunds, id, operationKey,
         input.amountMinor.toString(), input.currency, new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), now, now,
-      ).run();
-    } else {
-      await postJournal({
+    ).run();
+  } else {
+    await postJournal({
         organizationId: input.organizationId,
         transactionId: id,
         idempotencyKey: operationKey,
@@ -244,25 +252,26 @@ export async function createTransfer(input: {
           { accountId: accounts.settlement, direction: 'credit', amountMinor: input.amountMinor },
         ],
         createdAt: now,
-      }, transaction);
-    }
-    await persistRiskAssessment({ organizationId: input.organizationId, idempotencyKey: operationKey, actor: input.actor, assessment, resourceId: id, holdId }, transaction);
-    await insertAudit(transaction, {
-      organizationId: input.organizationId,
-      actorId: input.actor.userId,
-      action: 'transfer.created',
-      resourceType: 'transaction',
-      resourceId: id,
-      payload: { amountMinor: input.amountMinor.toString(), currency: input.currency, status, riskScore: assessment.score, riskDecision: assessment.decision },
-    });
-    return {
-      transaction: serializeTransaction({
-        id, counterparty: input.counterparty, description: input.description, amountMinor: (-input.amountMinor).toString(),
-        currency: input.currency, status, riskScore: assessment.score, reversalOf: null, createdAt: now,
-      }),
-      replayed: false,
-    };
+    }, transaction);
+  }
+  await persistRiskAssessment({ organizationId: input.organizationId, idempotencyKey: operationKey, actor: input.actor, assessment, resourceId: id, holdId }, transaction);
+  await insertAudit(transaction, {
+    organizationId: input.organizationId,
+    actorId: input.actor.userId,
+    action: 'transfer.created',
+    resourceType: 'transaction',
+    resourceId: id,
+    payload: { amountMinor: input.amountMinor.toString(), currency: input.currency, status, riskScore: assessment.score,
+      riskDecision: assessment.decision, approvalRequestId: input.approvalContext?.requestId ?? null,
+      requestedBy: input.approvalContext?.requestedBy ?? null },
   });
+  return {
+    transaction: serializeTransaction({
+      id, counterparty: input.counterparty, description: input.description, amountMinor: (-input.amountMinor).toString(),
+      currency: input.currency, status, riskScore: assessment.score, reversalOf: null, createdAt: now,
+    }),
+    replayed: false,
+  };
 }
 
 export async function createAccountPayment(input: {

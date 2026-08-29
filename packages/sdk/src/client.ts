@@ -5,7 +5,7 @@ import type {
   CreateSettlementCycleInput, CreateTransferInput, CreateWebhookInput,
   Customer, Hold, HoldResolution, LedgerBalance, LedgerJournal, ListOptions, Page, PlatformCapability,
   ReconciliationException, ReconciliationRun, RequestOptions, RiskCase, RiskEvaluation, RiskRule, SettlementCycle, SettlementExecutionResult,
-  Transaction, WebhookOperationalState,
+  Transaction, TransferCreationResult, WebhookOperationalState,
 } from './types.ts';
 
 type Fetch = typeof globalThis.fetch;
@@ -80,7 +80,7 @@ export class Cimbra {
     listAll: (options?: ListOptions) => this.iterate((page) => this.transfers.list({ ...options, cursor: page })),
     retrieve: (id: string, options?: RequestOptions) => this.request<Transaction>('GET', `/api/v1/transfers/${encodeURIComponent(id)}`, undefined, options),
     create: (input: CreateTransferInput, options?: RequestOptions) =>
-      this.post<{ ok: true; transaction: Transaction; replayed: boolean }>('/api/v1/transfers', input, options, true),
+      this.post<TransferCreationResult>('/api/v1/transfers', input, options, true),
     reverse: (id: string, options?: RequestOptions) =>
       this.post<{ ok: true; transaction: Transaction; replayed: boolean }>(`/api/v1/transfers/${encodeURIComponent(id)}/reverse`, undefined, options, true),
   };

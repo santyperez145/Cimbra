@@ -2,7 +2,9 @@ import { sha256 } from '@/app/lib/auth/crypto';
 import type { AuthUser } from '@/app/lib/auth/types';
 import { canDecideApproval, type ApprovalActionType, type ApprovalStatus } from '@/app/lib/platform/approval-policy';
 import type { OrganizationRole } from '@/app/lib/platform/access-policy';
+import type { Currency } from '@/app/lib/ledger/money';
 import { type DatabaseClient, getDatabaseClient } from './client';
+import { createTransferInTransaction, findTransferByIdempotency, LedgerError, type TransferCreationInput } from './ledger';
 import { enqueueWebhookEvent } from './platform';
 import { executeSettlementCycle, executeSettlementCycleInTransaction, SettlementError } from './settlements';
 
@@ -11,7 +13,7 @@ export class ApprovalError extends Error {
 }
 
 type ApprovalRow = {
-  id: string; actionType: ApprovalActionType; resourceType: 'settlement_cycle'; resourceId: string;
+  id: string; actionType: ApprovalActionType; resourceType: 'settlement_cycle' | 'transfer'; resourceId: string;
   status: ApprovalStatus; requestFingerprint: string; requestPayload: string; requestedBy: string; requestedByName: string;
   resolvedBy: string | null; resolvedByName: string | null; resolutionReason: string | null;
   expiresAt: string; resolvedAt: string | null; executedAt: string | null; createdAt: string; updatedAt: string;
@@ -63,44 +65,50 @@ async function approvalDecisionByIdempotencyKey(database: DatabaseClient, organi
   const event = await database.prepare(
     `SELECT resource_id AS "resourceId", action, payload FROM audit_events
      WHERE organization_id = ? AND resource_type = 'approval_request'
-       AND action IN ('approval.request_executed', 'approval.request_rejected', 'approval.request_cancelled')
+       AND action IN ('approval.request_executed', 'approval.request_rejected', 'approval.request_cancelled', 'approval.request_failed')
        AND payload::jsonb->>'idempotencyKey' = ? ORDER BY created_at DESC LIMIT 1`,
   ).bind(organizationId, idempotencyKey).first<{ resourceId: string; action: string; payload: string }>();
   if (!event) return null;
-  let decision = ''; let reason = '';
+  let decision = ''; let reason = ''; let failure: { message: string; code: string; status: number } | undefined;
   try {
-    const payload = JSON.parse(event.payload) as { decision?: unknown; reason?: unknown };
+    const payload = JSON.parse(event.payload) as { decision?: unknown; reason?: unknown; failure?: unknown };
     decision = String(payload.decision ?? ''); reason = typeof payload.reason === 'string' ? payload.reason : '';
+    const stored = payload.failure as { message?: unknown; code?: unknown; status?: unknown } | undefined;
+    if (stored && typeof stored.message === 'string' && typeof stored.code === 'string' && typeof stored.status === 'number') {
+      failure = { message: stored.message, code: stored.code, status: stored.status };
+    }
   } catch { /* no legacy decision */ }
-  return { resourceId: event.resourceId, decision, reason };
+  return { resourceId: event.resourceId, decision, reason, failure };
 }
 
-export async function getSettlementApprovalPolicy(organizationId: string) {
+export async function getApprovalPolicies(organizationId: string) {
   const database = getDatabaseClient();
-  const [policy, approvers] = await Promise.all([
+  const [policies, approvers] = await Promise.all([
     database.prepare(
-      `SELECT id, enabled, expires_in_minutes AS "expiresInMinutes", created_at AS "createdAt", updated_at AS "updatedAt"
-       FROM approval_policies WHERE organization_id = ? AND action_type = 'settlement.execute' LIMIT 1`,
-    ).bind(organizationId).first<{ id: string; enabled: number; expiresInMinutes: number; createdAt: string; updatedAt: string }>(),
+      `SELECT id, action_type AS "actionType", enabled, expires_in_minutes AS "expiresInMinutes",
+        created_at AS "createdAt", updated_at AS "updatedAt"
+       FROM approval_policies WHERE organization_id = ?`,
+    ).bind(organizationId).all<{ id: string; actionType: ApprovalActionType; enabled: number; expiresInMinutes: number; createdAt: string; updatedAt: string }>(),
     database.prepare(
       `SELECT COUNT(*)::int AS count FROM members m JOIN users u ON u.id = m.external_user_id
        WHERE m.organization_id = ? AND m.role IN ('owner', 'admin') AND u.mfa_enabled = 1`,
     ).bind(organizationId).first<{ count: number }>(),
   ]);
-  return {
-    id: policy?.id ?? null, actionType: 'settlement.execute' as const, enabled: policy?.enabled === 1,
-    expiresInMinutes: policy?.expiresInMinutes ?? 1440, eligibleApprovers: approvers?.count ?? 0,
-    createdAt: policy?.createdAt ?? null, updatedAt: policy?.updatedAt ?? null,
-  };
+  return (['settlement.execute', 'transfer.create'] as const).map((actionType) => {
+    const policy = policies.results.find((item) => item.actionType === actionType);
+    return { id: policy?.id ?? null, actionType, enabled: policy?.enabled === 1,
+      expiresInMinutes: policy?.expiresInMinutes ?? 1440, eligibleApprovers: approvers?.count ?? 0,
+      createdAt: policy?.createdAt ?? null, updatedAt: policy?.updatedAt ?? null };
+  });
 }
 
-export async function configureSettlementApprovalPolicy(input: {
-  organizationId: string; actor: AuthUser; enabled: boolean; expiresInMinutes: number;
+export async function configureApprovalPolicy(input: {
+  organizationId: string; actor: AuthUser; actionType: ApprovalActionType; enabled: boolean; expiresInMinutes: number;
 }) {
   if (!input.actor.mfaEnabled) throw new ApprovalError('Activá MFA antes de administrar doble aprobación.', 403, 'approval_mfa_required');
   return getDatabaseClient().transaction(async (database) => {
     await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
-      .bind(`${input.organizationId}:approval-policy:settlement.execute`).first();
+      .bind(`${input.organizationId}:approval-policy:${input.actionType}`).first();
     const now = new Date().toISOString();
     if (input.enabled) {
       const checker = await database.prepare(
@@ -110,38 +118,42 @@ export async function configureSettlementApprovalPolicy(input: {
       if (!checker) throw new ApprovalError('Necesitás otro owner o admin con MFA para habilitar doble aprobación.', 409, 'approval_checker_required');
     } else {
       const stale = await database.prepare(
-        `${approvalSelect} WHERE ar.organization_id = ? AND ar.action_type = 'settlement.execute'
+        `${approvalSelect} WHERE ar.organization_id = ? AND ar.action_type = ?
          AND ar.status = 'pending' AND ar.expires_at <= ? FOR UPDATE OF ar`,
-      ).bind(input.organizationId, now).all<ApprovalRow>();
+      ).bind(input.organizationId, input.actionType, now).all<ApprovalRow>();
       for (const row of stale.results) await expireApproval(database, input.organizationId, row, now);
       const pending = await database.prepare(
-        `SELECT id FROM approval_requests WHERE organization_id = ? AND action_type = 'settlement.execute'
+        `SELECT id FROM approval_requests WHERE organization_id = ? AND action_type = ?
          AND status = 'pending' AND expires_at > ? LIMIT 1`,
-      ).bind(input.organizationId, now).first<{ id: string }>();
+      ).bind(input.organizationId, input.actionType, now).first<{ id: string }>();
       if (pending) throw new ApprovalError('Resolvé o cancelá las solicitudes pendientes antes de desactivar la política.', 409, 'pending_approvals_exist');
     }
     const id = crypto.randomUUID();
     const policy = await database.prepare(
       `INSERT INTO approval_policies (id, organization_id, action_type, enabled, expires_in_minutes, created_by, created_at, updated_at)
-       VALUES (?, ?, 'settlement.execute', ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (organization_id, action_type) DO UPDATE SET enabled = EXCLUDED.enabled,
          expires_in_minutes = EXCLUDED.expires_in_minutes, updated_at = EXCLUDED.updated_at
        RETURNING id, enabled, expires_in_minutes AS "expiresInMinutes", created_at AS "createdAt", updated_at AS "updatedAt"`,
-    ).bind(id, input.organizationId, input.enabled ? 1 : 0, input.expiresInMinutes, input.actor.userId, now, now)
+    ).bind(id, input.organizationId, input.actionType, input.enabled ? 1 : 0, input.expiresInMinutes, input.actor.userId, now, now)
       .first<{ id: string; enabled: number; expiresInMinutes: number; createdAt: string; updatedAt: string }>();
     if (!policy) throw new ApprovalError('No pudimos guardar la política.', 500, 'approval_policy_update_failed');
     await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId, action: 'approval.policy_updated',
-      resourceType: 'approval_policy', resourceId: policy.id, payload: { actionType: 'settlement.execute', enabled: input.enabled,
+      resourceType: 'approval_policy', resourceId: policy.id, payload: { actionType: input.actionType, enabled: input.enabled,
         expiresInMinutes: input.expiresInMinutes } });
-    return { ...policy, actionType: 'settlement.execute' as const, enabled: policy.enabled === 1 };
+    return { ...policy, actionType: input.actionType, enabled: policy.enabled === 1 };
   });
 }
 
-export async function requiresSettlementApproval(organizationId: string, database = getDatabaseClient()) {
+export async function requiresApproval(organizationId: string, actionType: ApprovalActionType, database = getDatabaseClient()) {
   const policy = await database.prepare(
-    `SELECT enabled FROM approval_policies WHERE organization_id = ? AND action_type = 'settlement.execute' LIMIT 1`,
-  ).bind(organizationId).first<{ enabled: number }>();
+    `SELECT enabled FROM approval_policies WHERE organization_id = ? AND action_type = ? LIMIT 1`,
+  ).bind(organizationId, actionType).first<{ enabled: number }>();
   return policy?.enabled === 1;
+}
+
+export function requiresSettlementApproval(organizationId: string, database = getDatabaseClient()) {
+  return requiresApproval(organizationId, 'settlement.execute', database);
 }
 
 async function expireApproval(database: DatabaseClient, organizationId: string, row: ApprovalRow, now: string) {
@@ -189,7 +201,7 @@ export async function requestSettlementExecutionApproval(input: {
       .bind(`${input.organizationId}:approval:${input.idempotencyKey}`).first();
     await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
       .bind(`${input.organizationId}:approval:settlement.execute:${input.cycleId}`).first();
-    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+    await database.prepare('SELECT pg_advisory_xact_lock_shared(hashtextextended(?, 0::bigint))')
       .bind(`${input.organizationId}:approval-policy:settlement.execute`).first();
     const existingKey = await database.prepare(
       `${approvalSelect} WHERE ar.organization_id = ? AND ar.idempotency_key = ? LIMIT 1`,
@@ -241,6 +253,68 @@ export async function requestSettlementExecutionApproval(input: {
   });
 }
 
+export async function createTransferWithApprovalPolicy(input: TransferCreationInput & {
+  authentication: 'session' | 'api_key'; apiKeyId: string | null;
+}) {
+  const fingerprint = await sha256(JSON.stringify({ actionType: 'transfer.create', counterparty: input.counterparty,
+    description: input.description, amountMinor: input.amountMinor.toString(), currency: input.currency }));
+  return getDatabaseClient().transaction(async (database) => {
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:transfer:${input.idempotencyKey}`).first();
+    const existingTransfer = await findTransferByIdempotency(input, database);
+    if (existingTransfer) return { requiresApproval: false as const, transaction: existingTransfer, replayed: true };
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:approval:${input.idempotencyKey}`).first();
+    const existingApproval = await database.prepare(
+      `${approvalSelect} WHERE ar.organization_id = ? AND ar.idempotency_key = ? LIMIT 1`,
+    ).bind(input.organizationId, input.idempotencyKey).first<ApprovalRow>();
+    if (existingApproval) {
+      if (existingApproval.requestFingerprint !== fingerprint) {
+        throw new ApprovalError('La Idempotency-Key ya fue usada para otra operación.', 409, 'idempotency_mismatch');
+      }
+      return { requiresApproval: true as const, approval: serializeApproval(existingApproval), replayed: true, deduplicated: false };
+    }
+    await database.prepare('SELECT pg_advisory_xact_lock_shared(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:approval-policy:transfer.create`).first();
+    const policy = await database.prepare(
+      `SELECT expires_in_minutes AS "expiresInMinutes" FROM approval_policies
+       WHERE organization_id = ? AND action_type = 'transfer.create' AND enabled = 1 LIMIT 1`,
+    ).bind(input.organizationId).first<{ expiresInMinutes: number }>();
+    if (!policy) {
+      const result = await createTransferInTransaction(input, database);
+      return { requiresApproval: false as const, ...result };
+    }
+    const id = crypto.randomUUID(); const resourceId = crypto.randomUUID(); const now = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + policy.expiresInMinutes * 60_000).toISOString();
+    const payload = { counterparty: input.counterparty, description: input.description, amountMinor: input.amountMinor.toString(),
+      currency: input.currency, origin: input.authentication, apiKeyId: input.apiKeyId, sandbox: true };
+    await database.prepare(
+      `INSERT INTO approval_requests
+        (id, organization_id, action_type, resource_type, resource_id, idempotency_key, request_fingerprint, status,
+         request_payload, requested_by, expires_at, created_at, updated_at)
+       VALUES (?, ?, 'transfer.create', 'transfer', ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
+    ).bind(id, input.organizationId, resourceId, input.idempotencyKey, fingerprint, JSON.stringify(payload), input.actor.userId,
+      expiresAt, now, now).run();
+    await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId, action: 'approval.request_created',
+      resourceType: 'approval_request', resourceId: id, payload: { actionType: 'transfer.create', resourceType: 'transfer',
+        resourceId, expiresAt, ...payload } });
+    const approval = await approvalById(database, input.organizationId, id);
+    if (!approval) throw new ApprovalError('No pudimos recuperar la solicitud.', 500, 'approval_create_failed');
+    return { requiresApproval: true as const, approval, replayed: false, deduplicated: false };
+  });
+}
+
+function transferPayload(row: ApprovalRow) {
+  try {
+    const payload = JSON.parse(row.requestPayload) as Record<string, unknown>;
+    if (typeof payload.counterparty !== 'string' || typeof payload.description !== 'string' ||
+      typeof payload.amountMinor !== 'string' || !['ARS', 'MXN', 'COP', 'BRL', 'CLP', 'PEN', 'USD'].includes(String(payload.currency))) return null;
+    const amountMinor = BigInt(payload.amountMinor);
+    if (amountMinor <= 0n) return null;
+    return { counterparty: payload.counterparty, description: payload.description, amountMinor, currency: payload.currency as Currency };
+  } catch { return null; }
+}
+
 export async function decideApprovalRequest(input: {
   organizationId: string; actor: AuthUser; actorRole: OrganizationRole; requestId: string;
   decision: 'approve' | 'reject'; reason: string; idempotencyKey: string;
@@ -254,7 +328,8 @@ export async function decideApprovalRequest(input: {
       if (priorDecision.resourceId !== input.requestId || priorDecision.decision !== input.decision || priorDecision.reason !== input.reason) {
         throw new ApprovalError('La Idempotency-Key ya fue usada para otra decisión.', 409, 'idempotency_mismatch');
       }
-      return { approval: await approvalById(database, input.organizationId, input.requestId), replayed: true, expired: false };
+      return { approval: await approvalById(database, input.organizationId, input.requestId), replayed: true, expired: false,
+        failed: priorDecision.failure };
     }
     await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
       .bind(`${input.organizationId}:approval-request:${input.requestId}`).first();
@@ -273,6 +348,8 @@ export async function decideApprovalRequest(input: {
       throw new ApprovalError('Se requiere un owner o admin con MFA para decidir.', 403, 'approval_checker_required');
     }
     let executedCycle: Awaited<ReturnType<typeof executeSettlementCycleInTransaction>>['cycle'] | undefined;
+    let executedTransfer: Awaited<ReturnType<typeof findTransferByIdempotency>> | undefined;
+    let failure: { message: string; code: string; status: number } | undefined;
     if (input.decision === 'reject') {
       await database.prepare(
         `UPDATE approval_requests SET status = 'rejected', resolved_by = ?, resolution_reason = ?, resolved_at = ?, updated_at = ? WHERE id = ?`,
@@ -281,19 +358,44 @@ export async function decideApprovalRequest(input: {
         resourceType: 'approval_request', resourceId: row.id, payload: { actionType: row.actionType, resourceId: row.resourceId,
           reason: input.reason, decision: input.decision, idempotencyKey: input.idempotencyKey } });
     } else {
-      const execution = await executeSettlementCycleInTransaction(database, { organizationId: input.organizationId, actorId: input.actor.userId,
-        cycleId: row.resourceId, idempotencyKey: `approval:${row.id}`, executionMode: approvalExecutionMode(row), approvalAuthorized: true });
-      executedCycle = execution.cycle;
-      await database.prepare(
-        `UPDATE approval_requests SET status = 'executed', resolved_by = ?, resolution_reason = ?, resolved_at = ?, executed_at = ?, updated_at = ? WHERE id = ?`,
-      ).bind(input.actor.userId, input.reason || null, now, now, now, row.id).run();
-      await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId, action: 'approval.request_executed',
-        resourceType: 'approval_request', resourceId: row.id, payload: { actionType: row.actionType, resourceId: row.resourceId,
-          requesterId: row.requestedBy, reason: input.reason || null, decision: input.decision, idempotencyKey: input.idempotencyKey } });
+      if (row.actionType === 'settlement.execute') {
+        const execution = await executeSettlementCycleInTransaction(database, { organizationId: input.organizationId, actorId: input.actor.userId,
+          cycleId: row.resourceId, idempotencyKey: `approval:${row.id}`, executionMode: approvalExecutionMode(row), approvalAuthorized: true });
+        executedCycle = execution.cycle;
+      } else {
+        const payload = transferPayload(row);
+        if (!payload) throw new ApprovalError('El payload protegido de la transferencia es inválido.', 500, 'approval_payload_invalid');
+        try {
+          const execution = await createTransferInTransaction({ organizationId: input.organizationId, actor: input.actor,
+            idempotencyKey: `approval:${row.id}`, transactionId: row.resourceId, approvalContext: { requestId: row.id, requestedBy: row.requestedBy },
+            ...payload }, database);
+          if ('declined' in execution) {
+            failure = { message: 'La política de riesgo rechazó la transferencia aprobada.', code: 'risk_declined', status: 422 };
+          } else executedTransfer = execution.transaction;
+        } catch (error) {
+          if (error instanceof LedgerError && error.status === 422) failure = { message: error.message, code: error.code, status: error.status };
+          else throw error;
+        }
+      }
+      if (failure) {
+        await database.prepare(
+          `UPDATE approval_requests SET status = 'failed', resolved_by = ?, resolution_reason = ?, resolved_at = ?, updated_at = ? WHERE id = ?`,
+        ).bind(input.actor.userId, failure.message, now, now, row.id).run();
+        await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId, action: 'approval.request_failed',
+          resourceType: 'approval_request', resourceId: row.id, payload: { actionType: row.actionType, resourceId: row.resourceId,
+            requesterId: row.requestedBy, reason: input.reason, decision: input.decision, idempotencyKey: input.idempotencyKey, failure } });
+      } else {
+        await database.prepare(
+          `UPDATE approval_requests SET status = 'executed', resolved_by = ?, resolution_reason = ?, resolved_at = ?, executed_at = ?, updated_at = ? WHERE id = ?`,
+        ).bind(input.actor.userId, input.reason || null, now, now, now, row.id).run();
+        await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId, action: 'approval.request_executed',
+          resourceType: 'approval_request', resourceId: row.id, payload: { actionType: row.actionType, resourceId: row.resourceId,
+            requesterId: row.requestedBy, reason: input.reason || null, decision: input.decision, idempotencyKey: input.idempotencyKey } });
+      }
     }
     const approval = await approvalById(database, input.organizationId, row.id);
     if (!approval) throw new ApprovalError('No pudimos recuperar la decisión.', 500, 'approval_decision_failed');
-    return { approval, cycle: executedCycle, replayed: false, expired: false };
+    return { approval, cycle: executedCycle, transaction: executedTransfer, failed: failure, replayed: false, expired: false };
   });
 }
 

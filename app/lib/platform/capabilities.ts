@@ -38,7 +38,7 @@ export const PLATFORM_CAPABILITIES: readonly PlatformCapability[] = [
   {
     id: 'payment-orchestration', name: 'Payment Orchestration', domain: 'payments', availability: 'sandbox', delivery: 'cimbra_native',
     summary: 'Intents, cash-in, cash-out, transferencias, routing, estados, reintentos y reversas.',
-    features: ['payment intents', 'cash-in/cash-out', 'routing por reglas', 'idempotencia', 'state machine'],
+    features: ['payment intents', 'cash-in/cash-out', 'routing por reglas', 'idempotencia', 'state machine', 'transfer dual approval'],
     interfaces: ['rest_api', 'webhooks', 'sdk', 'console'], regulatoryBoundary: 'Para liquidar dinero real Cimbra debe conectarse directamente a bancos, cámaras, esquemas o sponsors autorizados; no a plataformas competidoras.',
   },
   {
