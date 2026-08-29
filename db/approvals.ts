@@ -111,7 +111,7 @@ export async function configureSettlementApprovalPolicy(input: {
     } else {
       const stale = await database.prepare(
         `${approvalSelect} WHERE ar.organization_id = ? AND ar.action_type = 'settlement.execute'
-         AND ar.status = 'pending' AND ar.expires_at <= ? FOR UPDATE`,
+         AND ar.status = 'pending' AND ar.expires_at <= ? FOR UPDATE OF ar`,
       ).bind(input.organizationId, now).all<ApprovalRow>();
       for (const row of stale.results) await expireApproval(database, input.organizationId, row, now);
       const pending = await database.prepare(
@@ -156,7 +156,7 @@ export async function listApprovalRequests(organizationId: string) {
   return getDatabaseClient().transaction(async (database) => {
     const now = new Date().toISOString();
     const stale = await database.prepare(
-      `${approvalSelect} WHERE ar.organization_id = ? AND ar.status = 'pending' AND ar.expires_at <= ? FOR UPDATE`,
+      `${approvalSelect} WHERE ar.organization_id = ? AND ar.status = 'pending' AND ar.expires_at <= ? FOR UPDATE OF ar`,
     ).bind(organizationId, now).all<ApprovalRow>();
     for (const row of stale.results) await expireApproval(database, organizationId, row, now);
     const rows = await database.prepare(
@@ -168,7 +168,7 @@ export async function listApprovalRequests(organizationId: string) {
 
 export async function retrieveApprovalRequest(organizationId: string, id: string) {
   return getDatabaseClient().transaction(async (database) => {
-    const row = await database.prepare(`${approvalSelect} WHERE ar.organization_id = ? AND ar.id = ? FOR UPDATE`)
+    const row = await database.prepare(`${approvalSelect} WHERE ar.organization_id = ? AND ar.id = ? FOR UPDATE OF ar`)
       .bind(organizationId, id).first<ApprovalRow>();
     if (!row) return null;
     const now = new Date().toISOString();
@@ -215,7 +215,7 @@ export async function requestSettlementExecutionApproval(input: {
     if (cycle.scheduledFor && cycle.scheduledFor > now) throw new SettlementError('El ciclo todavía no alcanzó su horario programado.', 409, 'settlement_not_due');
     const stale = await database.prepare(
       `${approvalSelect} WHERE ar.organization_id = ? AND ar.action_type = 'settlement.execute' AND ar.resource_id = ?
-       AND ar.status = 'pending' AND ar.expires_at <= ? FOR UPDATE`,
+       AND ar.status = 'pending' AND ar.expires_at <= ? FOR UPDATE OF ar`,
     ).bind(input.organizationId, cycle.id, now).all<ApprovalRow>();
     for (const row of stale.results) await expireApproval(database, input.organizationId, row, now);
     const pending = await database.prepare(
@@ -258,7 +258,7 @@ export async function decideApprovalRequest(input: {
     }
     await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
       .bind(`${input.organizationId}:approval-request:${input.requestId}`).first();
-    const row = await database.prepare(`${approvalSelect} WHERE ar.organization_id = ? AND ar.id = ? FOR UPDATE`)
+    const row = await database.prepare(`${approvalSelect} WHERE ar.organization_id = ? AND ar.id = ? FOR UPDATE OF ar`)
       .bind(input.organizationId, input.requestId).first<ApprovalRow>();
     if (!row) throw new ApprovalError('Solicitud no encontrada.', 404, 'approval_not_found');
     if (row.status !== 'pending') throw new ApprovalError('La solicitud ya no está pendiente.', 409, 'approval_not_pending');
@@ -312,7 +312,7 @@ export async function cancelApprovalRequest(input: {
     }
     await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
       .bind(`${input.organizationId}:approval-request:${input.requestId}`).first();
-    const row = await database.prepare(`${approvalSelect} WHERE ar.organization_id = ? AND ar.id = ? FOR UPDATE`)
+    const row = await database.prepare(`${approvalSelect} WHERE ar.organization_id = ? AND ar.id = ? FOR UPDATE OF ar`)
       .bind(input.organizationId, input.requestId).first<ApprovalRow>();
     if (!row) throw new ApprovalError('Solicitud no encontrada.', 404, 'approval_not_found');
     if (row.status !== 'pending') throw new ApprovalError('La solicitud ya no está pendiente.', 409, 'approval_not_pending');
