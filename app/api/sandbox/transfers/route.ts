@@ -3,6 +3,7 @@ import { authorizationErrorResponse, authorizeApiRequest, rateLimitHeaders } fro
 import { scheduleWebhookDispatch } from '@/app/lib/platform/dispatch';
 import { majorToMinor, normalizeCurrency } from '@/app/lib/ledger/money';
 import { decodePageCursor, pageLimit, paginatedResponse } from '@/app/lib/platform/pagination';
+import { normalizeRawRiskSignals, protectRiskSignals } from '@/app/lib/platform/risk-signals';
 import { ApprovalError, createTransferWithApprovalPolicy } from '@/db/approvals';
 import { LedgerError, serializeTransaction } from '@/db/ledger';
 import { ensureDatabase, getDatabase, OrganizationAccessError } from '@/db/runtime';
@@ -39,7 +40,8 @@ export async function POST(request: Request) {
     const counterparty = typeof body?.counterparty === 'string' ? body.counterparty.trim().slice(0, 120) : '';
     const description = typeof body?.description === 'string' ? body.description.trim().slice(0, 180) : '';
     const currency = normalizeCurrency(body?.currency ?? 'ARS');
-    if (counterparty.length < 2 || description.length < 2 || !currency) {
+    const rawSignals = normalizeRawRiskSignals(body?.signals);
+    if (counterparty.length < 2 || description.length < 2 || !currency || !rawSignals) {
       return NextResponse.json({ error: 'Datos de transferencia inválidos.' }, { status: 400 });
     }
     let amountMinor: bigint;
@@ -56,9 +58,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Idempotency-Key es requerido y debe tener al menos 8 caracteres.' }, { status: 400 });
     }
     await ensureDatabase();
+    const signals = await protectRiskSignals(organizationId, rawSignals);
     const result = await createTransferWithApprovalPolicy({
       organizationId, actor: user, idempotencyKey, counterparty, description, amountMinor, currency,
-      authentication: principal.authentication, apiKeyId: principal.apiKeyId,
+      signals, authentication: principal.authentication, apiKeyId: principal.apiKeyId,
     });
     if (!result.replayed) scheduleWebhookDispatch(organizationId);
     if (result.requiresApproval) {

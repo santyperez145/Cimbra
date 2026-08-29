@@ -12,6 +12,7 @@ import { ACCESS_POLICY, ROLE_PROFILES, assignableRole, canManageRole, normalizeA
 import { approvalActionType, approvalExpiryMinutes, approvalReason, canDecideApproval } from '../app/lib/platform/approval-policy.ts';
 import { normalizeEvidenceLink, normalizeOperationalNote, normalizeWorkItemUpdate } from '../app/lib/platform/operations-input.ts';
 import { normalizeRiskRuleInput, normalizeRiskSimulationSamples } from '../app/lib/platform/risk-input.ts';
+import { normalizeRawRiskSignals, parseProtectedRiskSignals, protectRiskSignals, publicRiskSignals, riskSubjectHash, riskSubjectPreview } from '../app/lib/platform/risk-signals.ts';
 
 process.env.CIMBRA_ENCRYPTION_KEY = '3ea72fc13c567057870342c6ebd34d88f58f6d80b1dba61c4be4e1c2f1406afb';
 
@@ -117,6 +118,22 @@ test('una matriz canónica gobierna capacidades de API y consola', () => {
     if (!['console.read', 'operations.read', 'approvals.read', 'security.manage_self'].includes(capability)) assert.equal(roleCan('viewer', capability), false, capability);
   }
   assert.equal(ROLE_PROFILES.viewer.posture, 'Sólo lectura');
+});
+
+test('protege referencias de riesgo por tenant y sólo expone señales derivadas', async () => {
+  const raw = normalizeRawRiskSignals({ deviceReference: ' Device-ABC ', identityReference: 'Customer-42', deviceTrust: 'suspicious',
+    identityVerified: false, ipCountry: 'ar', countryMismatch: true });
+  assert.ok(raw);
+  const protectedSignals = await protectRiskSignals('org-a', raw);
+  assert.match(protectedSignals.deviceHash ?? '', /^[A-Za-z0-9_-]{43}$/);
+  assert.notEqual(protectedSignals.deviceHash, await riskSubjectHash('org-b', 'device', 'device-abc'));
+  const exposed = publicRiskSignals(protectedSignals);
+  assert.deepEqual(exposed, { deviceReferencePresent: true, identityReferencePresent: true, deviceTrust: 'suspicious',
+    identityVerified: false, ipCountry: 'AR', countryMismatch: true });
+  assert.doesNotMatch(JSON.stringify(exposed), /device-abc|customer-42|deviceHash|identityHash/i);
+  assert.equal(parseProtectedRiskSignals({ deviceHash: 'raw-reference' }), null);
+  assert.equal(normalizeRawRiskSignals({ deviceTrust: 'invalid' }), null);
+  assert.equal(riskSubjectPreview('identity', 'Pduyk1HmHjDMYYporwM4mJavh2xdxMsJ2MJui6W-YlE'), 'identity •••• #6W-YlE');
 });
 
 test('la cola operativa valida cambios, SLA, comentarios y evidencia', () => {

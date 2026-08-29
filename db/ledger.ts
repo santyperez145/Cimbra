@@ -1,8 +1,9 @@
 import type { AuthUser } from '@/app/lib/auth/types';
 import { type Currency, majorToMinor, minorToMajorNumber } from '@/app/lib/ledger/money';
+import type { ProtectedRiskSignals } from '@/app/lib/platform/risk-signals';
 import { DatabaseClient, getDatabaseClient } from './client';
 import { enqueueWebhookEvent } from './platform';
-import { assessRisk, persistRiskAssessment } from './risk';
+import { assessRisk, persistRiskAssessment, RiskError } from './risk';
 
 type Direction = 'debit' | 'credit';
 
@@ -160,6 +161,7 @@ export type TransferCreationInput = {
   description: string;
   amountMinor: bigint;
   currency: Currency;
+  signals?: ProtectedRiskSignals;
   transactionId?: string;
   approvalContext?: { requestId: string; requestedBy: string };
 };
@@ -176,6 +178,14 @@ export async function findTransferByIdempotency(input: TransferCreationInput, da
     BigInt(existing.amountMinor) !== -input.amountMinor || existing.currency !== input.currency
   ) {
     throw new LedgerError('La Idempotency-Key ya fue usada con otro payload.', 409, 'idempotency_mismatch');
+  }
+  try {
+    await assessRisk({ organizationId: input.organizationId, idempotencyKey: `transfer:${input.idempotencyKey}`,
+      operationType: 'transfer', amountMinor: input.amountMinor, currency: input.currency, counterparty: input.counterparty,
+      signals: input.signals }, database);
+  } catch (error) {
+    if (error instanceof RiskError) throw new LedgerError(error.message, error.status, error.code);
+    throw error;
   }
   return serializeTransaction(existing);
 }
@@ -201,6 +211,7 @@ export async function createTransferInTransaction(input: TransferCreationInput, 
   const assessment = await assessRisk({
     organizationId: input.organizationId, idempotencyKey: operationKey, operationType: 'transfer',
     amountMinor: input.amountMinor, currency: input.currency, counterparty: input.counterparty,
+    signals: input.signals,
   }, transaction);
   if (assessment.decision === 'decline') {
     const declined = await persistRiskAssessment({ organizationId: input.organizationId, idempotencyKey: operationKey, actor: input.actor, assessment }, transaction);
@@ -284,6 +295,7 @@ export async function createAccountPayment(input: {
   description: string;
   amountMinor: bigint;
   currency: Currency;
+  signals?: ProtectedRiskSignals;
 }) {
   return getDatabaseClient().transaction(async (transaction) => {
     const operationKey = `payment:${input.idempotencyKey}`;
@@ -299,6 +311,13 @@ export async function createAccountPayment(input: {
       if (existing.counterparty !== input.counterparty || existing.description !== input.description ||
           BigInt(existing.amountMinor) !== signedAmount || existing.currency !== input.currency) {
         throw new LedgerError('La Idempotency-Key ya fue usada con otro payload.', 409, 'idempotency_mismatch');
+      }
+      try {
+        await assessRisk({ organizationId: input.organizationId, idempotencyKey: operationKey, operationType: input.direction,
+          amountMinor: input.amountMinor, currency: input.currency, counterparty: input.counterparty, signals: input.signals }, transaction);
+      } catch (error) {
+        if (error instanceof RiskError) throw new LedgerError(error.message, error.status, error.code);
+        throw error;
       }
       return { payment: serializeTransaction(existing), replayed: true };
     }
@@ -317,6 +336,7 @@ export async function createAccountPayment(input: {
     const assessment = await assessRisk({
       organizationId: input.organizationId, idempotencyKey: operationKey, operationType: input.direction,
       amountMinor: input.amountMinor, currency: input.currency, counterparty: input.counterparty,
+      signals: input.signals,
     }, transaction);
     if (assessment.decision === 'decline') {
       const declined = await persistRiskAssessment({ organizationId: input.organizationId, idempotencyKey: operationKey, actor: input.actor, assessment }, transaction);

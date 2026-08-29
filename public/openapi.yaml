@@ -211,6 +211,7 @@ paths:
                     - { type: string, pattern: '^\d+(?:\.\d+)?$' }
                     - { type: number, exclusiveMinimum: 0, maximum: 10000000 }
                 currency: { type: string, enum: [ARS, USD, MXN, COP, BRL, CLP, PEN] }
+                signals: { $ref: '#/components/schemas/RiskSignalsInput' }
       responses:
         '201': { description: Transfer created }
         '200': { description: Idempotent replay }
@@ -241,6 +242,7 @@ paths:
                 description: { type: string, minLength: 2, maxLength: 180 }
                 amount: { type: string, pattern: '^\d+(?:\.\d+)?$' }
                 currency: { type: string, enum: [ARS, USD, MXN, COP, BRL, CLP, PEN] }
+                signals: { $ref: '#/components/schemas/RiskSignalsInput' }
       responses:
         '201': { description: Payment created }
         '200': { description: Idempotent replay }
@@ -310,6 +312,7 @@ paths:
                 amount: { type: string, pattern: '^\d+(\.\d+)?$' }
                 currency: { type: string, enum: [ARS, USD, MXN, COP, BRL, CLP, PEN] }
                 counterparty: { type: string, minLength: 2, maxLength: 120 }
+                signals: { $ref: '#/components/schemas/RiskSignalsInput' }
       responses:
         '201':
           description: Evaluation persisted; review or decline also creates a case
@@ -323,6 +326,67 @@ paths:
                   evaluation: { $ref: '#/components/schemas/RiskEvaluation' }
                   replayed: { type: boolean }
         '200': { description: Idempotent replay }
+  /api/v1/risk/evaluations/{id}/outcomes:
+    post:
+      operationId: reportRiskOutcome
+      summary: Append a confirmed legitimate or fraud outcome to an evaluation
+      description: Corrections are immutable revisions and must identify the active outcome being superseded. Raw device and identity references are never returned.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [label]
+              properties:
+                label: { type: string, enum: [legitimate, fraud] }
+                fraudType: { type: string, enum: [account_takeover, identity_fraud, scam, stolen_instrument, merchant_fraud, other] }
+                lossAmount: { type: string, pattern: '^\d+(\.\d+)?$' }
+                currency: { type: string, enum: [ARS, USD, MXN, COP, BRL, CLP, PEN] }
+                note: { type: string, maxLength: 500 }
+                supersedesOutcomeId: { type: string, format: uuid }
+      responses:
+        '201': { description: Confirmed outcome appended }
+        '200': { description: Idempotent replay }
+        '404': { description: Evaluation not found in tenant }
+        '409': { description: Active outcome exists or the specified revision is stale }
+  /api/v1/risk/lists:
+    post:
+      operationId: createRiskListEntry
+      summary: Add a tenant-scoped counterparty, device or identity decision-list entry
+      description: The subject is converted to a tenant-scoped one-way digest before persistence; only a digest-derived preview is returned.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subjectType, subjectValue, category, reason]
+              properties:
+                subjectType: { type: string, enum: [counterparty, device, identity] }
+                subjectValue: { type: string, minLength: 2, maxLength: 160, writeOnly: true }
+                category: { type: string, enum: [allow, watch, block] }
+                reason: { type: string, minLength: 3, maxLength: 240 }
+                expiresAt: { type: string, format: date-time }
+      responses:
+        '201': { description: List entry created }
+        '200': { description: Idempotent replay }
+        '409': { description: An active entry already exists for this subject }
+  /api/v1/risk/lists/{id}:
+    delete:
+      operationId: disableRiskListEntry
+      summary: Disable an active tenant risk-list entry
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses:
+        '200': { description: Entry disabled }
+        '404': { description: Entry not found or already disabled }
   /api/v1/risk/rules:
     post:
       operationId: createRiskRule
@@ -1208,18 +1272,71 @@ components:
         updatedAt: { type: string, format: date-time }
     RiskEvaluation:
       type: object
-      required: [id, operationType, amountMinor, currency, counterparty, score, decision, matchedRuleIds, reasons, createdAt]
+      required: [id, operationType, resourceType, resourceId, amountMinor, amount, currency, counterparty, score, decision, matchedRuleIds, matchedListEntryIds, reasons, signals, outcome, createdAt, requestFingerprint, replayed]
       properties:
         id: { type: string, format: uuid }
         operationType: { type: string, enum: [transfer, cash_in, cash_out] }
+        resourceType: { type: string }
         resourceId: { type: [string, 'null'] }
         amountMinor: { type: string }
+        amount: { type: number }
         currency: { type: string }
         counterparty: { type: string }
         score: { type: integer, minimum: 0, maximum: 100 }
         decision: { type: string, enum: [approve, review, decline] }
         matchedRuleIds: { type: array, items: { type: string } }
+        matchedListEntryIds: { type: array, items: { type: string, format: uuid } }
         reasons: { type: array, items: { type: string } }
+        signals: { $ref: '#/components/schemas/RiskSignals' }
+        outcome:
+          oneOf:
+            - { $ref: '#/components/schemas/RiskOutcome' }
+            - { type: 'null' }
+        createdAt: { type: string, format: date-time }
+        requestFingerprint: { type: string }
+        replayed: { type: boolean }
+    RiskSignalsInput:
+      type: object
+      additionalProperties: false
+      properties:
+        deviceReference: { type: string, minLength: 2, maxLength: 160, writeOnly: true }
+        identityReference: { type: string, minLength: 2, maxLength: 160, writeOnly: true }
+        deviceTrust: { type: string, enum: [trusted, unknown, suspicious] }
+        identityVerified: { type: boolean }
+        ipCountry: { type: string, pattern: '^[A-Za-z]{2}$' }
+        countryMismatch: { type: boolean }
+    RiskSignals:
+      type: object
+      required: [deviceReferencePresent, identityReferencePresent]
+      properties:
+        deviceReferencePresent: { type: boolean }
+        identityReferencePresent: { type: boolean }
+        deviceTrust: { type: string, enum: [trusted, unknown, suspicious] }
+        identityVerified: { type: boolean }
+        ipCountry: { type: string, pattern: '^[A-Z]{2}$' }
+        countryMismatch: { type: boolean }
+    RiskOutcome:
+      type: object
+      required: [id, label, fraudType, lossAmountMinor, currency, note, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        label: { type: string, enum: [legitimate, fraud] }
+        fraudType: { type: [string, 'null'], enum: [account_takeover, identity_fraud, scam, stolen_instrument, merchant_fraud, other, null] }
+        lossAmountMinor: { type: string }
+        currency: { type: string, enum: [ARS, USD, MXN, COP, BRL, CLP, PEN] }
+        note: { type: string }
+        createdAt: { type: string, format: date-time }
+    RiskListEntry:
+      type: object
+      required: [id, subjectType, subjectPreview, category, reason, status, expiresAt, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        subjectType: { type: string, enum: [counterparty, device, identity] }
+        subjectPreview: { type: string, description: Masked non-secret recognition hint; never the original subject. }
+        category: { type: string, enum: [allow, watch, block] }
+        reason: { type: string }
+        status: { type: string, enum: [active, disabled] }
+        expiresAt: { type: [string, 'null'], format: date-time }
         createdAt: { type: string, format: date-time }
     ReconciliationRun:
       type: object

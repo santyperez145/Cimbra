@@ -289,6 +289,25 @@ export const riskSimulations = pgTable('risk_simulations', {
   check('risk_simulations_sample_count', sql`${table.sampleCount} BETWEEN 1 AND 50`),
 ]);
 
+export const riskListEntries = pgTable('risk_list_entries', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  idempotencyKey: text('idempotency_key').notNull(), requestFingerprint: text('request_fingerprint').notNull(),
+  subjectType: text('subject_type').notNull(), subjectHash: text('subject_hash').notNull(), subjectPreview: text('subject_preview').notNull(),
+  category: text('category').notNull(), reason: text('reason').notNull(), status: text('status').notNull().default('active'),
+  expiresAt: text('expires_at'), createdBy: text('created_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
+  disabledBy: text('disabled_by').references(() => users.id, { onDelete: 'restrict' }), disabledAt: text('disabled_at'),
+  createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_risk_list_entries_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  uniqueIndex('idx_risk_list_entries_one_active_subject').on(table.organizationId, table.subjectType, table.subjectHash)
+    .where(sql`${table.status} = 'active'`),
+  index('idx_risk_list_entries_org_status_expiry').on(table.organizationId, table.status, table.expiresAt),
+  check('risk_list_entries_subject_type', sql`${table.subjectType} IN ('counterparty', 'device', 'identity')`),
+  check('risk_list_entries_category', sql`${table.category} IN ('allow', 'watch', 'block')`),
+  check('risk_list_entries_status', sql`${table.status} IN ('active', 'disabled')`),
+]);
+
 export const riskEvaluations = pgTable('risk_evaluations', {
   id: text('id').primaryKey(),
   organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
@@ -296,6 +315,7 @@ export const riskEvaluations = pgTable('risk_evaluations', {
   operationType: text('operation_type').notNull(), resourceType: text('resource_type').notNull().default('transaction'), resourceId: text('resource_id'),
   amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(), currency: text('currency').notNull(), counterparty: text('counterparty').notNull(),
   score: integer('score').notNull(), decision: text('decision').notNull(), matchedRuleIds: text('matched_rule_ids').notNull().default('[]'),
+  matchedListEntryIds: text('matched_list_entry_ids').notNull().default('[]'), signals: text('signals').notNull().default('{}'),
   reasons: text('reasons').notNull().default('[]'), createdAt: text('created_at').notNull(),
 }, (table) => [
   uniqueIndex('idx_risk_evaluations_org_idempotency').on(table.organizationId, table.idempotencyKey),
@@ -440,6 +460,27 @@ export const reconciliationExceptions = pgTable('reconciliation_exceptions', {
   check('reconciliation_exceptions_status', sql`${table.status} IN ('open', 'resolved', 'accepted')`),
   check('reconciliation_exceptions_priority', sql`${table.priority} IN ('low', 'medium', 'high', 'critical')`),
   check('reconciliation_exceptions_resolution', sql`${table.resolution} IS NULL OR ${table.resolution} IN ('corrected', 'accepted')`),
+]);
+
+export const riskOutcomes = pgTable('risk_outcomes', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  evaluationId: text('evaluation_id').notNull().references(() => riskEvaluations.id, { onDelete: 'cascade' }),
+  supersedesOutcomeId: text('supersedes_outcome_id').references((): AnyPgColumn => riskOutcomes.id, { onDelete: 'restrict' }),
+  idempotencyKey: text('idempotency_key').notNull(), requestFingerprint: text('request_fingerprint').notNull(),
+  label: text('label').notNull(), fraudType: text('fraud_type'), lossAmountMinor: bigint('loss_amount_minor', { mode: 'bigint' }).notNull().default(sql`0`),
+  currency: text('currency').notNull(), note: text('note').notNull(), status: text('status').notNull().default('active'),
+  reportedBy: text('reported_by').notNull().references(() => users.id, { onDelete: 'restrict' }), createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_risk_outcomes_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  uniqueIndex('idx_risk_outcomes_one_active_evaluation').on(table.organizationId, table.evaluationId)
+    .where(sql`${table.status} = 'active'`),
+  index('idx_risk_outcomes_org_created').on(table.organizationId, table.createdAt),
+  check('risk_outcomes_label', sql`${table.label} IN ('legitimate', 'fraud')`),
+  check('risk_outcomes_fraud_type', sql`${table.fraudType} IS NULL OR ${table.fraudType} IN ('account_takeover', 'identity_fraud', 'scam', 'stolen_instrument', 'merchant_fraud', 'other')`),
+  check('risk_outcomes_status', sql`${table.status} IN ('active', 'superseded')`),
+  check('risk_outcomes_loss', sql`${table.lossAmountMinor} >= 0`),
+  check('risk_outcomes_consistency', sql`(${table.label} = 'legitimate' AND ${table.fraudType} IS NULL AND ${table.lossAmountMinor} = 0) OR (${table.label} = 'fraud' AND ${table.fraudType} IS NOT NULL)`),
 ]);
 
 export const operationalActions = pgTable('operational_actions', {

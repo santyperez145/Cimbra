@@ -20,10 +20,27 @@ export type RiskRule = {
   familyId: string; version: number; deployment: 'champion' | 'challenger' | 'archived';
   configuration: Record<string, unknown>; priority: number; status: 'active' | 'disabled'; createdAt: string; updatedAt: string;
 };
+export type RiskSignalsInput = {
+  deviceReference?: string; identityReference?: string; deviceTrust?: 'trusted' | 'unknown' | 'suspicious';
+  identityVerified?: boolean; ipCountry?: string; countryMismatch?: boolean;
+};
+export type RiskSignals = Omit<RiskSignalsInput, 'deviceReference' | 'identityReference'> & {
+  deviceReferencePresent: boolean; identityReferencePresent: boolean;
+};
+export type RiskOutcome = {
+  id: string; evaluationId?: string; supersedesOutcomeId?: string | null; label: 'legitimate' | 'fraud';
+  fraudType: 'account_takeover' | 'identity_fraud' | 'scam' | 'stolen_instrument' | 'merchant_fraud' | 'other' | null;
+  lossAmountMinor: string; currency: Currency; note: string; status?: 'active' | 'superseded'; createdAt: string;
+};
+export type RiskListEntry = {
+  id: string; subjectType: 'counterparty' | 'device' | 'identity'; subjectPreview: string; category: 'allow' | 'watch' | 'block';
+  reason: string; status: 'active' | 'disabled'; expiresAt: string | null; createdAt: string; updatedAt?: string;
+};
 export type RiskEvaluation = {
   id: string; operationType: 'transfer' | 'cash_in' | 'cash_out'; resourceType: string; resourceId: string | null;
   amountMinor: string; amount: number; currency: Currency; counterparty: string; score: number; decision: 'approve' | 'review' | 'decline';
-  matchedRuleIds: string[]; reasons: string[]; createdAt: string;
+  matchedRuleIds: string[]; matchedListEntryIds: string[]; reasons: string[]; signals: RiskSignals; outcome: RiskOutcome | null;
+  createdAt: string; requestFingerprint: string; replayed: boolean;
 };
 export type RiskCase = {
   id: string; evaluationId: string; transactionId: string | null; holdId: string | null; status: 'open' | 'resolved';
@@ -48,6 +65,7 @@ export type ApprovalRequest = {
     name?: string; rail?: ReconciliationRun['source']; currency?: Currency; netMinor?: string; differenceMinor?: string;
     scheduledFor?: string | null; executionMode?: 'manual' | 'scheduled'; counterparty?: string; description?: string;
     amountMinor?: string; origin?: 'session' | 'api_key'; apiKeyId?: string | null; sandbox?: boolean;
+    signals?: RiskSignals;
     resolution?: 'approved' | 'declined' | 'corrected' | 'accepted'; note?: string; priority?: RiskCase['priority']; score?: number;
     externalReference?: string; runName?: string;
   };
@@ -82,6 +100,11 @@ export type RiskSimulation = {
 export type RiskMetrics = {
   windowDays: number; totalEvaluations: number; approvals: number; reviews: number; declines: number;
   openCases: number; resolvedCases: number; approvedAfterReview: number; falsePositiveProxyRate: number | null;
+  confirmed: {
+    total: number; truePositives: number; falsePositives: number; trueNegatives: number; falseNegatives: number;
+    precision: number | null; recall: number | null; falsePositiveRate: number | null;
+    losses: Array<{ currency: Currency; amountMinor: string; amount: number; count: number }>;
+  };
 };
 export type WorkItemType = 'risk_case' | 'reconciliation_exception';
 export type OperationalWorkItem = {
@@ -122,9 +145,16 @@ export type CreateResult<T> = { ok: true; replayed: boolean; customer?: T; accou
 export type CreateCustomerInput = { type?: 'individual' | 'business'; name: string; country: string; taxId: string };
 export type CreateAccountInput = { customerId: string; currency: Currency; country: string };
 export type CreateCardInput = { accountId: string; product?: Card['product']; format?: Card['format'] };
-export type CreateTransferInput = { counterparty: string; description: string; amount: string; currency?: Currency };
-export type CreatePaymentInput = { accountId: string; direction: 'cash_in' | 'cash_out'; counterparty: string; description: string; amount: string; currency: Currency };
-export type CreateRiskEvaluationInput = { operationType: 'transfer' | 'cash_in' | 'cash_out'; amount: string; currency: Currency; counterparty: string };
+export type CreateTransferInput = { counterparty: string; description: string; amount: string; currency?: Currency; signals?: RiskSignalsInput };
+export type CreatePaymentInput = { accountId: string; direction: 'cash_in' | 'cash_out'; counterparty: string; description: string; amount: string; currency: Currency; signals?: RiskSignalsInput };
+export type CreateRiskEvaluationInput = { operationType: 'transfer' | 'cash_in' | 'cash_out'; amount: string; currency: Currency; counterparty: string; signals?: RiskSignalsInput };
+export type CreateRiskListEntryInput = {
+  subjectType: RiskListEntry['subjectType']; subjectValue: string; category: RiskListEntry['category']; reason: string; expiresAt?: string;
+};
+export type ReportRiskOutcomeInput = {
+  label: RiskOutcome['label']; fraudType?: Exclude<RiskOutcome['fraudType'], null>; lossAmount?: string; currency?: Currency;
+  note?: string; supersedesOutcomeId?: string;
+};
 export type CreateRiskRuleInput = {
   name: string; kind: RiskRule['kind']; operationType: RiskRule['operationType']; scoreDelta: number; action: RiskRule['action']; priority?: number;
   configuration: { threshold: string; currency: Currency } | { count: number; windowMinutes: number } | { pattern: string };

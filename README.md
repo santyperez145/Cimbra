@@ -9,7 +9,7 @@ La aplicación es un MVP lanzable para venta, discovery e integración en sandbo
 Superficies disponibles:
 
 - `/` — propuesta comercial profesional, estado de sesión contextual, prueba técnica, casos de uso, modelo de acceso y captación persistente de leads.
-- `/developers` — portal técnico generado desde OpenAPI con entornos, quickstart ejecutable, auth/RBAC/scopes, errores, rate limits, SDK descargable, webhooks, catálogo de eventos y las 68 operaciones publicadas.
+- `/developers` — portal técnico generado desde OpenAPI con entornos, quickstart ejecutable, auth/RBAC/scopes, errores, rate limits, SDK descargable, webhooks, catálogo de eventos y las 71 operaciones publicadas.
 - `/login` — registro e inicio de sesión propio con usuario/email y contraseña; OAuth Google y Apple se activa al configurar sus credenciales.
 - `/forgot-password`, `/reset-password` y `/verify-email` — ciclo de vida de cuenta con tokens opacos, expiración, uso único y respuestas anti-enumeración.
 - `/console` — consola protegida y consciente del rol; owner/admin administran miembros e invitaciones, operator ejecuta, viewer trabaja en modo lectura y Operaciones unifica ownership, SLA y expedientes de riesgo/conciliación.
@@ -80,7 +80,7 @@ Apple requiere un Services ID asociado a una app habilitada para Sign in with Ap
 - idempotencia por organización para customers, accounts, cards, transferencias, journals, creación y resolución de holds;
 - saldo disponible derivado del saldo contable menos las reservas activas;
 - escrituras financieras y auditoría dentro de la misma transacción.
-- evaluaciones de riesgo explicables vinculadas a cada movimiento, con familias de políticas versionadas, lifecycle champion/challenger, simulaciones agregadas, métricas operativas, casos y holds sincronizados;
+- evaluaciones de riesgo explicables vinculadas a cada movimiento, con referencias de dispositivo/identidad hasheadas por tenant, señales derivadas, listas allow/watch/block, familias de políticas versionadas, lifecycle champion/challenger, simulaciones agregadas, resultados confirmados inmutables, precisión/recall, pérdidas por moneda, casos y holds sincronizados;
 - conciliación exacta de lotes contra el ledger, faltantes en ambos sentidos y excepciones resolubles con idempotencia.
 - importación CSV UTF-8 con checksum y ciclos de settlement sandbox únicos, programables, auditados y emitidos por webhook.
 - políticas maker/checker fail-closed para settlement, transferencias, casos de riesgo y excepciones de conciliación, con locks concurrentes, revalidación y decisión/ejecución atómicas.

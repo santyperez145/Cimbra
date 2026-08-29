@@ -184,6 +184,30 @@ test('el SDK cubre versionado, simulación y promoción de políticas de riesgo'
   for (const call of calls) assert.match(call.idempotencyKey ?? '', /^idem_[a-f0-9]{32}$/);
 });
 
+test('el SDK cablea señales, listas tenant y resultados confirmados sin exponer referencias', async () => {
+  const calls: Array<{ url: string; method: string; idempotencyKey: string | null; body: Record<string, unknown> }> = [];
+  const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async (input, init) => {
+    const body = typeof init?.body === 'string' ? JSON.parse(init.body) as Record<string, unknown> : {};
+    calls.push({ url: String(input), method: init?.method ?? 'GET', idempotencyKey: new Headers(init?.headers).get('idempotency-key'), body });
+    if (String(input).endsWith('/risk/lists')) return Response.json({ ok: true, replayed: false, entry: { id: 'list_1', subjectPreview: 'devi••••e-42', category: 'watch', status: 'active' } }, { status: 201 });
+    if (String(input).endsWith('/outcomes')) return Response.json({ ok: true, replayed: false, outcome: { id: 'outcome_1', label: 'fraud', fraudType: 'account_takeover', lossAmountMinor: '1000', currency: 'ARS' } }, { status: 201 });
+    if ((init?.method ?? 'GET') === 'DELETE') return Response.json({ ok: true, id: 'list_1', status: 'disabled' });
+    return Response.json({ ok: true, requiresApproval: false, replayed: false, transaction: { id: 'tx_1' } }, { status: 201 });
+  } });
+  await client.transfers.create({ counterparty: 'Proveedor', description: 'Pago', amount: '10.00', currency: 'ARS',
+    signals: { deviceReference: 'device-42', identityReference: 'customer-9', deviceTrust: 'suspicious' } });
+  await client.risk.createListEntry({ subjectType: 'device', subjectValue: 'device-42', category: 'watch', reason: 'Señal interna' });
+  await client.risk.reportOutcome('evaluation_1', { label: 'fraud', fraudType: 'account_takeover', lossAmount: '10.00', currency: 'ARS' });
+  await client.risk.disableListEntry('list_1');
+  assert.deepEqual(calls.map(({ method, url }) => `${method} ${url}`), [
+    'POST https://api.test/api/v1/transfers', 'POST https://api.test/api/v1/risk/lists',
+    'POST https://api.test/api/v1/risk/evaluations/evaluation_1/outcomes', 'DELETE https://api.test/api/v1/risk/lists/list_1',
+  ]);
+  assert.deepEqual((calls[0].body.signals as Record<string, unknown>), { deviceReference: 'device-42', identityReference: 'customer-9', deviceTrust: 'suspicious' });
+  for (const call of calls.slice(0, 3)) assert.match(call.idempotencyKey ?? '', /^idem_[a-f0-9]{32}$/);
+  assert.equal(calls[3].idempotencyKey, null);
+});
+
 test('el SDK administra la cola operativa con rutas e idempotencia canónicas', async () => {
   const calls: Array<{ url: string; method: string; idempotencyKey: string | null }> = [];
   const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async (input, init) => {

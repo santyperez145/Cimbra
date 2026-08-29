@@ -101,7 +101,23 @@ await cimbra.risk.simulate({
 await cimbra.risk.promoteRule(challenger.data.rule.id);
 ```
 
-Las transferencias y los cash-out ejecutan sólo las champions activas dentro de su flujo transaccional. Las muestras de simulación no se guardan: Cimbra persiste únicamente agregados. Una decisión `review` crea evaluación, caso y hold vinculados; resolver el caso captura o libera la reserva de manera idempotente.
+Las integraciones pueden enviar referencias sensibles como input; Cimbra sólo devuelve presencia y señales derivadas:
+
+```ts
+const evaluation = await cimbra.risk.evaluate({
+  operationType: 'transfer', amount: '1250.00', currency: 'ARS', counterparty: 'Proveedor Sur',
+  signals: { deviceReference: 'device-internal-42', identityReference: 'customer-internal-9', deviceTrust: 'unknown' },
+});
+const entry = await cimbra.risk.createListEntry({
+  subjectType: 'device', subjectValue: 'device-internal-42', category: 'watch', reason: 'Revisión interna',
+});
+await cimbra.risk.reportOutcome(evaluation.data.evaluation.id, {
+  label: 'fraud', fraudType: 'account_takeover', lossAmount: '1250.00', currency: 'ARS',
+});
+await cimbra.risk.disableListEntry(entry.data.entry.id);
+```
+
+Las transferencias y los cash-out ejecutan sólo las champions activas dentro de su flujo transaccional. Las referencias de dispositivo e identidad se hashean con aislamiento por tenant antes de persistirse. Las muestras de simulación no se guardan: Cimbra persiste únicamente agregados. Una decisión `review` crea evaluación, caso y hold vinculados; los outcomes confirmados alimentan precisión, recall, tasa de falsos positivos y pérdida por moneda sin reemplazar historial.
 
 ## Conciliación
 

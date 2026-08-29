@@ -2,6 +2,15 @@ import { sha256 } from '@/app/lib/auth/crypto';
 import type { AuthUser } from '@/app/lib/auth/types';
 import { minorToMajorNumber, type Currency } from '@/app/lib/ledger/money';
 import { systemAmountRisk } from '@/app/lib/platform/risk-engine';
+import {
+  parseProtectedRiskSignals,
+  publicRiskSignals,
+  riskSubjectHash,
+  riskSubjectPreview,
+  type ProtectedRiskSignals,
+  type RiskListCategory,
+  type RiskSubjectType,
+} from '@/app/lib/platform/risk-signals';
 import { enqueueWebhookEvent } from './platform';
 import { type DatabaseClient, getDatabaseClient } from './client';
 
@@ -16,11 +25,17 @@ type StoredRule = {
   operationType: 'any' | RiskOperation; scoreDelta: number; action: RiskRuleAction; configuration: string; priority: number; status: string;
 };
 
+type StoredListEntry = {
+  id: string; subjectType: RiskSubjectType; category: RiskListCategory; reason: string;
+};
+
 type DecisionSummary = { approve: number; review: number; decline: number; averageScore: number };
 
 type StoredEvaluation = {
   id: string; operationType: RiskOperation; resourceType: string; resourceId: string | null; amountMinor: string; currency: Currency;
-  counterparty: string; score: number; decision: RiskDecision; matchedRuleIds: string; reasons: string; createdAt: string; requestFingerprint: string;
+  counterparty: string; score: number; decision: RiskDecision; matchedRuleIds: string; matchedListEntryIds: string; reasons: string;
+  signals: string; createdAt: string; requestFingerprint: string; outcomeId?: string | null; outcomeLabel?: 'legitimate' | 'fraud' | null;
+  fraudType?: string | null; lossAmountMinor?: string | null; outcomeCurrency?: Currency | null; outcomeNote?: string | null; outcomeCreatedAt?: string | null;
 };
 
 export type RiskAssessment = {
@@ -35,7 +50,14 @@ export type RiskAssessment = {
   score: number;
   decision: RiskDecision;
   matchedRuleIds: string[];
+  matchedListEntryIds: string[];
   reasons: string[];
+  signals: ReturnType<typeof publicRiskSignals>;
+  protectedSignals?: ProtectedRiskSignals;
+  outcome?: null | {
+    id: string; label: 'legitimate' | 'fraud'; fraudType: string | null; lossAmountMinor: string | null;
+    currency: Currency | null; note: string | null; createdAt: string;
+  };
   createdAt?: string;
   requestFingerprint: string;
   replayed: boolean;
@@ -56,20 +78,32 @@ function parseConfiguration(value: string) {
   try { return JSON.parse(value) as Record<string, unknown>; } catch { return {}; }
 }
 
+function withoutRequestFingerprint(value: Record<string, unknown>) {
+  const result = { ...value };
+  delete result.requestFingerprint;
+  return result;
+}
+
 function serializeEvaluation(row: StoredEvaluation, replayed: boolean): RiskAssessment {
   return {
     id: row.id, operationType: row.operationType, resourceType: row.resourceType, resourceId: row.resourceId,
     amountMinor: row.amountMinor, amount: minorToMajorNumber(row.amountMinor, row.currency), currency: row.currency,
     counterparty: row.counterparty, score: row.score, decision: row.decision,
-    matchedRuleIds: parseStringArray(row.matchedRuleIds), reasons: parseStringArray(row.reasons), createdAt: row.createdAt,
+    matchedRuleIds: parseStringArray(row.matchedRuleIds), matchedListEntryIds: parseStringArray(row.matchedListEntryIds),
+    reasons: parseStringArray(row.reasons), signals: publicRiskSignals(parseProtectedRiskSignals(row.signals) ?? {}), createdAt: row.createdAt,
     requestFingerprint: row.requestFingerprint, replayed,
+    outcome: row.outcomeId && row.outcomeLabel && row.outcomeCreatedAt ? {
+      id: row.outcomeId, label: row.outcomeLabel, fraudType: row.fraudType ?? null, lossAmountMinor: row.lossAmountMinor ?? null,
+      currency: row.outcomeCurrency ?? null, note: row.outcomeNote ?? null, createdAt: row.outcomeCreatedAt,
+    } : null,
   };
 }
 
 async function assessmentFingerprint(input: {
-  operationType: RiskOperation; amountMinor: bigint; currency: Currency; counterparty: string;
+  operationType: RiskOperation; amountMinor: bigint; currency: Currency; counterparty: string; signals?: ProtectedRiskSignals;
 }) {
-  return sha256(JSON.stringify({ operationType: input.operationType, amountMinor: input.amountMinor.toString(), currency: input.currency, counterparty: input.counterparty }));
+  return sha256(JSON.stringify({ operationType: input.operationType, amountMinor: input.amountMinor.toString(), currency: input.currency,
+    counterparty: input.counterparty, signals: input.signals ?? {} }));
 }
 
 async function loadChampionRules(organizationId: string, database: DatabaseClient) {
@@ -81,13 +115,30 @@ async function loadChampionRules(organizationId: string, database: DatabaseClien
   ).bind(organizationId).all<StoredRule>()).results;
 }
 
+async function loadMatchingListEntries(input: {
+  organizationId: string; counterparty: string; signals?: ProtectedRiskSignals;
+}, database: DatabaseClient) {
+  const subjectHashes = [await riskSubjectHash(input.organizationId, 'counterparty', input.counterparty)];
+  if (input.signals?.deviceHash) subjectHashes.push(input.signals.deviceHash);
+  if (input.signals?.identityHash) subjectHashes.push(input.signals.identityHash);
+  const placeholders = subjectHashes.map(() => '?').join(', ');
+  return (await database.prepare(
+    `SELECT id, subject_type AS "subjectType", category, reason
+     FROM risk_list_entries
+     WHERE organization_id = ? AND status = 'active' AND (expires_at IS NULL OR expires_at > ?)
+       AND subject_hash IN (${placeholders})`,
+  ).bind(input.organizationId, new Date().toISOString(), ...subjectHashes).all<StoredListEntry>()).results;
+}
+
 async function evaluateDecision(input: {
   organizationId: string; operationType: RiskOperation; amountMinor: bigint; currency: Currency; counterparty: string;
+  signals?: ProtectedRiskSignals;
 }, rules: StoredRule[], database: DatabaseClient): Promise<Omit<RiskAssessment, 'id' | 'createdAt' | 'requestFingerprint' | 'replayed'>> {
   let score = 7;
   let forceReview = false;
   let forceDecline = false;
   const matchedRuleIds: string[] = [];
+  const matchedListEntryIds: string[] = [];
   const reasons: string[] = [];
   const amountRisk = systemAmountRisk(input.amountMinor, input.currency);
   score += amountRisk.scoreDelta;
@@ -99,6 +150,29 @@ async function evaluateDecision(input: {
   ).bind(input.organizationId, input.counterparty, new Date(Date.now() - 60 * 60 * 1000).toISOString()).first<{ count: number }>();
   if (Number(velocity?.count ?? 0) >= 4) {
     score += 35; forceReview = true; matchedRuleIds.push('sys_velocity_counterparty'); reasons.push('counterparty_velocity');
+  }
+  const listEntries = await loadMatchingListEntries(input, database);
+  for (const entry of listEntries) {
+    matchedListEntryIds.push(entry.id);
+    reasons.push(`list:${entry.subjectType}:${entry.category}`);
+    if (entry.category === 'block') forceDecline = true;
+    else if (entry.category === 'watch') { score += 45; forceReview = true; }
+    else score -= 10;
+  }
+  if (input.signals?.deviceTrust === 'suspicious') {
+    score += 35; forceReview = true; reasons.push('signal:device_suspicious');
+  } else if (input.signals?.deviceTrust === 'unknown') {
+    score += 10; reasons.push('signal:device_unknown');
+  } else if (input.signals?.deviceTrust === 'trusted') {
+    score -= 5; reasons.push('signal:device_trusted');
+  }
+  if (input.signals?.identityVerified === false) {
+    score += 25; forceReview = true; reasons.push('signal:identity_unverified');
+  } else if (input.signals?.identityVerified === true) {
+    score -= 5; reasons.push('signal:identity_verified');
+  }
+  if (input.signals?.countryMismatch === true) {
+    score += 20; forceReview = true; reasons.push('signal:country_mismatch');
   }
   for (const rule of rules) {
     if (rule.operationType !== 'any' && rule.operationType !== input.operationType) continue;
@@ -134,7 +208,8 @@ async function evaluateDecision(input: {
   return {
     operationType: input.operationType, resourceType: 'transaction', resourceId: null,
     amountMinor: input.amountMinor.toString(), amount: minorToMajorNumber(input.amountMinor, input.currency), currency: input.currency,
-    counterparty: input.counterparty, score, decision, matchedRuleIds, reasons,
+    counterparty: input.counterparty, score, decision, matchedRuleIds, matchedListEntryIds, reasons,
+    signals: publicRiskSignals(input.signals ?? {}), protectedSignals: input.signals ?? {}, outcome: null,
   };
 }
 
@@ -145,13 +220,18 @@ export async function assessRisk(input: {
   amountMinor: bigint;
   currency: Currency;
   counterparty: string;
+  signals?: ProtectedRiskSignals;
 }, database: DatabaseClient = getDatabaseClient()): Promise<RiskAssessment> {
   const fingerprint = await assessmentFingerprint(input);
   const existing = await database.prepare(
-    `SELECT id, operation_type AS "operationType", resource_type AS "resourceType", resource_id AS "resourceId",
-      amount_minor::text AS "amountMinor", currency, counterparty, score, decision,
-      matched_rule_ids AS "matchedRuleIds", reasons, created_at AS "createdAt", request_fingerprint AS "requestFingerprint"
-     FROM risk_evaluations WHERE organization_id = ? AND idempotency_key = ? LIMIT 1`,
+    `SELECT e.id, e.operation_type AS "operationType", e.resource_type AS "resourceType", e.resource_id AS "resourceId",
+      e.amount_minor::text AS "amountMinor", e.currency, e.counterparty, e.score, e.decision,
+      e.matched_rule_ids AS "matchedRuleIds", e.matched_list_entry_ids AS "matchedListEntryIds", e.reasons, e.signals,
+      e.created_at AS "createdAt", e.request_fingerprint AS "requestFingerprint", o.id AS "outcomeId", o.label AS "outcomeLabel",
+      o.fraud_type AS "fraudType", o.loss_amount_minor::text AS "lossAmountMinor", o.currency AS "outcomeCurrency",
+      o.note AS "outcomeNote", o.created_at AS "outcomeCreatedAt"
+     FROM risk_evaluations e LEFT JOIN risk_outcomes o ON o.evaluation_id = e.id AND o.status = 'active'
+     WHERE e.organization_id = ? AND e.idempotency_key = ? LIMIT 1`,
   ).bind(input.organizationId, input.idempotencyKey).first<StoredEvaluation>();
   if (existing) {
     if (existing.requestFingerprint !== fingerprint) throw new RiskError('La Idempotency-Key ya fue usada con otra evaluación.', 409, 'idempotency_mismatch');
@@ -182,12 +262,14 @@ export async function persistRiskAssessment(input: {
   await database.prepare(
     `INSERT INTO risk_evaluations
       (id, organization_id, idempotency_key, request_fingerprint, operation_type, resource_type, resource_id,
-       amount_minor, currency, counterparty, score, decision, matched_rule_ids, reasons, created_at)
-     VALUES (?, ?, ?, ?, ?, 'transaction', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       amount_minor, currency, counterparty, score, decision, matched_rule_ids, matched_list_entry_ids, reasons, signals, created_at)
+     VALUES (?, ?, ?, ?, ?, 'transaction', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (organization_id, idempotency_key) DO NOTHING`,
   ).bind(id, input.organizationId, input.idempotencyKey, input.assessment.requestFingerprint, input.assessment.operationType,
     input.resourceId ?? null, input.assessment.amountMinor, input.assessment.currency, input.assessment.counterparty,
-    input.assessment.score, input.assessment.decision, JSON.stringify(input.assessment.matchedRuleIds), JSON.stringify(input.assessment.reasons), now).run();
+    input.assessment.score, input.assessment.decision, JSON.stringify(input.assessment.matchedRuleIds),
+    JSON.stringify(input.assessment.matchedListEntryIds), JSON.stringify(input.assessment.reasons),
+    JSON.stringify(input.assessment.protectedSignals ?? {}), now).run();
   if (input.assessment.decision !== 'approve') {
     const caseId = crypto.randomUUID();
     const priority = input.assessment.decision === 'decline' || input.assessment.score >= 85 ? 'critical' : input.assessment.score >= 70 ? 'high' : 'medium';
@@ -201,11 +283,14 @@ export async function persistRiskAssessment(input: {
     await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId, action: 'risk.case_created', resourceType: 'risk_case', resourceId: caseId,
       payload: { evaluationId: id, transactionId: input.resourceId ?? null, decision: input.assessment.decision, score: input.assessment.score } });
   }
-  return { ...input.assessment, id, resourceId: input.resourceId ?? null, createdAt: now };
+  const publicAssessment = { ...input.assessment };
+  delete publicAssessment.protectedSignals;
+  return { ...publicAssessment, id, resourceId: input.resourceId ?? null, createdAt: now };
 }
 
 export async function evaluateAndPersistRisk(input: {
-  organizationId: string; actor: AuthUser; idempotencyKey: string; operationType: RiskOperation; amountMinor: bigint; currency: Currency; counterparty: string;
+  organizationId: string; actor: AuthUser; idempotencyKey: string; operationType: RiskOperation; amountMinor: bigint; currency: Currency;
+  counterparty: string; signals?: ProtectedRiskSignals;
 }) {
   return getDatabaseClient().transaction(async (database) => {
     await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
@@ -425,20 +510,149 @@ export async function simulateRiskRule(input: {
   });
 }
 
+export async function createRiskListEntry(input: {
+  organizationId: string; actor: AuthUser; idempotencyKey: string; subjectType: RiskSubjectType; subjectValue: string;
+  category: RiskListCategory; reason: string; expiresAt?: string | null;
+}) {
+  const subjectHash = await riskSubjectHash(input.organizationId, input.subjectType, input.subjectValue);
+  const subjectPreview = riskSubjectPreview(input.subjectType, subjectHash);
+  const fingerprint = await sha256(JSON.stringify({ subjectType: input.subjectType, subjectHash, category: input.category,
+    reason: input.reason, expiresAt: input.expiresAt ?? null }));
+  return getDatabaseClient().transaction(async (database) => {
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:risk-list:${input.idempotencyKey}`).first();
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:risk-list-subject:${input.subjectType}:${subjectHash}`).first();
+    const existing = await database.prepare(
+      `SELECT id, request_fingerprint AS "requestFingerprint", subject_type AS "subjectType", subject_preview AS "subjectPreview",
+        category, reason, status, expires_at AS "expiresAt", created_at AS "createdAt"
+       FROM risk_list_entries WHERE organization_id = ? AND idempotency_key = ? LIMIT 1`,
+    ).bind(input.organizationId, input.idempotencyKey).first<Record<string, unknown> & { requestFingerprint: string }>();
+    if (existing) {
+      if (existing.requestFingerprint !== fingerprint) throw new RiskError('La Idempotency-Key ya fue usada con otra entrada.', 409, 'idempotency_mismatch');
+      return { entry: withoutRequestFingerprint(existing), replayed: true };
+    }
+    const now = new Date().toISOString();
+    const expired = await database.prepare(
+      `UPDATE risk_list_entries SET status = 'disabled', disabled_by = ?, disabled_at = ?, updated_at = ?
+       WHERE organization_id = ? AND subject_type = ? AND subject_hash = ? AND status = 'active'
+         AND expires_at IS NOT NULL AND expires_at <= ?
+       RETURNING id, subject_type AS "subjectType", subject_preview AS "subjectPreview", category`,
+    ).bind(input.actor.userId, now, now, input.organizationId, input.subjectType, subjectHash, now).first<Record<string, unknown>>();
+    if (expired) await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId,
+      action: 'risk.list_entry_disabled', resourceType: 'risk_list_entry', resourceId: String(expired.id), payload: { ...expired, expired: true } });
+    const active = await database.prepare(
+      `SELECT id FROM risk_list_entries WHERE organization_id = ? AND subject_type = ? AND subject_hash = ? AND status = 'active' LIMIT 1`,
+    ).bind(input.organizationId, input.subjectType, subjectHash).first<{ id: string }>();
+    if (active) throw new RiskError('Ya existe una entrada activa para este sujeto.', 409, 'risk_list_entry_exists');
+    const id = crypto.randomUUID();
+    await database.prepare(
+      `INSERT INTO risk_list_entries
+        (id, organization_id, idempotency_key, request_fingerprint, subject_type, subject_hash, subject_preview, category,
+         reason, status, expires_at, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)`,
+    ).bind(id, input.organizationId, input.idempotencyKey, fingerprint, input.subjectType, subjectHash, subjectPreview,
+      input.category, input.reason, input.expiresAt ?? null, input.actor.userId, now, now).run();
+    const entry = { id, subjectType: input.subjectType, subjectPreview, category: input.category, reason: input.reason,
+      status: 'active', expiresAt: input.expiresAt ?? null, createdAt: now };
+    await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId, action: 'risk.list_entry_created',
+      resourceType: 'risk_list_entry', resourceId: id, payload: entry });
+    return { entry, replayed: false };
+  });
+}
+
+export async function disableRiskListEntry(organizationId: string, actor: AuthUser, id: string) {
+  return getDatabaseClient().transaction(async (database) => {
+    const now = new Date().toISOString();
+    const entry = await database.prepare(
+      `UPDATE risk_list_entries SET status = 'disabled', disabled_by = ?, disabled_at = ?, updated_at = ?
+       WHERE id = ? AND organization_id = ? AND status = 'active'
+       RETURNING id, subject_type AS "subjectType", subject_preview AS "subjectPreview", category`,
+    ).bind(actor.userId, now, now, id, organizationId).first<Record<string, unknown>>();
+    if (!entry) return false;
+    await audit(database, { organizationId, actorId: actor.userId, action: 'risk.list_entry_disabled',
+      resourceType: 'risk_list_entry', resourceId: id, payload: entry });
+    return true;
+  });
+}
+
+export async function reportRiskOutcome(input: {
+  organizationId: string; actor: AuthUser; idempotencyKey: string; evaluationId: string; label: 'legitimate' | 'fraud';
+  fraudType?: string | null; lossAmountMinor?: bigint | null; currency?: Currency | null; note?: string | null;
+  supersedesOutcomeId?: string | null;
+}) {
+  const fingerprint = await sha256(JSON.stringify({ evaluationId: input.evaluationId, label: input.label,
+    fraudType: input.fraudType ?? null, lossAmountMinor: input.lossAmountMinor?.toString() ?? null,
+    currency: input.currency ?? null, note: input.note ?? null, supersedesOutcomeId: input.supersedesOutcomeId ?? null }));
+  return getDatabaseClient().transaction(async (database) => {
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:risk-outcome-idempotency:${input.idempotencyKey}`).first();
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:risk-outcome:${input.evaluationId}`).first();
+    const existing = await database.prepare(
+      `SELECT id, request_fingerprint AS "requestFingerprint", evaluation_id AS "evaluationId", supersedes_outcome_id AS "supersedesOutcomeId",
+        label, fraud_type AS "fraudType", loss_amount_minor::text AS "lossAmountMinor", currency, note, status, created_at AS "createdAt"
+       FROM risk_outcomes WHERE organization_id = ? AND idempotency_key = ? LIMIT 1`,
+    ).bind(input.organizationId, input.idempotencyKey).first<Record<string, unknown> & { requestFingerprint: string }>();
+    if (existing) {
+      if (existing.requestFingerprint !== fingerprint) throw new RiskError('La Idempotency-Key ya fue usada con otro resultado.', 409, 'idempotency_mismatch');
+      return { outcome: withoutRequestFingerprint(existing), replayed: true };
+    }
+    const evaluation = await database.prepare(
+      `SELECT id, currency FROM risk_evaluations WHERE id = ? AND organization_id = ? LIMIT 1`,
+    ).bind(input.evaluationId, input.organizationId).first<{ id: string; currency: Currency }>();
+    if (!evaluation) throw new RiskError('Evaluación de riesgo no encontrada.', 404, 'risk_evaluation_not_found');
+    const active = await database.prepare(
+      `SELECT id FROM risk_outcomes WHERE organization_id = ? AND evaluation_id = ? AND status = 'active' FOR UPDATE`,
+    ).bind(input.organizationId, input.evaluationId).first<{ id: string }>();
+    if (active && input.supersedesOutcomeId !== active.id) {
+      throw new RiskError('La evaluación ya tiene un resultado activo; indicá supersedesOutcomeId para corregirlo.', 409, 'risk_outcome_exists');
+    }
+    if (!active && input.supersedesOutcomeId) {
+      throw new RiskError('El resultado a reemplazar no está activo.', 409, 'risk_outcome_superseded');
+    }
+    const now = new Date().toISOString();
+    if (active) {
+      await database.prepare(`UPDATE risk_outcomes SET status = 'superseded' WHERE id = ?`).bind(active.id).run();
+    }
+    const id = crypto.randomUUID();
+    await database.prepare(
+      `INSERT INTO risk_outcomes
+        (id, organization_id, evaluation_id, supersedes_outcome_id, idempotency_key, request_fingerprint, label, fraud_type,
+         loss_amount_minor, currency, note, status, reported_by, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+    ).bind(id, input.organizationId, input.evaluationId, input.supersedesOutcomeId ?? null, input.idempotencyKey, fingerprint,
+      input.label, input.fraudType ?? null, input.lossAmountMinor?.toString() ?? '0', input.currency ?? evaluation.currency,
+      input.note ?? '', input.actor.userId, now).run();
+    const outcome = { id, evaluationId: input.evaluationId, supersedesOutcomeId: input.supersedesOutcomeId ?? null,
+      label: input.label, fraudType: input.fraudType ?? null, lossAmountMinor: input.lossAmountMinor?.toString() ?? '0',
+      currency: input.currency ?? evaluation.currency, note: input.note ?? '', status: 'active', createdAt: now };
+    await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId, action: 'risk.outcome_reported',
+      resourceType: 'risk_outcome', resourceId: id, payload: { evaluationId: input.evaluationId, label: input.label,
+        fraudType: outcome.fraudType, lossAmountMinor: outcome.lossAmountMinor,
+        currency: outcome.currency, supersedesOutcomeId: input.supersedesOutcomeId ?? null } });
+    return { outcome, replayed: false };
+  });
+}
+
 export async function listRiskState(organizationId: string) {
   const database = getDatabaseClient();
   const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-  const [rules, evaluations, cases, simulations, evaluationMetrics, resolutionMetrics] = await Promise.all([
+  const now = new Date().toISOString();
+  const [rules, evaluations, cases, simulations, listEntries, evaluationMetrics, resolutionMetrics, confirmedMetrics, losses] = await Promise.all([
     database.prepare(
       `SELECT id, family_id AS "familyId", version, deployment, name, kind, operation_type AS "operationType", score_delta AS "scoreDelta", action, configuration,
         priority, status, created_at AS "createdAt", updated_at AS "updatedAt"
        FROM risk_rules WHERE organization_id = ? ORDER BY family_id, version DESC LIMIT 100`,
     ).bind(organizationId).all<Record<string, unknown> & { configuration: string }>(),
     database.prepare(
-      `SELECT id, operation_type AS "operationType", resource_type AS "resourceType", resource_id AS "resourceId",
-        amount_minor::text AS "amountMinor", currency, counterparty, score, decision, matched_rule_ids AS "matchedRuleIds",
-        reasons, created_at AS "createdAt", request_fingerprint AS "requestFingerprint"
-       FROM risk_evaluations WHERE organization_id = ? ORDER BY created_at DESC LIMIT 100`,
+      `SELECT e.id, e.operation_type AS "operationType", e.resource_type AS "resourceType", e.resource_id AS "resourceId",
+        e.amount_minor::text AS "amountMinor", e.currency, e.counterparty, e.score, e.decision, e.matched_rule_ids AS "matchedRuleIds",
+        e.matched_list_entry_ids AS "matchedListEntryIds", e.reasons, e.signals, e.created_at AS "createdAt",
+        e.request_fingerprint AS "requestFingerprint", o.id AS "outcomeId", o.label AS "outcomeLabel", o.fraud_type AS "fraudType",
+        o.loss_amount_minor::text AS "lossAmountMinor", o.currency AS "outcomeCurrency", o.note AS "outcomeNote", o.created_at AS "outcomeCreatedAt"
+       FROM risk_evaluations e LEFT JOIN risk_outcomes o ON o.evaluation_id = e.id AND o.status = 'active'
+       WHERE e.organization_id = ? ORDER BY e.created_at DESC LIMIT 100`,
     ).bind(organizationId).all<StoredEvaluation>(),
     database.prepare(
       `SELECT c.id, c.evaluation_id AS "evaluationId", c.transaction_id AS "transactionId", c.hold_id AS "holdId", c.status, c.priority,
@@ -455,6 +669,12 @@ export async function listRiskState(organizationId: string) {
        WHERE s.organization_id = ? ORDER BY s.created_at DESC LIMIT 20`,
     ).bind(organizationId).all<Record<string, unknown> & { baselineSummary: string; candidateSummary: string; deltaSummary: string }>(),
     database.prepare(
+      `SELECT id, subject_type AS "subjectType", subject_preview AS "subjectPreview", category, reason,
+        CASE WHEN status = 'active' AND expires_at IS NOT NULL AND expires_at <= ? THEN 'disabled' ELSE status END AS status,
+        expires_at AS "expiresAt", created_at AS "createdAt", updated_at AS "updatedAt"
+       FROM risk_list_entries WHERE organization_id = ? ORDER BY created_at DESC LIMIT 100`,
+    ).bind(now, organizationId).all<Record<string, unknown>>(),
+    database.prepare(
       `SELECT COUNT(*)::int AS total,
         COUNT(*) FILTER (WHERE decision = 'approve')::int AS approve,
         COUNT(*) FILTER (WHERE decision = 'review')::int AS review,
@@ -467,16 +687,36 @@ export async function listRiskState(organizationId: string) {
         COUNT(*) FILTER (WHERE status = 'resolved' AND resolution = 'approved')::int AS approved
        FROM risk_cases WHERE organization_id = ?`,
     ).bind(organizationId).first<{ open: number; resolved: number; approved: number }>(),
+    database.prepare(
+      `SELECT COUNT(*)::int AS total,
+        COUNT(*) FILTER (WHERE e.decision <> 'approve' AND o.label = 'fraud')::int AS tp,
+        COUNT(*) FILTER (WHERE e.decision <> 'approve' AND o.label = 'legitimate')::int AS fp,
+        COUNT(*) FILTER (WHERE e.decision = 'approve' AND o.label = 'legitimate')::int AS tn,
+        COUNT(*) FILTER (WHERE e.decision = 'approve' AND o.label = 'fraud')::int AS fn
+       FROM risk_outcomes o JOIN risk_evaluations e ON e.id = o.evaluation_id
+       WHERE o.organization_id = ? AND o.status = 'active'`,
+    ).bind(organizationId).first<{ total: number; tp: number; fp: number; tn: number; fn: number }>(),
+    database.prepare(
+      `SELECT currency, SUM(loss_amount_minor)::text AS "amountMinor", COUNT(*)::int AS count
+       FROM risk_outcomes WHERE organization_id = ? AND status = 'active' AND label = 'fraud'
+       GROUP BY currency ORDER BY currency`,
+    ).bind(organizationId).all<{ currency: Currency; amountMinor: string; count: number }>(),
   ]);
   const resolved = Number(resolutionMetrics?.resolved ?? 0);
   const approvedAfterReview = Number(resolutionMetrics?.approved ?? 0);
+  const tp = Number(confirmedMetrics?.tp ?? 0); const fp = Number(confirmedMetrics?.fp ?? 0);
+  const tn = Number(confirmedMetrics?.tn ?? 0); const fn = Number(confirmedMetrics?.fn ?? 0);
+  const percentage = (numerator: number, denominator: number) => denominator === 0 ? null : Math.round((numerator / denominator) * 10_000) / 100;
   return {
     systemPolicies: [
       { id: 'sys_amount_elevated', name: 'Monto elevado por moneda', action: 'score', status: 'active' },
       { id: 'sys_amount_high', name: 'Monto alto por moneda', action: 'review', status: 'active' },
       { id: 'sys_velocity_counterparty', name: 'Velocity por contraparte', action: 'review', status: 'active' },
+      { id: 'sys_decision_lists', name: 'Listas tenant de contraparte, dispositivo e identidad', action: 'allow/watch/block', status: 'active' },
+      { id: 'sys_device_identity', name: 'Confianza de dispositivo, identidad y país', action: 'score/review', status: 'active' },
     ],
     rules: rules.results.map((rule) => ({ ...rule, configuration: parseConfiguration(rule.configuration) })),
+    listEntries: listEntries.results,
     evaluations: evaluations.results.map((evaluation) => serializeEvaluation(evaluation, false)),
     cases: cases.results.map((riskCase) => ({ ...riskCase, amount: minorToMajorNumber(riskCase.amountMinor, riskCase.currency), reasons: parseStringArray(riskCase.reasons) })),
     simulations: simulations.results.map((simulation) => ({ ...simulation,
@@ -487,6 +727,11 @@ export async function listRiskState(organizationId: string) {
       reviews: Number(evaluationMetrics?.review ?? 0), declines: Number(evaluationMetrics?.decline ?? 0),
       openCases: Number(resolutionMetrics?.open ?? 0), resolvedCases: resolved, approvedAfterReview,
       falsePositiveProxyRate: resolved === 0 ? null : Math.round((approvedAfterReview / resolved) * 10_000) / 100,
+      confirmed: {
+        total: Number(confirmedMetrics?.total ?? 0), truePositives: tp, falsePositives: fp, trueNegatives: tn, falseNegatives: fn,
+        precision: percentage(tp, tp + fp), recall: percentage(tp, tp + fn), falsePositiveRate: percentage(fp, fp + tn),
+        losses: losses.results.map((loss) => ({ ...loss, amount: minorToMajorNumber(loss.amountMinor, loss.currency) })),
+      },
     },
   };
 }

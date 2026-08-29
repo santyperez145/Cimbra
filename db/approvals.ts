@@ -3,6 +3,7 @@ import type { AuthUser } from '@/app/lib/auth/types';
 import { canDecideApproval, type ApprovalActionType, type ApprovalStatus } from '@/app/lib/platform/approval-policy';
 import type { OrganizationRole } from '@/app/lib/platform/access-policy';
 import type { Currency } from '@/app/lib/ledger/money';
+import { parseProtectedRiskSignals, publicRiskSignals } from '@/app/lib/platform/risk-signals';
 import { type DatabaseClient, getDatabaseClient } from './client';
 import { createTransferInTransaction, findTransferByIdempotency, LedgerError, resolveHold, type TransferCreationInput } from './ledger';
 import { enqueueWebhookEvent } from './platform';
@@ -31,11 +32,19 @@ const approvalSelect = `SELECT ar.id, ar.action_type AS "actionType", ar.resourc
   FROM approval_requests ar JOIN users requester ON requester.id = ar.requested_by
   LEFT JOIN users resolver ON resolver.id = ar.resolved_by`;
 
+function publicApprovalPayload(payload: Record<string, unknown>) {
+  if (!('signals' in payload)) return payload;
+  const signals = parseProtectedRiskSignals(payload.signals);
+  const publicPayload = { ...payload };
+  delete publicPayload.signals;
+  return { ...publicPayload, signals: publicRiskSignals(signals ?? {}) };
+}
+
 function serializeApproval(row: ApprovalRow) {
   let payload: Record<string, unknown> = {};
   try { payload = JSON.parse(row.requestPayload) as Record<string, unknown>; } catch { payload = {}; }
   const { requestFingerprint, ...publicRow } = row; void requestFingerprint;
-  return { ...publicRow, requestPayload: payload };
+  return { ...publicRow, requestPayload: publicApprovalPayload(payload) };
 }
 
 function approvalExecutionMode(row: ApprovalRow): 'manual' | 'scheduled' {
@@ -260,7 +269,7 @@ export async function createTransferWithApprovalPolicy(input: TransferCreationIn
   authentication: 'session' | 'api_key'; apiKeyId: string | null;
 }) {
   const fingerprint = await sha256(JSON.stringify({ actionType: 'transfer.create', counterparty: input.counterparty,
-    description: input.description, amountMinor: input.amountMinor.toString(), currency: input.currency }));
+    description: input.description, amountMinor: input.amountMinor.toString(), currency: input.currency, signals: input.signals ?? {} }));
   return getDatabaseClient().transaction(async (database) => {
     await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
       .bind(`${input.organizationId}:transfer:${input.idempotencyKey}`).first();
@@ -290,7 +299,7 @@ export async function createTransferWithApprovalPolicy(input: TransferCreationIn
     const id = crypto.randomUUID(); const resourceId = crypto.randomUUID(); const now = new Date().toISOString();
     const expiresAt = new Date(Date.now() + policy.expiresInMinutes * 60_000).toISOString();
     const payload = { counterparty: input.counterparty, description: input.description, amountMinor: input.amountMinor.toString(),
-      currency: input.currency, origin: input.authentication, apiKeyId: input.apiKeyId, sandbox: true };
+      currency: input.currency, signals: input.signals ?? {}, origin: input.authentication, apiKeyId: input.apiKeyId, sandbox: true };
     await database.prepare(
       `INSERT INTO approval_requests
         (id, organization_id, action_type, resource_type, resource_id, idempotency_key, request_fingerprint, status,
@@ -300,7 +309,7 @@ export async function createTransferWithApprovalPolicy(input: TransferCreationIn
       expiresAt, now, now).run();
     await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId, action: 'approval.request_created',
       resourceType: 'approval_request', resourceId: id, payload: { actionType: 'transfer.create', resourceType: 'transfer',
-        resourceId, expiresAt, ...payload } });
+        resourceId, expiresAt, ...publicApprovalPayload(payload) } });
     const approval = await approvalById(database, input.organizationId, id);
     if (!approval) throw new ApprovalError('No pudimos recuperar la solicitud.', 500, 'approval_create_failed');
     return { requiresApproval: true as const, approval, replayed: false, deduplicated: false };
@@ -314,7 +323,9 @@ function transferPayload(row: ApprovalRow) {
       typeof payload.amountMinor !== 'string' || !['ARS', 'MXN', 'COP', 'BRL', 'CLP', 'PEN', 'USD'].includes(String(payload.currency))) return null;
     const amountMinor = BigInt(payload.amountMinor);
     if (amountMinor <= 0n) return null;
-    return { counterparty: payload.counterparty, description: payload.description, amountMinor, currency: payload.currency as Currency };
+    const signals = parseProtectedRiskSignals(payload.signals);
+    if (!signals) return null;
+    return { counterparty: payload.counterparty, description: payload.description, amountMinor, currency: payload.currency as Currency, signals };
   } catch { return null; }
 }
 

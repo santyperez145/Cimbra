@@ -88,10 +88,12 @@ async function cleanup() {
       await transaction`DELETE FROM reconciliation_items WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM reconciliation_runs WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM risk_cases WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM risk_outcomes WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM risk_evaluations WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM risk_simulations WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM risk_rule_promotions WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM risk_rules WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM risk_list_entries WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM holds WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM ledger_postings WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM ledger_journals WHERE organization_id = ${organizationId} AND reversal_of IS NOT NULL`;
@@ -455,6 +457,100 @@ try {
   assert.equal(JSON.stringify(versionedRiskState.simulations).toLowerCase().includes('qa policy target'), false);
   assert.equal(versionedRiskState.metrics.totalEvaluations >= 2, true);
 
+  const deviceReference = `qa-device-secret-${runId}`;
+  const identityReference = `qa-identity-secret-${runId}`;
+  const blockListPayload = { subjectType: 'device', subjectValue: deviceReference, category: 'block', reason: 'QA confirmed device block' };
+  const blockListKey = `qa-risk-list-block-${runId}`;
+  const blockList = await json(await request('/api/v1/risk/lists', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': blockListKey }, body: JSON.stringify(blockListPayload),
+  }), 201);
+  assert.equal(blockList.entry.category, 'block'); assert.equal(blockList.entry.subjectType, 'device');
+  assert.equal(JSON.stringify(blockList).includes(deviceReference), false);
+  const blockListReplay = await json(await request('/api/v1/risk/lists', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': blockListKey }, body: JSON.stringify(blockListPayload),
+  }), 200);
+  assert.equal(blockListReplay.replayed, true); assert.equal(blockListReplay.entry.id, blockList.entry.id);
+  const blockListMismatch = await json(await request('/api/v1/risk/lists', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': blockListKey },
+    body: JSON.stringify({ ...blockListPayload, category: 'watch' }),
+  }), 409);
+  assert.equal(blockListMismatch.error.code, 'idempotency_mismatch');
+  const blockedEvaluation = await json(await request('/api/v1/risk/evaluations', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-risk-device-blocked-${runId}` },
+    body: JSON.stringify({ operationType: 'transfer', amount: '125.00', currency: 'ARS', counterparty: 'QA Device Subject',
+      signals: { deviceReference, identityReference, deviceTrust: 'trusted', identityVerified: true, ipCountry: 'AR', countryMismatch: false } }),
+  }), 201);
+  assert.equal(blockedEvaluation.evaluation.decision, 'decline');
+  assert.equal(blockedEvaluation.evaluation.matchedListEntryIds.includes(blockList.entry.id), true);
+  assert.equal(blockedEvaluation.evaluation.signals.deviceReferencePresent, true);
+  assert.equal(blockedEvaluation.evaluation.signals.identityReferencePresent, true);
+  assert.equal(blockedEvaluation.evaluation.signals.deviceTrust, 'trusted');
+  assert.equal(JSON.stringify(blockedEvaluation).includes(deviceReference), false);
+  assert.equal(JSON.stringify(blockedEvaluation).includes(identityReference), false);
+  assert.equal(JSON.stringify(blockedEvaluation).includes('deviceHash'), false);
+  const [storedSignals] = await sql`SELECT signals FROM risk_evaluations WHERE id = ${blockedEvaluation.evaluation.id}`;
+  assert.equal(storedSignals.signals.includes(deviceReference), false); assert.equal(storedSignals.signals.includes(identityReference), false);
+  assert.match(JSON.parse(storedSignals.signals).deviceHash, /^[A-Za-z0-9_-]{43}$/);
+
+  const fraudOutcomePayload = { label: 'fraud', fraudType: 'account_takeover', lossAmount: '12.34', currency: 'ARS', note: 'QA issuer confirmation' };
+  const fraudOutcomeKey = `qa-risk-outcome-fraud-${runId}`;
+  const fraudOutcome = await json(await request(`/api/v1/risk/evaluations/${blockedEvaluation.evaluation.id}/outcomes`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': fraudOutcomeKey }, body: JSON.stringify(fraudOutcomePayload),
+  }), 201);
+  assert.equal(fraudOutcome.outcome.label, 'fraud'); assert.equal(fraudOutcome.outcome.lossAmountMinor, '1234');
+  const fraudOutcomeReplay = await json(await request(`/api/v1/risk/evaluations/${blockedEvaluation.evaluation.id}/outcomes`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': fraudOutcomeKey }, body: JSON.stringify(fraudOutcomePayload),
+  }), 200);
+  assert.equal(fraudOutcomeReplay.replayed, true); assert.equal(fraudOutcomeReplay.outcome.id, fraudOutcome.outcome.id);
+  const fraudOutcomeMismatch = await json(await request(`/api/v1/risk/evaluations/${blockedEvaluation.evaluation.id}/outcomes`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': fraudOutcomeKey }, body: JSON.stringify({ label: 'legitimate' }),
+  }), 409);
+  assert.equal(fraudOutcomeMismatch.error.code, 'idempotency_mismatch');
+
+  const watchCounterparty = `QA Watch ${runId}`;
+  const watchList = await json(await request('/api/v1/risk/lists', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-risk-list-watch-${runId}` },
+    body: JSON.stringify({ subjectType: 'counterparty', subjectValue: watchCounterparty, category: 'watch', reason: 'QA monitored counterparty' }),
+  }), 201);
+  const watchedEvaluation = await json(await request('/api/v1/risk/evaluations', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-risk-watch-evaluation-${runId}` },
+    body: JSON.stringify({ operationType: 'cash_out', amount: '25.00', currency: 'ARS', counterparty: watchCounterparty }),
+  }), 201);
+  assert.equal(watchedEvaluation.evaluation.decision, 'review');
+  assert.equal(watchedEvaluation.evaluation.matchedListEntryIds.includes(watchList.entry.id), true);
+  await json(await request(`/api/v1/risk/evaluations/${watchedEvaluation.evaluation.id}/outcomes`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-risk-outcome-legitimate-${runId}` },
+    body: JSON.stringify({ label: 'legitimate', note: 'QA customer confirmation' }),
+  }), 201);
+  const supervisedRiskState = (await json(await request('/api/v1/risk'), 200)).data;
+  assert.equal(supervisedRiskState.metrics.confirmed.total, 2);
+  assert.equal(supervisedRiskState.metrics.confirmed.truePositives, 1);
+  assert.equal(supervisedRiskState.metrics.confirmed.falsePositives, 1);
+  assert.equal(supervisedRiskState.metrics.confirmed.precision, 50);
+  assert.equal(supervisedRiskState.metrics.confirmed.recall, 100);
+  assert.equal(supervisedRiskState.metrics.confirmed.losses.find((item) => item.currency === 'ARS').amountMinor, '1234');
+  const correctedOutcome = await json(await request(`/api/v1/risk/evaluations/${blockedEvaluation.evaluation.id}/outcomes`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-risk-outcome-correction-${runId}` },
+    body: JSON.stringify({ label: 'legitimate', note: 'QA correction after customer evidence', supersedesOutcomeId: fraudOutcome.outcome.id }),
+  }), 201);
+  assert.equal(correctedOutcome.outcome.supersedesOutcomeId, fraudOutcome.outcome.id);
+  const correctedRiskState = (await json(await request('/api/v1/risk'), 200)).data;
+  assert.equal(correctedRiskState.metrics.confirmed.total, 2);
+  assert.equal(correctedRiskState.metrics.confirmed.truePositives, 0);
+  assert.equal(correctedRiskState.metrics.confirmed.falsePositives, 2);
+  assert.equal(correctedRiskState.evaluations.find((item) => item.id === blockedEvaluation.evaluation.id).outcome.id, correctedOutcome.outcome.id);
+  assert.equal(JSON.stringify(correctedRiskState).includes(deviceReference), false);
+  await json(await request(`/api/v1/risk/lists/${blockList.entry.id}`, { method: 'DELETE' }), 200);
+  await json(await request(`/api/v1/risk/lists/${blockList.entry.id}`, { method: 'DELETE' }), 404);
+  await json(await request(`/api/v1/risk/lists/${watchList.entry.id}`, { method: 'DELETE' }), 200);
+  const afterDisableEvaluation = await json(await request('/api/v1/risk/evaluations', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-risk-list-disabled-${runId}` },
+    body: JSON.stringify({ operationType: 'cash_in', amount: '25.00', currency: 'ARS', counterparty: 'QA Device Subject',
+      signals: { deviceReference, identityReference, deviceTrust: 'trusted', identityVerified: true } }),
+  }), 201);
+  assert.equal(afterDisableEvaluation.evaluation.decision, 'approve');
+  assert.equal(afterDisableEvaluation.evaluation.matchedListEntryIds.length, 0);
+
   const lowKey = `qa-low-${runId}`;
   const lowPayload = { counterparty: 'QA Supplier', description: 'Low-risk transfer', amount: '1000.00', currency: 'ARS' };
   const low = await json(await request('/api/v1/transfers', {
@@ -584,21 +680,26 @@ try {
   }), 200);
   assert.equal(transferPolicy.policy.actionType, 'transfer.create');
   assert.equal(transferPolicy.policy.enabled, true);
+  const protectedTransferPayload = { counterparty: 'QA Protected Supplier', description: 'Maker checker transfer', amount: '25.00', currency: 'ARS',
+    signals: { deviceReference, identityReference, deviceTrust: 'trusted', identityVerified: true } };
   const protectedTransfer = await json(await request('/api/v1/transfers', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-protected-transfer-${runId}` },
-    body: JSON.stringify({ counterparty: 'QA Protected Supplier', description: 'Maker checker transfer', amount: '25.00', currency: 'ARS' }),
+    body: JSON.stringify(protectedTransferPayload),
   }), 202);
   assert.equal(protectedTransfer.requiresApproval, true);
   assert.equal(protectedTransfer.approval.actionType, 'transfer.create');
+  assert.deepEqual(protectedTransfer.approval.requestPayload.signals, { deviceReferencePresent: true, identityReferencePresent: true,
+    deviceTrust: 'trusted', identityVerified: true });
+  assert.equal(JSON.stringify(protectedTransfer).includes(deviceReference), false);
   const protectedTransferReplay = await json(await request('/api/v1/transfers', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-protected-transfer-${runId}` },
-    body: JSON.stringify({ counterparty: 'QA Protected Supplier', description: 'Maker checker transfer', amount: '25.00', currency: 'ARS' }),
+    body: JSON.stringify(protectedTransferPayload),
   }), 202);
   assert.equal(protectedTransferReplay.replayed, true);
   assert.equal(protectedTransferReplay.approval.id, protectedTransfer.approval.id);
   const protectedTransferMismatch = await json(await request('/api/v1/transfers', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-protected-transfer-${runId}` },
-    body: JSON.stringify({ counterparty: 'QA Protected Supplier', description: 'Maker checker transfer', amount: '26.00', currency: 'ARS' }),
+    body: JSON.stringify({ ...protectedTransferPayload, signals: { ...protectedTransferPayload.signals, deviceTrust: 'unknown' } }),
   }), 409);
   assert.equal(protectedTransferMismatch.error.code, 'idempotency_mismatch');
   await json(await request(`/api/v1/approvals/${protectedTransfer.approval.id}/approve`, {
@@ -832,7 +933,7 @@ try {
 
   console.log(JSON.stringify({
     ok: true,
-    checks: ['auth', 'landing-session-state', 'console-session-guard', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'viewer-read-only', 'member-invitations', 'dual-control', 'maker-checker', 'transfer-approval', 'approval-replay', 'approval-fail-closed', 'risk-case-approval', 'risk-hold-bypass-guard', 'reconciliation-exception-approval', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'reconciliation', 'operations-work-queue', 'operations-idempotency', 'operations-evidence', 'operations-rbac', 'csv-import', 'settlement', 'private-evidence', 'audit'],
+    checks: ['auth', 'landing-session-state', 'console-session-guard', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'viewer-read-only', 'member-invitations', 'dual-control', 'maker-checker', 'transfer-approval', 'approval-replay', 'approval-fail-closed', 'risk-case-approval', 'risk-hold-bypass-guard', 'reconciliation-exception-approval', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'risk-signals-privacy', 'risk-decision-lists', 'risk-confirmed-outcomes', 'risk-supervised-metrics', 'risk-outcome-revisions', 'reconciliation', 'operations-work-queue', 'operations-idempotency', 'operations-evidence', 'operations-rbac', 'csv-import', 'settlement', 'private-evidence', 'audit'],
   }));
 } finally {
   await cleanup();

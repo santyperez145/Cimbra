@@ -4,11 +4,16 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { authenticatedFetch } from '@/app/lib/platform/client-http';
 
 type Rule = { id: string; familyId: string; version: number; deployment: 'champion' | 'challenger' | 'archived'; name: string; kind: string; operationType: string; scoreDelta: number; action: string; configuration: Record<string, unknown>; priority: number; status: string };
-type Evaluation = { id: string; counterparty: string; amount: number; currency: string; score: number; decision: string; reasons: string[]; createdAt: string };
+type RiskOutcome = { id: string; label: 'legitimate' | 'fraud'; fraudType: string | null; lossAmountMinor: string; currency: string; note: string; createdAt: string };
+type Evaluation = { id: string; counterparty: string; amount: number; currency: string; score: number; decision: string; reasons: string[];
+  matchedListEntryIds: string[]; signals: { deviceReferencePresent: boolean; identityReferencePresent: boolean; deviceTrust?: string; identityVerified?: boolean; countryMismatch?: boolean };
+  outcome: RiskOutcome | null; createdAt: string };
+type RiskListEntry = { id: string; subjectType: 'counterparty' | 'device' | 'identity'; subjectPreview: string; category: 'allow' | 'watch' | 'block'; reason: string; status: 'active' | 'disabled'; expiresAt: string | null; createdAt: string };
 type RiskCase = { id: string; holdId: string | null; status: string; priority: string; counterparty: string; amount: number; currency: string; score: number; decision: string; reasons: string[]; createdAt: string };
 type SystemPolicy = { id: string; name: string; action: string; status: string };
 type Hold = { id: string; counterparty: string; description: string; amount: number; currency: string };
-type RiskMetrics = { windowDays: number; totalEvaluations: number; approvals: number; reviews: number; declines: number; openCases: number; resolvedCases: number; approvedAfterReview: number; falsePositiveProxyRate: number | null };
+type RiskMetrics = { windowDays: number; totalEvaluations: number; approvals: number; reviews: number; declines: number; openCases: number; resolvedCases: number; approvedAfterReview: number; falsePositiveProxyRate: number | null;
+  confirmed: { total: number; truePositives: number; falsePositives: number; trueNegatives: number; falseNegatives: number; precision: number | null; recall: number | null; falsePositiveRate: number | null; losses: Array<{ currency: string; amount: number; count: number }> } };
 type DecisionSummary = { approve: number; review: number; decline: number; averageScore: number };
 type Simulation = { id: string; candidateRuleId: string; candidateName: string; candidateVersion: number; sampleCount: number; baselineSummary: DecisionSummary; candidateSummary: DecisionSummary; deltaSummary: { decisionsChanged: number; newlyReviewed: number; newlyDeclined: number; newlyApproved: number; averageScoreDelta: number }; createdAt: string };
 
@@ -21,19 +26,21 @@ export default function RiskPanel({ holds, busy: externalBusy, canManageRules, c
 }) {
   const [rules, setRules] = useState<Rule[]>([]); const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
   const [cases, setCases] = useState<RiskCase[]>([]); const [systemPolicies, setSystemPolicies] = useState<SystemPolicy[]>([]);
-  const [simulations, setSimulations] = useState<Simulation[]>([]);
-  const [metrics, setMetrics] = useState<RiskMetrics>({ windowDays: 30, totalEvaluations: 0, approvals: 0, reviews: 0, declines: 0, openCases: 0, resolvedCases: 0, approvedAfterReview: 0, falsePositiveProxyRate: null });
+  const [simulations, setSimulations] = useState<Simulation[]>([]); const [listEntries, setListEntries] = useState<RiskListEntry[]>([]);
+  const [metrics, setMetrics] = useState<RiskMetrics>({ windowDays: 30, totalEvaluations: 0, approvals: 0, reviews: 0, declines: 0, openCases: 0, resolvedCases: 0, approvedAfterReview: 0, falsePositiveProxyRate: null,
+    confirmed: { total: 0, truePositives: 0, falsePositives: 0, trueNegatives: 0, falseNegatives: 0, precision: null, recall: null, falsePositiveRate: null, losses: [] } });
   const [kind, setKind] = useState('amount_threshold'); const [busy, setBusy] = useState(false); const [feedback, setFeedback] = useState('');
+  const [outcomeLabel, setOutcomeLabel] = useState<'legitimate' | 'fraud'>('legitimate');
   const openCases = useMemo(() => cases.filter((item) => item.status === 'open'), [cases]);
   const linkedHolds = useMemo(() => new Set(cases.map((item) => item.holdId).filter(Boolean)), [cases]);
   const unlinkedHolds = holds.filter((hold) => !linkedHolds.has(hold.id));
 
   async function load() {
     const response = await authenticatedFetch('/api/v1/risk', { cache: 'no-store' });
-    const result = await response.json() as { data?: { rules: Rule[]; evaluations: Evaluation[]; cases: RiskCase[]; systemPolicies: SystemPolicy[]; simulations: Simulation[]; metrics: RiskMetrics }; error?: { message?: string } | string };
+    const result = await response.json() as { data?: { rules: Rule[]; evaluations: Evaluation[]; cases: RiskCase[]; systemPolicies: SystemPolicy[]; simulations: Simulation[]; listEntries: RiskListEntry[]; metrics: RiskMetrics }; error?: { message?: string } | string };
     if (!response.ok) return setFeedback(typeof result.error === 'string' ? result.error : result.error?.message ?? 'No pudimos cargar riesgo.');
     setRules(result.data?.rules ?? []); setEvaluations(result.data?.evaluations ?? []); setCases(result.data?.cases ?? []); setSystemPolicies(result.data?.systemPolicies ?? []);
-    setSimulations(result.data?.simulations ?? []); if (result.data?.metrics) setMetrics(result.data.metrics);
+    setSimulations(result.data?.simulations ?? []); setListEntries(result.data?.listEntries ?? []); if (result.data?.metrics) setMetrics(result.data.metrics);
   }
 
   useEffect(() => { const task = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(task); }, []);
@@ -83,6 +90,43 @@ export default function RiskPanel({ holds, busy: externalBusy, canManageRules, c
     if (response.ok) await load(); setBusy(false);
   }
 
+  async function createListEntry(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); const formElement = event.currentTarget; const form = new FormData(formElement); setBusy(true); setFeedback('');
+    const response = await authenticatedFetch('/api/v1/risk/lists', { method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
+      body: JSON.stringify({ subjectType: form.get('subjectType'), subjectValue: form.get('subjectValue'), category: form.get('category'),
+        reason: form.get('reason'), expiresAt: form.get('expiresAt') || undefined }) });
+    const result = await response.json() as { error?: { message?: string } | string };
+    setFeedback(response.ok ? 'Entrada activa. El identificador original fue transformado antes de persistirse.'
+      : typeof result.error === 'string' ? result.error : result.error?.message ?? 'No pudimos crear la entrada.');
+    if (response.ok) { formElement.reset(); await load(); } setBusy(false);
+  }
+
+  async function disableListEntry(id: string) {
+    setBusy(true); setFeedback('');
+    const response = await authenticatedFetch(`/api/v1/risk/lists/${id}`, { method: 'DELETE' });
+    const result = await response.json() as { error?: { message?: string } | string };
+    setFeedback(response.ok ? 'Entrada deshabilitada; el historial permanece auditable.'
+      : typeof result.error === 'string' ? result.error : result.error?.message ?? 'No pudimos deshabilitar la entrada.');
+    if (response.ok) await load(); setBusy(false);
+  }
+
+  async function reportOutcome(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); const formElement = event.currentTarget; const form = new FormData(formElement); setBusy(true); setFeedback('');
+    const evaluation = evaluations.find((item) => item.id === form.get('evaluationId'));
+    if (!evaluation) { setFeedback('Seleccioná una evaluación.'); setBusy(false); return; }
+    const response = await authenticatedFetch(`/api/v1/risk/evaluations/${evaluation.id}/outcomes`, { method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
+      body: JSON.stringify({ label: outcomeLabel, fraudType: outcomeLabel === 'fraud' ? form.get('fraudType') : undefined,
+        lossAmount: outcomeLabel === 'fraud' ? form.get('lossAmount') || '0' : undefined,
+        currency: outcomeLabel === 'fraud' ? form.get('currency') : undefined, note: form.get('note'),
+        supersedesOutcomeId: evaluation.outcome?.id }) });
+    const result = await response.json() as { error?: { message?: string } | string };
+    setFeedback(response.ok ? evaluation.outcome ? 'Corrección registrada como nueva revisión; el resultado anterior quedó preservado.' : 'Resultado confirmado y métricas actualizadas.'
+      : typeof result.error === 'string' ? result.error : result.error?.message ?? 'No pudimos registrar el resultado.');
+    if (response.ok) { formElement.reset(); setOutcomeLabel('legitimate'); await load(); } setBusy(false);
+  }
+
   async function resolveCase(id: string, resolution: 'approved' | 'declined') {
     setBusy(true); setFeedback(''); const response = await authenticatedFetch(`/api/v1/risk/cases/${id}/resolve`, { method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
@@ -97,9 +141,10 @@ export default function RiskPanel({ holds, busy: externalBusy, canManageRules, c
 
   const championRules = rules.filter((rule) => rule.status === 'active' && rule.deployment === 'champion');
   const challengerRules = rules.filter((rule) => rule.status === 'active' && rule.deployment === 'challenger');
+  const activeListEntries = listEntries.filter((entry) => entry.status === 'active');
 
   return <div className="module-view risk-console">
-    <div className="module-view-head"><div><p>RISK DECISION ENGINE</p><h1>Riesgo y fraude</h1><span>Políticas propias versionadas, simulación controlada, score explicable, casos y holds sincronizados.</span></div><span className="module-health"><i /> {openCases.length} casos abiertos</span></div>
+    <div className="module-view-head"><div><p>RISK DECISION ENGINE</p><h1>Riesgo y fraude</h1><span>Políticas versionadas, señales protegidas, listas tenant, resultados confirmados, casos y holds sincronizados.</span></div><span className="module-health"><i /> {openCases.length} casos abiertos</span></div>
     {feedback && <div className="form-feedback ledger-feedback">{feedback}</div>}
     <div className="module-metrics risk-metrics"><article><strong>{systemPolicies.length + championRules.length}</strong><span>champions en vivo</span></article><article><strong>{metrics.totalEvaluations}</strong><span>evaluaciones · {metrics.windowDays} días</span></article><article><strong>{metrics.reviews + metrics.declines}</strong><span>revisión o rechazo · {metrics.windowDays} días</span></article><article><strong>{metrics.falsePositiveProxyRate === null ? '—' : `${metrics.falsePositiveProxyRate}%`}</strong><span>proxy de falsos positivos · {metrics.approvedAfterReview}/{metrics.resolvedCases} casos resueltos</span></article></div>
     <div className="integration-grid risk-grid">
@@ -127,11 +172,39 @@ export default function RiskPanel({ holds, busy: externalBusy, canManageRules, c
         {simulations.length === 0 ? <div><span><strong>Sin simulaciones</strong><small>Creá una versión challenger para comparar decisiones.</small></span><b>—</b></div> : simulations.map((simulation) => <div key={simulation.id}><span><strong>{simulation.candidateName} · v{simulation.candidateVersion}</strong><small>{simulation.sampleCount} muestras · score medio {simulation.baselineSummary.averageScore} → {simulation.candidateSummary.averageScore}</small></span><b>{simulation.deltaSummary.decisionsChanged} cambios</b></div>)}
       </div></article>
     </div>
-    <p className="risk-metric-note">El proxy de falsos positivos es la proporción de casos revisados que luego fueron aprobados. Es una señal operativa, no una etiqueta confirmada de fraude.</p>
+    <div className="integration-grid risk-grid">
+      {canManageRules ? <article className="integration-card"><div className="card-head"><div><h2>Lista de decisión</h2><p>Allow, watch o block para contraparte, dispositivo e identidad</p></div><b>HASHED</b></div>
+        <form className="integration-form risk-rule-form" onSubmit={createListEntry}><div className="integration-fields"><label>Sujeto<select name="subjectType"><option value="counterparty">Contraparte</option><option value="device">Dispositivo</option><option value="identity">Identidad</option></select></label><label>Decisión<select name="category"><option value="watch">Observar</option><option value="block">Bloquear</option><option value="allow">Permitir señal</option></select></label></div>
+          <label>Referencia<input name="subjectValue" minLength={2} maxLength={160} autoComplete="off" placeholder="ID interno, alias o referencia" required /></label>
+          <label>Motivo<input name="reason" minLength={3} maxLength={240} placeholder="Origen y criterio operativo" required /></label>
+          <label>Vencimiento opcional<input name="expiresAt" type="datetime-local" /></label>
+          <small>La referencia se normaliza y hashea con aislamiento por organización. Allow reduce score, pero nunca fuerza una aprobación.</small><button disabled={busy}>Activar entrada</button>
+        </form>
+      </article> : <article className="integration-card role-boundary-card"><div className="card-head"><div><h2>Listas protegidas</h2><p>Las referencias originales nunca se muestran ni se exportan</p></div><b>READ ONLY</b></div><p>Owner y admin administran listas. Tu rol conserva acceso al resultado y a la trazabilidad enmascarada.</p></article>}
+      <article className="integration-card"><div className="card-head"><div><h2>Registro de listas</h2><p>Estado actual e historial deshabilitado</p></div><b>{activeListEntries.length} activas</b></div><div className="integration-list compact-list">
+        {listEntries.length === 0 ? <div><span><strong>Sin entradas</strong><small>El baseline y las reglas champion siguen activos.</small></span><b>—</b></div> : listEntries.map((entry) => <div key={entry.id}><span><strong>{entry.subjectPreview}</strong><small>{entry.subjectType} · {entry.reason}{entry.expiresAt ? ` · vence ${new Date(entry.expiresAt).toLocaleString('es-AR')}` : ''}</small></span><b className={entry.status === 'active' ? 'active' : ''}>{entry.category}</b>{canManageRules && entry.status === 'active' && <span className="policy-actions"><button disabled={busy} onClick={() => void disableListEntry(entry.id)}>Deshabilitar</button></span>}</div>)}
+      </div></article>
+    </div>
+    <div className="integration-grid risk-grid">
+      {canResolve ? <article className="integration-card"><div className="card-head"><div><h2>Resultado confirmado</h2><p>Etiqueta legítima o fraude para medir calidad real</p></div><b>APPEND ONLY</b></div>
+        <form className="integration-form risk-rule-form" onSubmit={reportOutcome}><label>Evaluación<select name="evaluationId" required><option value="">Seleccionar evaluación</option>{evaluations.map((evaluation) => <option key={evaluation.id} value={evaluation.id}>{evaluation.counterparty} · {money(evaluation.amount, evaluation.currency)} · {evaluation.decision}{evaluation.outcome ? ` · corrige ${evaluation.outcome.label}` : ''}</option>)}</select></label>
+          <div className="integration-fields"><label>Resultado<select value={outcomeLabel} onChange={(event) => setOutcomeLabel(event.target.value as 'legitimate' | 'fraud')}><option value="legitimate">Legítima</option><option value="fraud">Fraude</option></select></label>{outcomeLabel === 'fraud' && <label>Tipo<select name="fraudType"><option value="account_takeover">Account takeover</option><option value="identity_fraud">Fraude de identidad</option><option value="scam">Estafa</option><option value="stolen_instrument">Instrumento robado</option><option value="merchant_fraud">Fraude comercio</option><option value="other">Otro</option></select></label>}</div>
+          {outcomeLabel === 'fraud' && <div className="integration-fields"><label>Pérdida<input name="lossAmount" inputMode="decimal" defaultValue="0" /></label><label>Moneda<select name="currency"><option>ARS</option><option>USD</option><option>MXN</option><option>COP</option><option>BRL</option><option>CLP</option><option>PEN</option></select></label></div>}
+          <label>Nota operativa<textarea name="note" rows={3} maxLength={500} placeholder="Evidencia, fuente o contexto de confirmación" /></label><small>Si la evaluación ya tiene resultado, Cimbra crea una corrección vinculada y conserva la versión anterior.</small><button disabled={busy || evaluations.length === 0}>Registrar resultado</button>
+        </form>
+      </article> : <article className="integration-card role-boundary-card"><div className="card-head"><div><h2>Resultados protegidos</h2><p>La carga está reservada a roles que resuelven casos</p></div><b>READ ONLY</b></div><p>Las etiquetas existentes y sus métricas siguen visibles para auditoría.</p></article>}
+      <article className="integration-card"><div className="card-head"><div><h2>Rendimiento confirmado</h2><p>Matriz sobre resultados activos, separada del proxy operativo</p></div><b>{metrics.confirmed.total} etiquetas</b></div><div className="integration-list compact-list">
+        <div><span><strong>Precisión</strong><small>TP {metrics.confirmed.truePositives} · FP {metrics.confirmed.falsePositives}</small></span><b>{metrics.confirmed.precision === null ? '—' : `${metrics.confirmed.precision}%`}</b></div>
+        <div><span><strong>Recall</strong><small>TP {metrics.confirmed.truePositives} · FN {metrics.confirmed.falseNegatives}</small></span><b>{metrics.confirmed.recall === null ? '—' : `${metrics.confirmed.recall}%`}</b></div>
+        <div><span><strong>Tasa de falsos positivos</strong><small>FP {metrics.confirmed.falsePositives} · TN {metrics.confirmed.trueNegatives}</small></span><b>{metrics.confirmed.falsePositiveRate === null ? '—' : `${metrics.confirmed.falsePositiveRate}%`}</b></div>
+        {metrics.confirmed.losses.map((loss) => <div key={loss.currency}><span><strong>Pérdida confirmada · {loss.currency}</strong><small>{loss.count} resultados de fraude</small></span><b>{money(loss.amount, loss.currency)}</b></div>)}
+      </div></article>
+    </div>
+    <p className="risk-metric-note">El proxy usa resoluciones operativas de casos. Precisión, recall y tasa de falsos positivos sólo usan resultados de fraude o legitimidad confirmados y activos.</p>
     <article className="module-list hold-list"><div className="card-head"><div><h2>Cola de decisión</h2><p>Casos explicables vinculados a evaluaciones y reservas</p></div><b>{openCases.length} abiertos</b></div>
       {openCases.length === 0 ? <div><span className="movement"><i>✓</i><b>Sin casos pendientes<small>Las evaluaciones aprobadas no generan trabajo manual</small></b></span><strong>Al día</strong></div> : openCases.map((riskCase) => <div key={riskCase.id}><span className="movement"><i>!</i><b>{riskCase.counterparty}<small>{money(riskCase.amount, riskCase.currency)} · score {riskCase.score} · {riskCase.reasons.join(', ') || 'política manual'}</small></b></span>{canResolve ? <span className="hold-actions"><button disabled={busy} onClick={() => void resolveCase(riskCase.id, 'declined')}>Rechazar</button><button disabled={busy} onClick={() => void resolveCase(riskCase.id, 'approved')}>Aprobar</button></span> : <strong>Pendiente</strong>}</div>)}
       {unlinkedHolds.map((hold) => <div key={hold.id}><span className="movement"><i>◇</i><b>{hold.counterparty}<small>Reserva anterior sin caso · {hold.description} · {money(hold.amount, hold.currency)}</small></b></span>{canResolve ? <span className="hold-actions"><button disabled={externalBusy} onClick={() => void onHold(hold.id, 'release')}>Liberar</button><button disabled={externalBusy} onClick={() => void onHold(hold.id, 'capture')}>Capturar</button></span> : <strong>Reservado</strong>}</div>)}
     </article>
-    <article className="module-list"><div className="card-head"><div><h2>Evaluaciones recientes</h2><p>Score, decisión y razones persistidas</p></div><b>{evaluations.length}</b></div>{evaluations.slice(0, 20).map((evaluation) => <div key={evaluation.id}><span className="movement"><i>{evaluation.decision === 'approve' ? '✓' : '!'}</i><b>{evaluation.counterparty}<small>{money(evaluation.amount, evaluation.currency)} · {evaluation.reasons.join(', ') || 'baseline'}</small></b></span><strong>{evaluation.score} · {evaluation.decision}</strong></div>)}</article>
+    <article className="module-list"><div className="card-head"><div><h2>Evaluaciones recientes</h2><p>Score, decisión, señales derivadas y resultado confirmado</p></div><b>{evaluations.length}</b></div>{evaluations.slice(0, 20).map((evaluation) => <div key={evaluation.id}><span className="movement"><i>{evaluation.decision === 'approve' ? '✓' : '!'}</i><b>{evaluation.counterparty}<small>{money(evaluation.amount, evaluation.currency)} · {evaluation.reasons.join(', ') || 'baseline'}{evaluation.signals.deviceReferencePresent ? ' · dispositivo' : ''}{evaluation.signals.identityReferencePresent ? ' · identidad' : ''}</small></b></span><strong>{evaluation.score} · {evaluation.outcome?.label ?? evaluation.decision}</strong></div>)}</article>
   </div>;
 }
