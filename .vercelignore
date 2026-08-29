@@ -1,0 +1,16 @@
+.next
+node_modules
+.vercel
+.wrangler
+dist
+packages/*/dist
+coverage
+outputs
+work
+infra/terraform/**/.terraform
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+.env*
+npm-debug.log*
