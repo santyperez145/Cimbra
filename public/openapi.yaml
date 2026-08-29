@@ -326,7 +326,7 @@ paths:
   /api/v1/risk/rules:
     post:
       operationId: createRiskRule
-      summary: Create an active tenant risk rule
+      summary: Create the first active champion of a tenant risk-policy family
       security: [{ session: [] }, { bearerApiKey: [] }]
       parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody:
@@ -347,6 +347,77 @@ paths:
       responses:
         '201': { description: Rule created and activated }
         '200': { description: Idempotent replay }
+  /api/v1/risk/rules/{id}/versions:
+    post:
+      operationId: createRiskRuleVersion
+      summary: Create an immutable challenger version in an existing policy family
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, kind, operationType, scoreDelta, action, configuration]
+              properties:
+                name: { type: string, minLength: 2, maxLength: 80 }
+                kind: { type: string, enum: [amount_threshold, velocity_count, counterparty_match] }
+                operationType: { type: string, enum: [any, transfer, cash_in, cash_out] }
+                scoreDelta: { type: integer, minimum: 0, maximum: 100 }
+                action: { type: string, enum: [score, review, decline] }
+                priority: { type: integer, minimum: 1, maximum: 1000, default: 100 }
+                configuration: { type: object, additionalProperties: true }
+      responses:
+        '201': { description: Challenger version created without affecting live decisions }
+        '200': { description: Idempotent replay }
+        '404': { description: Base policy not found in this tenant }
+  /api/v1/risk/rules/{id}/promote:
+    post:
+      operationId: promoteRiskRule
+      summary: Atomically promote a challenger and archive its previous champion
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200': { description: Promotion completed or replayed idempotently }
+        '404': { description: Candidate policy not found in this tenant }
+        '409': { description: Candidate is not an active challenger }
+  /api/v1/risk/simulations:
+    post:
+      operationId: simulateRiskRule
+      summary: Compare a challenger against live champions without changing production decisions
+      description: Accepts up to 50 samples and persists only aggregate decision summaries, never the raw sample payload.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [candidateRuleId, samples]
+              properties:
+                candidateRuleId: { type: string, format: uuid }
+                samples:
+                  type: array
+                  minItems: 1
+                  maxItems: 50
+                  items:
+                    type: object
+                    required: [operationType, amount, currency, counterparty]
+                    properties:
+                      operationType: { type: string, enum: [transfer, cash_in, cash_out] }
+                      amount: { type: string, pattern: '^\d+(\.\d+)?$' }
+                      currency: { type: string, enum: [ARS, USD, MXN, COP, BRL, CLP, PEN] }
+                      counterparty: { type: string, minLength: 2, maxLength: 120 }
+      responses:
+        '201': { description: Aggregate baseline and candidate comparison persisted }
+        '200': { description: Idempotent replay }
+        '409': { description: Candidate is not an active challenger }
   /api/v1/risk/rules/{id}:
     delete:
       operationId: disableRiskRule

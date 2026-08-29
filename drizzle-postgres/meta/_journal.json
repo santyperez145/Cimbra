@@ -113,6 +113,20 @@
       "when": 1788012227508,
       "tag": "0015_hot_leo",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1788014522252,
+      "tag": "0016_spooky_gwen_stacy",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1788014566307,
+      "tag": "0017_goofy_stephen_strange",
+      "breakpoints": true
     }
   ]
 }

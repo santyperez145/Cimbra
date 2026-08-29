@@ -160,6 +160,30 @@ test('el SDK crea reglas de riesgo y conciliaciones con idempotencia', async () 
   for (const call of calls) assert.match(call.idempotencyKey ?? '', /^idem_[a-f0-9]{32}$/);
 });
 
+test('el SDK cubre versionado, simulación y promoción de políticas de riesgo', async () => {
+  const calls: Array<{ url: string; idempotencyKey: string | null }> = [];
+  const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async (input, init) => {
+    const url = String(input); calls.push({ url, idempotencyKey: new Headers(init?.headers).get('idempotency-key') });
+    if (url.endsWith('/versions')) return Response.json({ ok: true, replayed: false, rule: { id: 'rule_2', familyId: 'rule_1', version: 2, deployment: 'challenger' } }, { status: 201 });
+    if (url.endsWith('/simulations')) return Response.json({ ok: true, replayed: false, simulation: { id: 'sim_1', candidateRuleId: 'rule_2', sampleCount: 1, deltaSummary: { decisionsChanged: 1 } } }, { status: 201 });
+    return Response.json({ ok: true, replayed: false, promotion: { id: 'promotion_1', ruleId: 'rule_2', previousChampionId: 'rule_1', familyId: 'rule_1', version: 2 } });
+  } });
+  const input = { name: 'Versión 2', kind: 'counterparty_match' as const, operationType: 'transfer' as const,
+    scoreDelta: 80, action: 'decline' as const, configuration: { pattern: 'sensible' } };
+  const version = await client.risk.createRuleVersion('rule_1', input);
+  const simulation = await client.risk.simulate({ candidateRuleId: version.data.rule.id,
+    samples: [{ operationType: 'transfer', amount: '100.00', currency: 'ARS', counterparty: 'Comercio sensible' }] });
+  const promotion = await client.risk.promoteRule(version.data.rule.id);
+  assert.equal(simulation.data.simulation.deltaSummary.decisionsChanged, 1);
+  assert.equal(promotion.data.promotion.previousChampionId, 'rule_1');
+  assert.deepEqual(calls.map((call) => call.url), [
+    'https://api.test/api/v1/risk/rules/rule_1/versions',
+    'https://api.test/api/v1/risk/simulations',
+    'https://api.test/api/v1/risk/rules/rule_2/promote',
+  ]);
+  for (const call of calls) assert.match(call.idempotencyKey ?? '', /^idem_[a-f0-9]{32}$/);
+});
+
 test('el SDK administra la cola operativa con rutas e idempotencia canónicas', async () => {
   const calls: Array<{ url: string; method: string; idempotencyKey: string | null }> = [];
   const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async (input, init) => {

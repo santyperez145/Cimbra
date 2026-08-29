@@ -236,6 +236,8 @@ export const riskRules = pgTable('risk_rules', {
   id: text('id').primaryKey(),
   organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
   idempotencyKey: text('idempotency_key').notNull(), requestFingerprint: text('request_fingerprint').notNull(),
+  familyId: text('family_id').notNull(), version: integer('version').notNull().default(1),
+  deployment: text('deployment').notNull().default('champion'),
   name: text('name').notNull(), kind: text('kind').notNull(), operationType: text('operation_type').notNull().default('any'),
   scoreDelta: integer('score_delta').notNull(), action: text('action').notNull(), configuration: text('configuration').notNull().default('{}'),
   priority: integer('priority').notNull().default(100), status: text('status').notNull().default('active'),
@@ -243,6 +245,10 @@ export const riskRules = pgTable('risk_rules', {
   createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
 }, (table) => [
   uniqueIndex('idx_risk_rules_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  uniqueIndex('idx_risk_rules_org_family_version').on(table.organizationId, table.familyId, table.version),
+  uniqueIndex('idx_risk_rules_one_active_champion').on(table.organizationId, table.familyId)
+    .where(sql`${table.status} = 'active' AND ${table.deployment} = 'champion'`),
+  index('idx_risk_rules_org_family_deployment').on(table.organizationId, table.familyId, table.deployment),
   index('idx_risk_rules_org_status_priority').on(table.organizationId, table.status, table.priority),
   check('risk_rules_kind', sql`${table.kind} IN ('amount_threshold', 'velocity_count', 'counterparty_match')`),
   check('risk_rules_operation', sql`${table.operationType} IN ('any', 'transfer', 'cash_in', 'cash_out')`),
@@ -250,6 +256,37 @@ export const riskRules = pgTable('risk_rules', {
   check('risk_rules_action', sql`${table.action} IN ('score', 'review', 'decline')`),
   check('risk_rules_priority', sql`${table.priority} BETWEEN 1 AND 1000`),
   check('risk_rules_status', sql`${table.status} IN ('active', 'disabled')`),
+  check('risk_rules_version', sql`${table.version} > 0`),
+  check('risk_rules_deployment', sql`${table.deployment} IN ('champion', 'challenger', 'archived')`),
+]);
+
+export const riskRulePromotions = pgTable('risk_rule_promotions', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  ruleId: text('rule_id').notNull().references(() => riskRules.id, { onDelete: 'restrict' }),
+  previousChampionId: text('previous_champion_id').references(() => riskRules.id, { onDelete: 'restrict' }),
+  idempotencyKey: text('idempotency_key').notNull(), requestFingerprint: text('request_fingerprint').notNull(),
+  promotedBy: text('promoted_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_risk_rule_promotions_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  index('idx_risk_rule_promotions_org_created').on(table.organizationId, table.createdAt),
+]);
+
+export const riskSimulations = pgTable('risk_simulations', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  candidateRuleId: text('candidate_rule_id').notNull().references(() => riskRules.id, { onDelete: 'restrict' }),
+  baselineRuleId: text('baseline_rule_id').references(() => riskRules.id, { onDelete: 'restrict' }),
+  idempotencyKey: text('idempotency_key').notNull(), requestFingerprint: text('request_fingerprint').notNull(),
+  sampleCount: integer('sample_count').notNull(), baselineSummary: text('baseline_summary').notNull(),
+  candidateSummary: text('candidate_summary').notNull(), deltaSummary: text('delta_summary').notNull(),
+  createdBy: text('created_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_risk_simulations_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  index('idx_risk_simulations_org_created').on(table.organizationId, table.createdAt),
+  check('risk_simulations_sample_count', sql`${table.sampleCount} BETWEEN 1 AND 50`),
 ]);
 
 export const riskEvaluations = pgTable('risk_evaluations', {

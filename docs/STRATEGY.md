@@ -30,16 +30,16 @@ Fortaleza: emisión y procesamiento de tarjetas, experiencia de integración y c
 
 Fortaleza: propuesta white-label rápida con wallet, pagos y crédito. Cimbra debe superarla en profundidad developer, auditabilidad, configuración, controles enterprise y amplitud operativa sin perder time-to-market.
 
-## Benchmark aplicado — riesgo y conciliación (28/08/2026)
+## Benchmark aplicado — riesgo y conciliación (29/08/2026)
 
-El bloque sandbox actual iguala el patrón mínimo esperable de una infraestructura API-first: decisiones previas al posting, idempotencia por tenant, reglas configurables, velocity, score y razones persistidas, casos, resolución transaccional con holds, webhooks, SDK y una cola de excepciones de conciliación que detecta diferencias y faltantes en ambos sentidos.
+El bloque sandbox actual iguala el patrón mínimo esperable de una infraestructura API-first: decisiones previas al posting, idempotencia por tenant, políticas inmutables por versión, lifecycle champion/challenger, simulación shadow con agregados, velocity, score y razones persistidas, casos, resolución transaccional con holds, webhooks, SDK y una cola de excepciones de conciliación que detecta diferencias y faltantes en ambos sentidos.
 
 La comparación oficial muestra, sin embargo, una brecha deliberadamente visible frente a productos maduros:
 
 | Referencia | Patrón observado | Estado Cimbra | Decisión propia |
 | --- | --- | --- | --- |
 | BIND / bindX | OAuth2, rate limiting, cuentas y transferencias CBU/CVU 7x24 sobre riel bancario real | Contrato API, scopes, rate limit, ledger y transferencias sandbox | Conectar directamente el primer riel/sponsor; no usar bindX como dependencia |
-| Dock | Antifraude transaccional en tiempo real, comportamiento/IA, background check, biometría, comunicación multicanal y operación 24x7 | Reglas determinísticas, velocity, casos y auditabilidad | Agregar señales, modelos evaluados, listas y step-up propios; no anunciar IA antes de tener datos y métricas |
+| Dock | Antifraude transaccional en tiempo real, comportamiento/IA, background check, biometría, comunicación multicanal y operación 24x7 | Reglas determinísticas versionadas, shadow testing, velocity, casos y auditabilidad | Agregar señales, modelos evaluados, listas y step-up propios; no anunciar IA antes de tener datos y métricas |
 | tapi | Una integración regional, sandbox, dashboard y soporte para bill payments, recargas y cash in/out | Developer platform uniforme, payments genéricos, consola y SDK; sin catálogo regional real | Construir billers y cash network mediante convenios directos por país |
 | Pismo | Portal extenso, APIs, eventos real-time/batch, webhooks antifraude con presupuesto de latencia y reconciliación de clearing/DLQ | API v1, eventos firmados, decisión síncrona y conciliación por lote | Incorporar SLO de decisión, streaming/batch durable, replay operacional y reconciliación específica por riel |
 | Pomelo | Idempotencia, autorización/ajustes, presentments asíncronos, remedios de fraude y archivos diarios de conciliación por SFTP | Idempotencia, holds/reversas, casos y comparación de lotes vía API | Crear ingestión propia de archivos, presentments/clearing y remedios con máquina de estados |
@@ -48,8 +48,8 @@ La comparación oficial muestra, sin embargo, una brecha deliberadamente visible
 Prioridad de producto resultante:
 
 1. Evolucionar la ingestión CSV/checksum y el scheduling sandbox ya disponibles hacia intercambio firmado, cierre y settlement por riel directo.
-2. Agregar señales de dispositivo/identidad, listas, versionado de reglas, simulación, champion/challenger y métricas de falsos positivos.
-3. Asignación, SLA, escalamiento, evidencia, comentarios y maker/checker para resoluciones sensibles ya están operativos; el siguiente control es versionado/simulación de políticas y medición de falsos positivos.
+2. Agregar señales de dispositivo/identidad y listas sobre el lifecycle champion/challenger ya implementado; incorporar etiquetas confirmadas de fraude para reemplazar el proxy operativo por métricas supervisadas.
+3. Asignación, SLA, escalamiento, evidencia, comentarios, maker/checker y versionado/simulación de políticas ya están operativos; el siguiente control es capturar outcomes confirmados para medir precisión, recall y falsos positivos reales.
 4. Publicar Postman, generación de SDKs adicionales, changelog y SLOs medidos; luego ejecutar homologación y certificaciones.
 
 Ninguno de estos gaps autoriza conectar Cimbra con un competidor. Las únicas dependencias externas admisibles para operación real son bancos, cámaras, esquemas, redes, fuentes oficiales y sponsors regulados donde sean jurídicamente necesarios.
@@ -80,7 +80,7 @@ La decisión propia es no fingir clientes, volumen, uptime, tiempos de integraci
 
 Pismo reúne guías, referencia REST, esquemas de eventos, changelog, consola interactiva y colección Postman; además documenta autenticación S2S y verificación de webhooks como contratos separados. Pomelo hace explícitos OAuth 2.0, scopes, montos decimales, idempotencia y firma HMAC de webhooks. BIND PSP publica URLs distintas para staging y producción, autenticación, scopes, ejemplos curl, códigos de error y política de reintentos de webhooks. Esos patrones reducen el tiempo hasta el primer request y, sobre todo, evitan que el integrador tenga que adivinar límites operativos.
 
-Cimbra adopta el estándar de claridad como propiedad propia: `/developers` publica la única base URL activa, diferencia sandbox de producción no habilitada, genera la referencia de 65 operaciones desde OpenAPI, consume scopes y eventos canónicos, ofrece quickstarts exactos, errores estructurados, rate limits, paginación, modelo monetario, contrato de firma y calendario de reintentos. El SDK TypeScript se distribuye como artefacto real con checksum mientras no exista publicación npm. Postman y SDKs adicionales se muestran explícitamente como backlog; no se ofrecen botones ni instalaciones ficticias. La consola interactiva contra endpoints mutantes se posterga hasta poder aislar credenciales y datos de forma segura. Dock, tapi y Wibond continúan como benchmarks de producto; no se atribuyen contratos técnicos específicos cuando la documentación pública consultada no alcanza para verificarlos.
+Cimbra adopta el estándar de claridad como propiedad propia: `/developers` publica la única base URL activa, diferencia sandbox de producción no habilitada, genera la referencia de 68 operaciones desde OpenAPI, consume scopes y eventos canónicos, ofrece quickstarts exactos, errores estructurados, rate limits, paginación, modelo monetario, contrato de firma y calendario de reintentos. El SDK TypeScript se distribuye como artefacto real con checksum mientras no exista publicación npm. Postman y SDKs adicionales se muestran explícitamente como backlog; no se ofrecen botones ni instalaciones ficticias. La consola interactiva contra endpoints mutantes se posterga hasta poder aislar credenciales y datos de forma segura. Dock, tapi y Wibond continúan como benchmarks de producto; no se atribuyen contratos técnicos específicos cuando la documentación pública consultada no alcanza para verificarlos.
 
 ## Wedge recomendado
 
@@ -132,6 +132,7 @@ Una ronda pre-seed debe financiar 18 meses para cerrar el producto inicial, cont
 - https://dock.tech/es/
 - https://www.dock.tech/en/dock-one/
 - https://dock.tech/es/solucao/fraud-prevention/
+- https://www.dock.tech/en/solution/fraud-prevention
 - https://tapi.la/
 - https://www.tapila.dev/docs
 - https://developers.pismo.io/pismo-docs/docs/welcome

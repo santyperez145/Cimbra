@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "idx_risk_rules_one_active_champion" ON "risk_rules" USING btree ("organization_id","family_id") WHERE "risk_rules"."status" = 'active' AND "risk_rules"."deployment" = 'champion';

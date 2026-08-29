@@ -87,7 +87,21 @@ await cimbra.risk.createRule({
 const risk = await cimbra.risk.state();
 ```
 
-Las transferencias y los cash-out ejecutan estas políticas dentro de su flujo transaccional. Una decisión `review` crea evaluación, caso y hold vinculados; resolver el caso captura o libera la reserva de manera idempotente.
+Una nueva versión se prueba fuera del camino de decisión y sólo se activa con una promoción explícita:
+
+```ts
+const challenger = await cimbra.risk.createRuleVersion(risk.data.data.rules[0].id, {
+  name: 'Cash-out alto USD', kind: 'amount_threshold', operationType: 'cash_out',
+  scoreDelta: 70, action: 'review', configuration: { threshold: '25000.00', currency: 'USD' },
+});
+await cimbra.risk.simulate({
+  candidateRuleId: challenger.data.rule.id,
+  samples: [{ operationType: 'cash_out', amount: '27500.00', currency: 'USD', counterparty: 'Comercio de prueba' }],
+});
+await cimbra.risk.promoteRule(challenger.data.rule.id);
+```
+
+Las transferencias y los cash-out ejecutan sólo las champions activas dentro de su flujo transaccional. Las muestras de simulación no se guardan: Cimbra persiste únicamente agregados. Una decisión `review` crea evaluación, caso y hold vinculados; resolver el caso captura o libera la reserva de manera idempotente.
 
 ## Conciliación
 

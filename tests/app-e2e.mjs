@@ -89,6 +89,8 @@ async function cleanup() {
       await transaction`DELETE FROM reconciliation_runs WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM risk_cases WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM risk_evaluations WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM risk_simulations WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM risk_rule_promotions WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM risk_rules WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM holds WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM ledger_postings WHERE organization_id = ${organizationId}`;
@@ -392,6 +394,66 @@ try {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': cardKey }, body: JSON.stringify(cardPayload),
   }), 200);
   assert.equal(cardReplay.card.id, card.id);
+
+  const championPayload = { name: 'QA policy family', kind: 'counterparty_match', operationType: 'transfer', scoreDelta: 0,
+    action: 'decline', priority: 50, configuration: { pattern: 'qa policy baseline never matches' } };
+  const championKey = `qa-risk-champion-${runId}`;
+  const champion = await json(await request('/api/v1/risk/rules', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': championKey }, body: JSON.stringify(championPayload),
+  }), 201);
+  assert.equal(champion.rule.version, 1); assert.equal(champion.rule.deployment, 'champion');
+  const championReplay = await json(await request('/api/v1/risk/rules', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': championKey }, body: JSON.stringify(championPayload),
+  }), 200);
+  assert.equal(championReplay.replayed, true); assert.equal(championReplay.rule.id, champion.rule.id);
+  const challengerPayload = { ...championPayload, name: 'QA policy candidate', scoreDelta: 70,
+    configuration: { pattern: 'qa policy target' } };
+  const challengerKey = `qa-risk-challenger-${runId}`;
+  const challenger = await json(await request(`/api/v1/risk/rules/${champion.rule.id}/versions`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': challengerKey }, body: JSON.stringify(challengerPayload),
+  }), 201);
+  assert.equal(challenger.rule.familyId, champion.rule.familyId); assert.equal(challenger.rule.version, 2);
+  assert.equal(challenger.rule.deployment, 'challenger');
+  const shadowBefore = await json(await request('/api/v1/risk/evaluations', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-risk-shadow-before-${runId}` },
+    body: JSON.stringify({ operationType: 'transfer', amount: '100.00', currency: 'ARS', counterparty: 'QA Policy Target' }),
+  }), 201);
+  assert.equal(shadowBefore.evaluation.decision, 'approve');
+  assert.equal(shadowBefore.evaluation.matchedRuleIds.includes(challenger.rule.id), false);
+  const simulationPayload = { candidateRuleId: challenger.rule.id, samples: [
+    { operationType: 'transfer', amount: '100.00', currency: 'ARS', counterparty: 'QA Policy Target' },
+    { operationType: 'cash_in', amount: '50.00', currency: 'ARS', counterparty: 'QA Policy Target' },
+  ] };
+  const simulationKey = `qa-risk-simulation-${runId}`;
+  const simulation = await json(await request('/api/v1/risk/simulations', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': simulationKey }, body: JSON.stringify(simulationPayload),
+  }), 201);
+  assert.equal(simulation.simulation.sampleCount, 2); assert.equal(simulation.simulation.deltaSummary.decisionsChanged, 1);
+  assert.equal(simulation.simulation.candidateSummary.decline, 1);
+  const simulationReplay = await json(await request('/api/v1/risk/simulations', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': simulationKey }, body: JSON.stringify(simulationPayload),
+  }), 200);
+  assert.equal(simulationReplay.replayed, true); assert.equal(simulationReplay.simulation.id, simulation.simulation.id);
+  const promotionKey = `qa-risk-promotion-${runId}`;
+  const promotion = await json(await request(`/api/v1/risk/rules/${challenger.rule.id}/promote`, {
+    method: 'POST', headers: { 'Idempotency-Key': promotionKey },
+  }), 200);
+  assert.equal(promotion.promotion.previousChampionId, champion.rule.id); assert.equal(promotion.promotion.version, 2);
+  const promotionReplay = await json(await request(`/api/v1/risk/rules/${challenger.rule.id}/promote`, {
+    method: 'POST', headers: { 'Idempotency-Key': promotionKey },
+  }), 200);
+  assert.equal(promotionReplay.replayed, true);
+  const shadowAfter = await json(await request('/api/v1/risk/evaluations', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-risk-shadow-after-${runId}` },
+    body: JSON.stringify({ operationType: 'transfer', amount: '100.00', currency: 'ARS', counterparty: 'QA Policy Target' }),
+  }), 201);
+  assert.equal(shadowAfter.evaluation.decision, 'decline'); assert.equal(shadowAfter.evaluation.matchedRuleIds.includes(challenger.rule.id), true);
+  const versionedRiskState = (await json(await request('/api/v1/risk'), 200)).data;
+  assert.equal(versionedRiskState.rules.find((rule) => rule.id === champion.rule.id).deployment, 'archived');
+  assert.equal(versionedRiskState.rules.find((rule) => rule.id === challenger.rule.id).deployment, 'champion');
+  assert.equal(versionedRiskState.simulations.some((item) => item.id === simulation.simulation.id), true);
+  assert.equal(JSON.stringify(versionedRiskState.simulations).toLowerCase().includes('qa policy target'), false);
+  assert.equal(versionedRiskState.metrics.totalEvaluations >= 2, true);
 
   const lowKey = `qa-low-${runId}`;
   const lowPayload = { counterparty: 'QA Supplier', description: 'Low-risk transfer', amount: '1000.00', currency: 'ARS' };

@@ -17,6 +17,7 @@ export type PlatformCapability = {
 export type RiskRule = {
   id: string; name: string; kind: 'amount_threshold' | 'velocity_count' | 'counterparty_match';
   operationType: 'any' | 'transfer' | 'cash_in' | 'cash_out'; scoreDelta: number; action: 'score' | 'review' | 'decline';
+  familyId: string; version: number; deployment: 'champion' | 'challenger' | 'archived';
   configuration: Record<string, unknown>; priority: number; status: 'active' | 'disabled'; createdAt: string; updatedAt: string;
 };
 export type RiskEvaluation = {
@@ -71,6 +72,17 @@ export type ReconciliationException = {
   externalReference: string; transactionId: string | null; expectedMinor: string; expected: number; actualMinor: string; actual: number;
   differenceMinor: string; difference: number; currency: Currency; reason: string; resolution: 'corrected' | 'accepted' | null; createdAt: string;
 };
+export type RiskDecisionSummary = { approve: number; review: number; decline: number; averageScore: number };
+export type RiskSimulation = {
+  id: string; candidateRuleId: string; baselineRuleId: string | null; sampleCount: number;
+  baselineSummary: RiskDecisionSummary; candidateSummary: RiskDecisionSummary;
+  deltaSummary: { decisionsChanged: number; newlyReviewed: number; newlyDeclined: number; newlyApproved: number; averageScoreDelta: number };
+  createdAt: string;
+};
+export type RiskMetrics = {
+  windowDays: number; totalEvaluations: number; approvals: number; reviews: number; declines: number;
+  openCases: number; resolvedCases: number; approvedAfterReview: number; falsePositiveProxyRate: number | null;
+};
 export type WorkItemType = 'risk_case' | 'reconciliation_exception';
 export type OperationalWorkItem = {
   id: string; type: WorkItemType; status: 'open' | 'resolved' | 'accepted'; priority: 'low' | 'medium' | 'high' | 'critical';
@@ -116,6 +128,10 @@ export type CreateRiskEvaluationInput = { operationType: 'transfer' | 'cash_in' 
 export type CreateRiskRuleInput = {
   name: string; kind: RiskRule['kind']; operationType: RiskRule['operationType']; scoreDelta: number; action: RiskRule['action']; priority?: number;
   configuration: { threshold: string; currency: Currency } | { count: number; windowMinutes: number } | { pattern: string };
+};
+export type CreateRiskSimulationInput = {
+  candidateRuleId: string;
+  samples: Array<{ operationType: CreateRiskEvaluationInput['operationType']; amount: string; currency: Currency; counterparty: string }>;
 };
 export type CreateReconciliationRunInput = {
   name: string; source: ReconciliationRun['source']; currency: Currency; periodStart: string; periodEnd: string;

@@ -11,6 +11,7 @@ import { csvObjects, CsvError } from '../app/lib/platform/csv.ts';
 import { ACCESS_POLICY, ROLE_PROFILES, assignableRole, canManageRole, normalizeAccessEmail, roleCan, rolesFor } from '../app/lib/platform/access-policy.ts';
 import { approvalActionType, approvalExpiryMinutes, approvalReason, canDecideApproval } from '../app/lib/platform/approval-policy.ts';
 import { normalizeEvidenceLink, normalizeOperationalNote, normalizeWorkItemUpdate } from '../app/lib/platform/operations-input.ts';
+import { normalizeRiskRuleInput, normalizeRiskSimulationSamples } from '../app/lib/platform/risk-input.ts';
 
 process.env.CIMBRA_ENCRYPTION_KEY = '3ea72fc13c567057870342c6ebd34d88f58f6d80b1dba61c4be4e1c2f1406afb';
 
@@ -151,6 +152,23 @@ test('las políticas de monto son regionales y explicables', () => {
   assert.deepEqual(systemAmountRisk(75_000_000n, 'ARS'), { scoreDelta: 25, forceReview: false, ruleId: 'sys_amount_elevated', reason: 'amount_elevated' });
   assert.equal(systemAmountRisk(999_999n, 'USD').scoreDelta, 0);
   assert.equal(systemAmountRisk(3_000_000n, 'USD').forceReview, true);
+});
+
+test('normaliza políticas versionables y acota las muestras de simulación', () => {
+  assert.deepEqual(normalizeRiskRuleInput({ name: '  Cash-out alto  ', kind: 'amount_threshold', operationType: 'cash_out',
+    scoreDelta: 60, action: 'review', priority: 25, configuration: { threshold: '30000.00', currency: 'usd' } }), {
+    name: 'Cash-out alto', kind: 'amount_threshold', operationType: 'cash_out', scoreDelta: 60, action: 'review', priority: 25,
+    configuration: { thresholdMinor: '3000000', currency: 'USD' },
+  });
+  assert.equal(normalizeRiskRuleInput({ name: 'x', kind: 'velocity_count' }), null);
+  const samples = normalizeRiskSimulationSamples([
+    { operationType: 'transfer', amount: '1250.50', currency: 'ARS', counterparty: 'Proveedor QA' },
+    { operationType: 'cash_out', amount: '10', currency: 'CLP', counterparty: 'Comercio QA' },
+  ]);
+  assert.equal(samples?.[0].amountMinor, 125050n);
+  assert.equal(samples?.[1].amountMinor, 10n);
+  assert.equal(normalizeRiskSimulationSamples([]), null);
+  assert.equal(normalizeRiskSimulationSamples(Array.from({ length: 51 }, () => ({ operationType: 'transfer', amount: '1', currency: 'ARS', counterparty: 'QA' }))), null);
 });
 
 test('la conciliación detecta matches, diferencias y faltantes en ambos lados', () => {

@@ -1,12 +1,12 @@
 import { CimbraApiError, CimbraConnectionError, CimbraTimeoutError } from './errors.ts';
 import type {
   Account, ApprovalRequest, AuditEvent, Card, CimbraResult, CreateAccountInput, CreateCardInput, CreateCustomerInput, CreatePaymentInput,
-  CreateReconciliationCsvImportInput, CreateReconciliationRunInput, CreateRiskEvaluationInput, CreateRiskRuleInput,
+  CreateReconciliationCsvImportInput, CreateReconciliationRunInput, CreateRiskEvaluationInput, CreateRiskRuleInput, CreateRiskSimulationInput,
   CreateSettlementCycleInput, CreateTransferInput, CreateWebhookInput,
   Customer, Hold, HoldResolution, LedgerBalance, LedgerJournal, ListOptions, Page, PlatformCapability,
   OperationalEvidence, OperationalNote, OperationalState, OperationalWorkItem, UpdateOperationalWorkItemInput, WorkItemType,
   ReconciliationException, ReconciliationExceptionResolutionResult, ReconciliationRun, RequestOptions, RiskCase,
-  RiskCaseResolutionResult, RiskEvaluation, RiskRule, SettlementCycle, SettlementExecutionResult,
+  RiskCaseResolutionResult, RiskEvaluation, RiskMetrics, RiskRule, RiskSimulation, SettlementCycle, SettlementExecutionResult,
   Transaction, TransferCreationResult, WebhookOperationalState,
 } from './types.ts';
 
@@ -106,11 +106,18 @@ export class Cimbra {
   };
 
   readonly risk = {
-    state: (options?: RequestOptions) => this.request<{ data: { systemPolicies: Array<{ id: string; name: string; action: string; status: string }>; rules: RiskRule[]; evaluations: RiskEvaluation[]; cases: RiskCase[] } }>('GET', '/api/v1/risk', undefined, options),
+    state: (options?: RequestOptions) => this.request<{ data: { systemPolicies: Array<{ id: string; name: string; action: string; status: string }>; rules: RiskRule[]; evaluations: RiskEvaluation[]; cases: RiskCase[]; simulations: RiskSimulation[]; metrics: RiskMetrics } }>('GET', '/api/v1/risk', undefined, options),
     evaluate: (input: CreateRiskEvaluationInput, options?: RequestOptions) =>
       this.post<{ ok: true; evaluation: RiskEvaluation; replayed: boolean }>('/api/v1/risk/evaluations', input, options, true),
     createRule: (input: CreateRiskRuleInput, options?: RequestOptions) =>
       this.post<{ ok: true; rule: RiskRule; replayed: boolean }>('/api/v1/risk/rules', input, options, true),
+    createRuleVersion: (id: string, input: CreateRiskRuleInput, options?: RequestOptions) =>
+      this.post<{ ok: true; rule: RiskRule; replayed: boolean }>(`/api/v1/risk/rules/${encodeURIComponent(id)}/versions`, input, options, true),
+    simulate: (input: CreateRiskSimulationInput, options?: RequestOptions) =>
+      this.post<{ ok: true; simulation: RiskSimulation; replayed: boolean }>('/api/v1/risk/simulations', input, options, true),
+    promoteRule: (id: string, options?: RequestOptions) =>
+      this.post<{ ok: true; promotion: { id: string; ruleId: string; previousChampionId: string | null; familyId: string; version: number; createdAt: string }; replayed: boolean }>(
+        `/api/v1/risk/rules/${encodeURIComponent(id)}/promote`, {}, options, true),
     disableRule: (id: string, options?: RequestOptions) =>
       this.request<{ ok: true }>('DELETE', `/api/v1/risk/rules/${encodeURIComponent(id)}`, undefined, options),
     resolveCase: (id: string, input: { resolution: 'approved' | 'declined'; note: string }, options?: RequestOptions) =>
