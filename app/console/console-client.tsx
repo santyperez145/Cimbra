@@ -118,6 +118,7 @@ export default function ConsoleClient({ data, user }: {
         <nav aria-label="Consola">
           {visibleNav.map(({ icon, label }) => <button key={label} className={active === label ? 'active' : ''} onClick={() => setActive(label)}><i>{icon}</i>{label}</button>)}
         </nav>
+        <label className="mobile-console-nav"><span>MÓDULO</span><select aria-label="Módulo de consola" value={active} onChange={(event) => setActive(event.target.value)}>{visibleNav.map(({ label }) => <option key={label}>{label}</option>)}</select></label>
         <div className="app-help"><strong>Centro de ayuda</strong><span>Estamos para acompañarte</span></div>
         <button className="app-user" onClick={signOut} title="Cerrar sesión"><b>{user.displayName.slice(0, 2).toUpperCase()}</b><span><strong>{user.displayName}</strong><small>{user.email} · {ROLE_PROFILES[user.role].label}</small></span><i>↗</i></button>
       </aside>
