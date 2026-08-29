@@ -4,9 +4,9 @@ import { minorToMajorNumber, type Currency } from '@/app/lib/ledger/money';
 import { enqueueWebhookEvent } from './platform';
 import { type DatabaseClient, getDatabaseClient } from './client';
 
-export type WorkItemType = 'risk_case' | 'reconciliation_exception';
+export type WorkItemType = 'risk_case' | 'reconciliation_exception' | 'dispute';
 export type WorkItemPriority = 'low' | 'medium' | 'high' | 'critical';
-export type WorkItemRouteType = 'risk-case' | 'reconciliation-exception';
+export type WorkItemRouteType = 'risk-case' | 'reconciliation-exception' | 'dispute';
 
 export class OperationsError extends Error {
   constructor(message: string, readonly status = 400, readonly code = 'operations_error') { super(message); }
@@ -15,6 +15,7 @@ export class OperationsError extends Error {
 export function workItemType(value: string): WorkItemType | null {
   if (value === 'risk-case') return 'risk_case';
   if (value === 'reconciliation-exception') return 'reconciliation_exception';
+  if (value === 'dispute') return 'dispute';
   return null;
 }
 
@@ -25,8 +26,12 @@ type WorkItemRow = {
   noteCount: number; evidenceCount: number; metadata: Record<string, unknown>;
 };
 
-function slaStatus(status: string, dueAt: string | null) {
-  if (status !== 'open' || !dueAt) return 'none' as const;
+function openWorkItem(type: WorkItemType, status: string) {
+  return type === 'dispute' ? ['opened', 'under_review', 'network_ready'].includes(status) : status === 'open';
+}
+
+function slaStatus(open: boolean, dueAt: string | null) {
+  if (!open || !dueAt) return 'none' as const;
   const remaining = Date.parse(dueAt) - Date.now();
   if (remaining < 0) return 'overdue' as const;
   if (remaining <= 4 * 60 * 60 * 1000) return 'due_soon' as const;
@@ -34,10 +39,11 @@ function slaStatus(status: string, dueAt: string | null) {
 }
 
 function serializeWorkItem(row: WorkItemRow) {
+  const open = openWorkItem(row.type, row.status);
   return {
-    id: row.id, type: row.type, status: row.status, priority: row.priority,
+    id: row.id, type: row.type, status: row.status, open, priority: row.priority,
     assignee: row.assignedTo ? { userId: row.assignedTo, displayName: row.assigneeName ?? 'Miembro', email: row.assigneeEmail ?? '' } : null,
-    dueAt: row.dueAt, escalatedAt: row.escalatedAt, slaStatus: slaStatus(row.status, row.dueAt),
+    dueAt: row.dueAt, escalatedAt: row.escalatedAt, slaStatus: slaStatus(open, row.dueAt),
     reference: row.reference, summary: row.summary, amountMinor: row.amountMinor,
     amount: minorToMajorNumber(row.amountMinor, row.currency), currency: row.currency,
     noteCount: Number(row.noteCount), evidenceCount: Number(row.evidenceCount), metadata: row.metadata,
@@ -59,6 +65,22 @@ async function getWorkItemRow(database: DatabaseClient, organizationId: string, 
           'score', e.score, 'decision', e.decision, 'reasons', e.reasons::jsonb) AS metadata
        FROM risk_cases c JOIN risk_evaluations e ON e.id = c.evaluation_id LEFT JOIN users u ON u.id = c.assigned_to
        WHERE c.organization_id = ? AND c.id = ?${suffix}`,
+    ).bind(organizationId, id).first<WorkItemRow>();
+    return row ?? null;
+  }
+  if (type === 'dispute') {
+    const suffix = lock ? ' FOR UPDATE OF d' : '';
+    const row = await database.prepare(
+      `SELECT d.id, 'dispute' AS type, d.status, d.priority, d.assigned_to AS "assignedTo",
+        u.display_name AS "assigneeName", u.email AS "assigneeEmail", d.due_at AS "dueAt", d.escalated_at AS "escalatedAt",
+        d.created_at AS "createdAt", d.updated_at AS "updatedAt", t.counterparty AS reference,
+        ('Disputa · ' || replace(d.reason, '_', ' ')) AS summary, d.amount_minor::text AS "amountMinor", d.currency,
+        (SELECT COUNT(*)::int FROM operational_notes n WHERE n.organization_id = d.organization_id AND n.subject_type = 'dispute' AND n.subject_id = d.id) AS "noteCount",
+        (SELECT COUNT(*)::int FROM operational_evidence_links l WHERE l.organization_id = d.organization_id AND l.subject_type = 'dispute' AND l.subject_id = d.id) AS "evidenceCount",
+        jsonb_build_object('transactionId', d.transaction_id, 'reason', d.reason, 'creditStatus', d.credit_status,
+          'provisionalCreditRequested', d.provisional_credit_requested = 1) AS metadata
+       FROM disputes d JOIN transactions t ON t.id = d.transaction_id LEFT JOIN users u ON u.id = d.assigned_to
+       WHERE d.organization_id = ? AND d.id = ?${suffix}`,
     ).bind(organizationId, id).first<WorkItemRow>();
     return row ?? null;
   }
@@ -109,7 +131,7 @@ async function existingAction(database: DatabaseClient, organizationId: string, 
 
 export async function listOperationalWork(organizationId: string) {
   const database = getDatabaseClient();
-  const [risk, reconciliation, members, documents, notes, evidence] = await Promise.all([
+  const [risk, reconciliation, disputes, members, documents, notes, evidence] = await Promise.all([
     database.prepare(
       `SELECT c.id, 'risk_case' AS type, c.status, c.priority, c.assigned_to AS "assignedTo",
         u.display_name AS "assigneeName", u.email AS "assigneeEmail", c.due_at AS "dueAt", c.escalated_at AS "escalatedAt",
@@ -135,6 +157,18 @@ export async function listOperationalWork(organizationId: string) {
        WHERE e.organization_id = ? ORDER BY e.created_at DESC LIMIT 200`,
     ).bind(organizationId).all<WorkItemRow>(),
     database.prepare(
+      `SELECT d.id, 'dispute' AS type, d.status, d.priority, d.assigned_to AS "assignedTo",
+        u.display_name AS "assigneeName", u.email AS "assigneeEmail", d.due_at AS "dueAt", d.escalated_at AS "escalatedAt",
+        d.created_at AS "createdAt", d.updated_at AS "updatedAt", t.counterparty AS reference,
+        ('Disputa · ' || replace(d.reason, '_', ' ')) AS summary, d.amount_minor::text AS "amountMinor", d.currency,
+        (SELECT COUNT(*)::int FROM operational_notes n WHERE n.organization_id = d.organization_id AND n.subject_type = 'dispute' AND n.subject_id = d.id) AS "noteCount",
+        (SELECT COUNT(*)::int FROM operational_evidence_links l WHERE l.organization_id = d.organization_id AND l.subject_type = 'dispute' AND l.subject_id = d.id) AS "evidenceCount",
+        jsonb_build_object('transactionId', d.transaction_id, 'reason', d.reason, 'creditStatus', d.credit_status,
+          'provisionalCreditRequested', d.provisional_credit_requested = 1) AS metadata
+       FROM disputes d JOIN transactions t ON t.id = d.transaction_id LEFT JOIN users u ON u.id = d.assigned_to
+       WHERE d.organization_id = ? ORDER BY d.created_at DESC LIMIT 200`,
+    ).bind(organizationId).all<WorkItemRow>(),
+    database.prepare(
       `SELECT m.external_user_id AS "userId", u.display_name AS "displayName", m.email, m.role
        FROM members m JOIN users u ON u.id = m.external_user_id WHERE m.organization_id = ? ORDER BY u.display_name`,
     ).bind(organizationId).all<{ userId: string; displayName: string; email: string; role: string }>(),
@@ -155,7 +189,7 @@ export async function listOperationalWork(organizationId: string) {
        WHERE l.organization_id = ? ORDER BY l.created_at DESC LIMIT 500`,
     ).bind(organizationId).all<Record<string, unknown>>(),
   ]);
-  const workItems = [...risk.results, ...reconciliation.results]
+  const workItems = [...risk.results, ...reconciliation.results, ...disputes.results]
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt)).map(serializeWorkItem);
   return { workItems, members: members.results, documents: documents.results, notes: notes.results, evidence: evidence.results };
 }
@@ -172,7 +206,7 @@ export async function updateOperationalWorkItem(input: {
     const replay = await existingAction(database, input.organizationId, input.idempotencyKey, fingerprint);
     if (replay) return { workItem: serializeWorkItem(await requireWorkItem(database, input.organizationId, input.type, input.id)), replayed: true };
     const current = await requireWorkItem(database, input.organizationId, input.type, input.id, true);
-    if (current.status !== 'open') throw new OperationsError('Sólo se pueden actualizar casos abiertos.', 409, 'work_item_closed');
+    if (!openWorkItem(current.type, current.status)) throw new OperationsError('Sólo se pueden actualizar casos abiertos.', 409, 'work_item_closed');
     if (input.assignedToUserId) {
       const member = await database.prepare(
         `SELECT id, role FROM members WHERE organization_id = ? AND external_user_id = ? LIMIT 1`,
@@ -188,7 +222,7 @@ export async function updateOperationalWorkItem(input: {
     if (input.escalated !== undefined) { assignments.push('escalated_at = ?'); values.push(input.escalated ? new Date().toISOString() : null); }
     if (assignments.length === 0) throw new OperationsError('Indicá al menos un cambio.', 400, 'empty_work_item_update');
     const now = new Date().toISOString(); assignments.push('updated_at = ?'); values.push(now);
-    const table = input.type === 'risk_case' ? 'risk_cases' : 'reconciliation_exceptions';
+    const table = input.type === 'risk_case' ? 'risk_cases' : input.type === 'dispute' ? 'disputes' : 'reconciliation_exceptions';
     await database.prepare(`UPDATE ${table} SET ${assignments.join(', ')} WHERE organization_id = ? AND id = ?`)
       .bind(...values, input.organizationId, input.id).run();
     const actionId = crypto.randomUUID();

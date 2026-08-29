@@ -141,6 +141,20 @@
       "when": 1788024620017,
       "tag": "0019_bouncy_doctor_spectrum",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1788032581404,
+      "tag": "0020_ancient_cannonball",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1788033276214,
+      "tag": "0021_clumsy_mauler",
+      "breakpoints": true
     }
   ]
 }

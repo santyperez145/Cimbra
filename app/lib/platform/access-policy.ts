@@ -8,6 +8,8 @@ export const ACCESS_POLICY = {
   'compliance.write': ['owner', 'admin', 'operator'],
   'risk.cases.resolve': ['owner', 'admin', 'operator'],
   'risk.rules.manage': ['owner', 'admin'],
+  'disputes.read': ['owner', 'admin', 'operator', 'viewer'],
+  'disputes.write': ['owner', 'admin', 'operator'],
   'reconciliation.write': ['owner', 'admin', 'operator'],
   'operations.read': ['owner', 'admin', 'operator', 'viewer'],
   'operations.write': ['owner', 'admin', 'operator'],

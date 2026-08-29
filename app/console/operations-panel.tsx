@@ -3,10 +3,10 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { authenticatedFetch } from '@/app/lib/platform/client-http';
 
-type WorkItemType = 'risk_case' | 'reconciliation_exception';
+type WorkItemType = 'risk_case' | 'reconciliation_exception' | 'dispute';
 type Priority = 'low' | 'medium' | 'high' | 'critical';
 type WorkItem = {
-  id: string; type: WorkItemType; status: string; priority: Priority;
+  id: string; type: WorkItemType; status: string; open: boolean; priority: Priority;
   assignee: { userId: string; displayName: string; email: string } | null; dueAt: string | null; escalatedAt: string | null;
   slaStatus: 'none' | 'overdue' | 'due_soon' | 'on_track'; reference: string; summary: string;
   amount: number; currency: string; noteCount: number; evidenceCount: number; createdAt: string; updatedAt: string;
@@ -20,8 +20,10 @@ type OperationalState = { workItems: WorkItem[]; members: Member[]; documents: D
 const emptyState: OperationalState = { workItems: [], members: [], documents: [], notes: [], evidence: [] };
 
 function routeType(type: WorkItemType) {
-  return type === 'risk_case' ? 'risk-case' : 'reconciliation-exception';
+  return type === 'risk_case' ? 'risk-case' : type === 'dispute' ? 'dispute' : 'reconciliation-exception';
 }
+
+function typeLabel(type: WorkItemType) { return type === 'risk_case' ? 'Riesgo' : type === 'dispute' ? 'Disputa' : 'Conciliación'; }
 
 function dueInput(value: string | null) {
   if (!value) return '';
@@ -48,7 +50,7 @@ export default function OperationsPanel({ readOnly }: { readOnly: boolean }) {
       if (response.ok && result.data) {
         setData(result.data);
         setSelectedId((current) => current && result.data!.workItems.some((item) => item.id === current)
-          ? current : result.data!.workItems.find((item) => item.status === 'open')?.id ?? result.data!.workItems[0]?.id ?? '');
+          ? current : result.data!.workItems.find((item) => item.open)?.id ?? result.data!.workItems[0]?.id ?? '');
       } else setFeedback(result.error ?? 'No pudimos cargar la cola operativa.');
     } catch { setFeedback('No pudimos conectar con la cola operativa.'); }
     setBusy(false);
@@ -61,7 +63,7 @@ export default function OperationsPanel({ readOnly }: { readOnly: boolean }) {
       if (!active) return;
       if (response.ok && result.data) {
         setData(result.data);
-        setSelectedId(result.data.workItems.find((item) => item.status === 'open')?.id ?? result.data.workItems[0]?.id ?? '');
+        setSelectedId(result.data.workItems.find((item) => item.open)?.id ?? result.data.workItems[0]?.id ?? '');
       } else setFeedback(result.error ?? 'No pudimos cargar la cola operativa.');
       setBusy(false);
     }).catch(() => { if (active) { setFeedback('No pudimos conectar con la cola operativa.'); setBusy(false); } });
@@ -69,7 +71,7 @@ export default function OperationsPanel({ readOnly }: { readOnly: boolean }) {
   }, []);
 
   const filtered = useMemo(() => data.workItems.filter((item) =>
-    (status === 'all' || item.status === 'open') && (type === 'all' || item.type === type)), [data.workItems, status, type]);
+    (status === 'all' || item.open) && (type === 'all' || item.type === type)), [data.workItems, status, type]);
   const selected = data.workItems.find((item) => item.id === selectedId) ?? null;
   const notes = selected ? data.notes.filter((note) => note.subjectId === selected.id && note.subjectType === selected.type) : [];
   const evidence = selected ? data.evidence.filter((link) => link.subjectId === selected.id && link.subjectType === selected.type) : [];
@@ -120,30 +122,30 @@ export default function OperationsPanel({ readOnly }: { readOnly: boolean }) {
     if (response.ok) { form.reset(); await load(); } else setBusy(false);
   }
 
-  const open = data.workItems.filter((item) => item.status === 'open').length;
+  const open = data.workItems.filter((item) => item.open).length;
   const overdue = data.workItems.filter((item) => item.slaStatus === 'overdue').length;
-  const unassigned = data.workItems.filter((item) => item.status === 'open' && !item.assignee).length;
+  const unassigned = data.workItems.filter((item) => item.open && !item.assignee).length;
 
   return <div className="module-view operations-view">
-    <div className="module-view-head"><div><p>OPERATIONS CONTROL</p><h1>Cola operativa</h1><span>Casos de riesgo y conciliación con ownership, SLA y expediente verificable.</span></div><span className="module-health"><i /> {open} abiertos</span></div>
+    <div className="module-view-head"><div><p>OPERATIONS CONTROL</p><h1>Cola operativa</h1><span>Riesgo, conciliación y disputas con ownership, SLA y expediente verificable.</span></div><span className="module-health"><i /> {open} abiertos</span></div>
     <div className="module-metrics"><article><strong>{open}</strong><span>casos abiertos</span></article><article><strong>{overdue}</strong><span>SLA vencidos</span></article><article><strong>{unassigned}</strong><span>sin responsable</span></article></div>
     {feedback && <div className="form-feedback ledger-feedback">{feedback}</div>}
     <div className="operations-layout">
       <article className="operations-queue">
-        <div className="module-toolbar"><div><button className={status === 'open' ? 'active' : ''} onClick={() => setStatus('open')}>Abiertos</button><button className={status === 'all' ? 'active' : ''} onClick={() => setStatus('all')}>Todos</button></div><select aria-label="Filtrar dominio" value={type} onChange={(event) => setType(event.target.value as typeof type)}><option value="all">Todos los dominios</option><option value="risk_case">Riesgo</option><option value="reconciliation_exception">Conciliación</option></select></div>
+        <div className="module-toolbar"><div><button className={status === 'open' ? 'active' : ''} onClick={() => setStatus('open')}>Abiertos</button><button className={status === 'all' ? 'active' : ''} onClick={() => setStatus('all')}>Todos</button></div><select aria-label="Filtrar dominio" value={type} onChange={(event) => setType(event.target.value as typeof type)}><option value="all">Todos los dominios</option><option value="risk_case">Riesgo</option><option value="reconciliation_exception">Conciliación</option><option value="dispute">Disputas</option></select></div>
         {busy && data.workItems.length === 0 ? <p className="operations-empty">Cargando expedientes…</p> : filtered.length === 0 ? <p className="operations-empty">No hay casos para este filtro.</p> : filtered.map((item) =>
           <button key={`${item.type}-${item.id}`} className={`work-item-row ${selected?.id === item.id ? 'selected' : ''}`} onClick={() => setSelectedId(item.id)}>
             <span className={`work-priority ${item.priority}`} />
-            <span><strong>{item.reference}</strong><small>{item.type === 'risk_case' ? 'Riesgo' : 'Conciliación'} · {item.summary}</small></span>
+            <span><strong>{item.reference}</strong><small>{typeLabel(item.type)} · {item.summary}</small></span>
             <span><b>{money(item.amount, item.currency)}</b><small>{item.assignee?.displayName ?? 'Sin responsable'}</small></span>
-            <em className={`sla-${item.slaStatus}`}>{item.slaStatus === 'overdue' ? 'SLA vencido' : item.slaStatus === 'due_soon' ? 'Vence pronto' : item.status === 'open' ? 'En curso' : 'Cerrado'}</em>
+            <em className={`sla-${item.slaStatus}`}>{item.slaStatus === 'overdue' ? 'SLA vencido' : item.slaStatus === 'due_soon' ? 'Vence pronto' : item.open ? 'En curso' : 'Cerrado'}</em>
           </button>)}
       </article>
       <aside className="operations-detail">
         {!selected ? <p className="operations-empty">Seleccioná un caso para abrir el expediente.</p> : <>
-          <div className="operations-detail-head"><div><small>{selected.type === 'risk_case' ? 'CASO DE RIESGO' : 'EXCEPCIÓN DE CONCILIACIÓN'}</small><h2>{selected.reference}</h2><p>{selected.id}</p></div><span className={`priority-badge ${selected.priority}`}>{selected.priority}</span></div>
+          <div className="operations-detail-head"><div><small>{selected.type === 'risk_case' ? 'CASO DE RIESGO' : selected.type === 'dispute' ? 'DISPUTA' : 'EXCEPCIÓN DE CONCILIACIÓN'}</small><h2>{selected.reference}</h2><p>{selected.id}</p></div><span className={`priority-badge ${selected.priority}`}>{selected.priority}</span></div>
           <div className="case-facts"><span><small>Estado</small><strong>{selected.status}</strong></span><span><small>SLA</small><strong>{selected.dueAt ? new Date(selected.dueAt).toLocaleString('es-AR') : 'Sin fecha'}</strong></span><span><small>Expediente</small><strong>{selected.noteCount} notas · {selected.evidenceCount} evidencias</strong></span></div>
-          {!readOnly && selected.status === 'open' && <form className="case-form" onSubmit={updateItem}><div><label>Responsable<select name="assignee" defaultValue={selected.assignee?.userId ?? ''} key={`assignee-${selected.id}-${selected.updatedAt}`}><option value="">Sin asignar</option>{data.members.filter((member) => member.role !== 'viewer').map((member) => <option key={member.userId} value={member.userId}>{member.displayName} · {member.role}</option>)}</select></label><label>Prioridad<select name="priority" defaultValue={selected.priority} key={`priority-${selected.id}-${selected.updatedAt}`}><option value="low">Baja</option><option value="medium">Media</option><option value="high">Alta</option><option value="critical">Crítica</option></select></label></div><label>Vencimiento SLA<input name="dueAt" type="datetime-local" defaultValue={dueInput(selected.dueAt)} key={`due-${selected.id}-${selected.updatedAt}`} /></label><div className="case-actions"><button disabled={busy}>Guardar cambios</button><button type="button" className="secondary" disabled={busy} onClick={toggleEscalation}>{selected.escalatedAt ? 'Quitar escalamiento' : 'Escalar caso'}</button></div></form>}
+          {!readOnly && selected.open && <form className="case-form" onSubmit={updateItem}><div><label>Responsable<select name="assignee" defaultValue={selected.assignee?.userId ?? ''} key={`assignee-${selected.id}-${selected.updatedAt}`}><option value="">Sin asignar</option>{data.members.filter((member) => member.role !== 'viewer').map((member) => <option key={member.userId} value={member.userId}>{member.displayName} · {member.role}</option>)}</select></label><label>Prioridad<select name="priority" defaultValue={selected.priority} key={`priority-${selected.id}-${selected.updatedAt}`}><option value="low">Baja</option><option value="medium">Media</option><option value="high">Alta</option><option value="critical">Crítica</option></select></label></div><label>Vencimiento SLA<input name="dueAt" type="datetime-local" defaultValue={dueInput(selected.dueAt)} key={`due-${selected.id}-${selected.updatedAt}`} /></label><div className="case-actions"><button disabled={busy}>Guardar cambios</button><button type="button" className="secondary" disabled={busy} onClick={toggleEscalation}>{selected.escalatedAt ? 'Quitar escalamiento' : 'Escalar caso'}</button></div></form>}
           <section className="case-thread"><h3>Comentarios</h3>{notes.length === 0 ? <p>Sin comentarios todavía.</p> : notes.map((note) => <article key={note.id}><strong>{note.authorName}</strong><small>{new Date(note.createdAt).toLocaleString('es-AR')}</small><p>{note.body}</p></article>)}{!readOnly && <form onSubmit={addNote}><textarea name="body" minLength={3} maxLength={2000} placeholder="Agregar contexto, decisión o seguimiento…" required /><button disabled={busy}>Agregar comentario</button></form>}</section>
           <section className="case-evidence"><h3>Evidencia privada</h3>{evidence.length === 0 ? <p>Sin documentos vinculados.</p> : evidence.map((link) => <div key={link.id}><strong>{link.fileName}</strong><small>{link.linkedByName} · {new Date(link.createdAt).toLocaleDateString('es-AR')}</small></div>)}{!readOnly && <form onSubmit={linkEvidence}><select name="documentId" required defaultValue=""><option value="" disabled>Seleccionar documento de Compliance</option>{data.documents.filter((document) => !evidence.some((link) => link.documentId === document.id)).map((document) => <option value={document.id} key={document.id}>{document.fileName}</option>)}</select><button disabled={busy || data.documents.length === 0}>Vincular evidencia</button></form>}</section>
         </>}

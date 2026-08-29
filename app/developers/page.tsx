@@ -253,7 +253,7 @@ return new Response(null, { status: 204 });`;
       <section id="pagination" className="docs-section">
         <p className="docs-kicker">MODELO DE DATOS</p><h2>Cursores estables y montos exactos.</h2>
         <div className="data-contract-grid">
-          <article><h3>Paginación</h3><p>Customers, accounts, cards y transfers aceptan <code>limit</code> entre 1 y 100; el valor por defecto es 25. Reutilizá <code>nextCursor</code> mientras <code>hasMore</code> sea true.</p><pre><code>{`{
+          <article><h3>Paginación</h3><p>Customers, accounts, cards, transfers y events aceptan <code>limit</code> entre 1 y 100; el valor por defecto es 25. Reutilizá <code>nextCursor</code> mientras <code>hasMore</code> sea true.</p><pre><code>{`{
   "data": [/* recursos */],
   "hasMore": true,
   "nextCursor": "<base64url_opaco>"

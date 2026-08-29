@@ -5,14 +5,14 @@ import { roleCan, type OrganizationRole } from '@/app/lib/platform/access-policy
 import { authenticatedFetch } from '@/app/lib/platform/client-http';
 
 type Role = OrganizationRole;
-type ApprovalActionType = 'settlement.execute' | 'transfer.create' | 'risk.case.resolve' | 'reconciliation.exception.resolve';
+type ApprovalActionType = 'settlement.execute' | 'transfer.create' | 'risk.case.resolve' | 'reconciliation.exception.resolve' | 'dispute.resolve';
 type ApprovalStatus = 'pending' | 'executed' | 'rejected' | 'cancelled' | 'expired' | 'failed';
 type Approval = {
   id: string; actionType: ApprovalActionType;
-  resourceType: 'settlement_cycle' | 'transfer' | 'risk_case' | 'reconciliation_exception'; resourceId: string; status: ApprovalStatus;
+  resourceType: 'settlement_cycle' | 'transfer' | 'risk_case' | 'reconciliation_exception' | 'dispute'; resourceId: string; status: ApprovalStatus;
   requestPayload: { name?: string; rail?: string; currency?: string; netMinor?: string; amountMinor?: string; differenceMinor?: string;
     executionMode?: string; counterparty?: string; description?: string; origin?: string; resolution?: string; note?: string;
-    externalReference?: string; runName?: string; priority?: string; score?: number };
+    externalReference?: string; runName?: string; priority?: string; score?: number; reason?: string; creditStatus?: string };
   requestedBy: string; requestedByName: string; resolvedBy: string | null; resolvedByName: string | null;
   resolutionReason: string | null; expiresAt: string; resolvedAt: string | null; executedAt: string | null; createdAt: string;
 };
@@ -27,6 +27,7 @@ const policyLabels: Record<ApprovalActionType, { title: string; direct: string }
   'transfer.create': { title: 'Transferencias salientes', direct: 'Transferencia directa según riesgo' },
   'risk.case.resolve': { title: 'Resolución de casos de riesgo', direct: 'Resolución directa por operador' },
   'reconciliation.exception.resolve': { title: 'Resolución de excepciones', direct: 'Resolución directa por operador' },
+  'dispute.resolve': { title: 'Lifecycle de disputas', direct: 'Transición directa por operador' },
 };
 
 function amountLabel(payload: Approval['requestPayload']) {
@@ -45,6 +46,7 @@ function approvalTitle(item: Approval) {
   if (item.actionType === 'transfer.create') return item.requestPayload.counterparty ?? 'Nueva transferencia';
   if (item.actionType === 'risk.case.resolve') return item.requestPayload.counterparty ?? 'Caso de riesgo';
   if (item.actionType === 'reconciliation.exception.resolve') return item.requestPayload.externalReference ?? 'Excepción de conciliación';
+  if (item.actionType === 'dispute.resolve') return item.requestPayload.counterparty ?? 'Disputa';
   return item.requestPayload.name ?? 'Ejecución de settlement';
 }
 
@@ -52,6 +54,7 @@ function approvalChannel(item: Approval) {
   if (item.actionType === 'transfer.create') return `${item.requestPayload.description ?? 'Sin concepto'} · ${item.requestPayload.origin === 'api_key' ? 'API key' : 'consola'}`;
   if (item.actionType === 'risk.case.resolve') return `${item.requestPayload.resolution === 'approved' ? 'aprobar' : 'rechazar'} · score ${item.requestPayload.score ?? '—'} · ${item.requestPayload.priority ?? 'sin prioridad'}`;
   if (item.actionType === 'reconciliation.exception.resolve') return `${item.requestPayload.resolution === 'accepted' ? 'aceptar diferencia' : 'marcar corregida'} · ${item.requestPayload.runName ?? 'corrida'}`;
+  if (item.actionType === 'dispute.resolve') return `${item.requestPayload.resolution ?? 'transición'} · ${item.requestPayload.reason ?? 'disputa'} · ${item.requestPayload.creditStatus ?? 'sin crédito'}`;
   return item.requestPayload.rail ?? 'rail';
 }
 
@@ -59,6 +62,7 @@ function approvalIcon(item: Approval) {
   if (item.actionType === 'transfer.create') return '↗';
   if (item.actionType === 'risk.case.resolve') return '!';
   if (item.actionType === 'reconciliation.exception.resolve') return '≠';
+  if (item.actionType === 'dispute.resolve') return '◫';
   return '⇄';
 }
 

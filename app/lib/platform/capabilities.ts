@@ -54,9 +54,15 @@ export const PLATFORM_CAPABILITIES: readonly PlatformCapability[] = [
     interfaces: ['rest_api', 'webhooks', 'sdk', 'console'], regulatoryBoundary: 'El sandbox no genera PAN/CVV ni aplica controles en una red. Emisión real y tokenización requieren BIN sponsor o membresía, HSM, personalización certificada, PCI DSS y homologación de esquema.',
   },
   {
+    id: 'disputes-chargebacks', name: 'Disputes & Chargebacks', domain: 'operations', availability: 'sandbox', delivery: 'cimbra_native',
+    summary: 'Disputas parciales, lifecycle explícito, evidencia privada, work queue y créditos compensables. Modular para cualquier riel.',
+    features: ['partial disputes', 'explicit state machine', 'provisional credits', 'compensating entries', 'private evidence', 'unified work queue', 'dual approval'],
+    interfaces: ['rest_api', 'webhooks', 'sdk', 'console'], regulatoryBoundary: 'El sandbox administra expedientes y ledger interno. La presentación real requiere conexión directa, sponsor y certificación con cada red, banco o cámara.',
+  },
+  {
     id: 'card-processing', name: 'Card Processing & Authorization', domain: 'cards', availability: 'roadmap', delivery: 'cimbra_native',
-    summary: 'Autorización online/stand-in, clearing, presentments, reversals, disputes y 3DS.',
-    features: ['real-time authorization', 'stand-in', 'clearing', 'chargebacks', '3DS'],
+    summary: 'Autorización online/stand-in, clearing, presentments, reversals y 3DS.',
+    features: ['real-time authorization', 'stand-in', 'clearing', 'presentments', '3DS'],
     interfaces: ['rest_api', 'webhooks', 'iso8583', 'files', 'streaming'], regulatoryBoundary: 'Procesamiento conectado a redes requiere PCI DSS, HSM, certificación de esquema y acuerdos de conectividad.',
   },
   {

@@ -4,12 +4,20 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
 import test from 'node:test';
 import { parse } from 'yaml';
+import { API_SCOPES } from '../app/lib/platform/scopes.ts';
+
+type Schema = {
+  enum?: string[];
+  items?: Schema;
+  properties?: Record<string, Schema>;
+};
 
 type Operation = {
   operationId?: string;
   summary?: string;
   security?: Array<Record<string, unknown>>;
   parameters?: Array<{ $ref?: string; name?: string }>;
+  requestBody?: { content?: { 'application/json'?: { schema?: Schema } } };
   responses?: Record<string, { description?: string }>;
 };
 
@@ -42,7 +50,7 @@ test('el OpenAPI público usa el sandbox real y operaciones identificables', () 
   assert.equal(spec.info.version, '2026-08-29');
   assert.deepEqual(spec.servers, [{ url: 'https://cimbra-rose.vercel.app', description: 'Persistent sandbox. Does not move real funds.' }]);
   const operations = contractOperations();
-  assert.equal(operations.length, 78);
+  assert.equal(operations.length, 82);
   const ids = operations.map(({ operation }) => operation.operationId);
   assert.equal(ids.every(Boolean), true);
   assert.equal(new Set(ids).size, ids.length);
@@ -99,6 +107,9 @@ test('consola y docs consumen scopes y eventos desde fuentes canónicas', () => 
   assert.doesNotMatch(panel, /const eventTypes\s*=/);
   assert.match(page, /loadApiReference/);
   assert.match(page, /WEBHOOK_EVENT_TYPES\.map/);
+  const declaredScopes = spec.paths['/api/platform/api-keys'].post.requestBody?.content?.['application/json']
+    ?.schema?.properties?.scopes?.items?.enum;
+  assert.deepEqual(declaredScopes, [...API_SCOPES]);
 });
 
 test('el sistema de diseño declara el token navy usado por formularios y autenticación', () => {

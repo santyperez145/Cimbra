@@ -1,6 +1,6 @@
 # Cimbra
 
-Cimbra es una plataforma de infraestructura financiera modular para Latinoamérica. Este repositorio contiene el sitio comercial, documentación, consola autenticada y un sandbox persistente con tenancy/RBAC, cuentas, ledger de doble partida, transferencias idempotentes, motor de riesgo, casos, holds, conciliación, excepciones, cola operativa con SLA, reversas, doble aprobación maker/checker, programas y lifecycle de tarjetas, controles versionados, evidencia privada, credenciales S2S y webhooks firmados.
+Cimbra es una plataforma de infraestructura financiera modular para Latinoamérica. Este repositorio contiene el sitio comercial, documentación, consola autenticada y un sandbox persistente con tenancy/RBAC, cuentas, ledger de doble partida, transferencias idempotentes, motor de riesgo, casos, holds, conciliación, excepciones, disputas parciales con créditos compensables, cola operativa con SLA, reversas, doble aprobación maker/checker, programas y lifecycle de tarjetas, controles versionados, evidencia privada, credenciales S2S y webhooks firmados.
 
 ## Estado del producto
 
@@ -9,7 +9,7 @@ La aplicación es un MVP lanzable para venta, discovery e integración en sandbo
 Superficies disponibles:
 
 - `/` — propuesta comercial profesional, estado de sesión contextual, prueba técnica, casos de uso, modelo de acceso y captación persistente de leads.
-- `/developers` — portal técnico generado desde OpenAPI con entornos, quickstart ejecutable, auth/RBAC/scopes, errores, rate limits, SDK descargable, webhooks, catálogo de eventos y las 78 operaciones publicadas.
+- `/developers` — portal técnico generado desde OpenAPI con entornos, quickstart ejecutable, auth/RBAC/scopes, errores, rate limits, SDK descargable, webhooks, catálogo de eventos y las 82 operaciones publicadas.
 - `/login` — registro e inicio de sesión propio con usuario/email y contraseña; OAuth Google y Apple se activa al configurar sus credenciales.
 - `/forgot-password`, `/reset-password` y `/verify-email` — ciclo de vida de cuenta con tokens opacos, expiración, uso único y respuestas anti-enumeración.
 - `/console` — consola protegida y consciente del rol; owner/admin administran miembros e invitaciones, operator ejecuta, viewer trabaja en modo lectura y Operaciones unifica ownership, SLA y expedientes de riesgo/conciliación.
@@ -50,7 +50,7 @@ La identidad de Cimbra usa PBKDF2-HMAC-SHA-256 con 600.000 iteraciones, sesiones
 
 El acceso de consola usa roles canónicos `owner`, `admin`, `operator` y `viewer`. Una matriz única de capacidades gobierna las rutas API, la navegación y los CTAs; cada mutación se revalida en servidor. Las invitaciones duran siete días, sólo se aceptan al ingresar con el email verificado, no permiten que un admin eleve o administre otros admins y nunca permiten modificar o eliminar al owner desde el flujo delegado. Cada alta, aceptación, revocación, cambio de rol y baja genera auditoría y webhook. Una sesión vencida vuelve a login preservando el destino; un rol insuficiente recibe `403` sin cerrar una sesión válida.
 
-Settlement, transferencias salientes, resoluciones de casos de riesgo y resoluciones de excepciones admiten políticas de doble aprobación independientes. El maker crea la solicitud y nunca puede resolverla; un owner/admin distinto, con MFA, actúa como checker. Aprobar ejecuta y revalida el recurso dentro de la misma transacción. Una transferencia pendiente no reserva fondos; un caso o una diferencia protegidos permanecen abiertos, y un hold vinculado no puede resolverse por el endpoint genérico mientras la política de riesgo esté activa. Rechazo, cancelación, fallo, expiración, auditoría y webhooks conservan el historial. Las API keys con scopes de escritura pueden originar solicitudes y con `approvals:read` consultar su estado, pero aprobar o rechazar siempre exige una sesión humana.
+Settlement, transferencias salientes, resoluciones de casos de riesgo, excepciones de conciliación y disputas admiten políticas de doble aprobación independientes. El maker crea la solicitud y nunca puede resolverla; un owner/admin distinto, con MFA, actúa como checker. Aprobar ejecuta y revalida el recurso dentro de la misma transacción. Una transferencia pendiente no reserva fondos; un caso, una diferencia o una disputa protegidos permanecen sin cambio hasta la decisión, y un hold vinculado no puede resolverse por el endpoint genérico mientras la política de riesgo esté activa. Rechazo, cancelación, fallo, expiración, auditoría y webhooks conservan el historial. Las API keys con scopes de escritura pueden originar solicitudes y con `approvals:read` consultar su estado, pero aprobar o rechazar siempre exige una sesión humana.
 
 ## Infraestructura y despliegue
 
@@ -78,14 +78,15 @@ Apple requiere un Services ID asociado a una app habilitada para Sign in with Ap
 - montos en unidades mínimas enteras (`BIGINT`), con escala por moneda;
 - journals balanceados y separación obligatoria de tenant y moneda en PostgreSQL;
 - postings inmutables; las correcciones crean journals compensatorios;
-- idempotencia por organización para customers, accounts, cards, transferencias, journals, creación y resolución de holds;
+- idempotencia por organización para customers, accounts, cards, transferencias, journals, creación y transición de disputas y resolución de holds;
 - saldo disponible derivado del saldo contable menos las reservas activas;
 - escrituras financieras y auditoría dentro de la misma transacción.
 - evaluaciones de riesgo explicables vinculadas a cada movimiento, con referencias de dispositivo/identidad hasheadas por tenant, señales derivadas, listas allow/watch/block, familias de políticas versionadas, lifecycle champion/challenger, simulaciones agregadas, resultados confirmados inmutables, precisión/recall, pérdidas por moneda, casos y holds sincronizados;
 - conciliación exacta de lotes contra el ledger, faltantes en ambos sentidos y excepciones resolubles con idempotencia.
 - importación CSV UTF-8 con checksum y ciclos de settlement sandbox únicos, programables, auditados y emitidos por webhook.
-- políticas maker/checker fail-closed para settlement, transferencias, casos de riesgo y excepciones de conciliación, con locks concurrentes, revalidación y decisión/ejecución atómicas.
-- work queue multitenant para casos de riesgo y excepciones, con responsable, prioridad, SLA, escalamiento, comentarios inmutables y vínculos a evidencia privada.
+- disputas parciales sobre débitos liquidados, ventana explícita, estados inmutables, crédito provisional o definitivo en doble partida y compensación contable si el reclamo se pierde;
+- políticas maker/checker fail-closed para settlement, transferencias, casos de riesgo, excepciones de conciliación y disputas, con locks concurrentes, revalidación y decisión/ejecución atómicas.
+- work queue multitenant para casos de riesgo, excepciones y disputas, con responsable, prioridad, SLA, escalamiento, comentarios inmutables y vínculos a evidencia privada.
 
 ## Garantías de integración
 

@@ -135,6 +135,100 @@ async function postJournal(input: {
   return id;
 }
 
+export async function postDisputeCreditInTransaction(input: {
+  organizationId: string;
+  disputeId: string;
+  amountMinor: bigint;
+  currency: Currency;
+  description: string;
+  creditAccountId: string;
+}, database: DatabaseClient) {
+  const operationKey = `dispute-credit:${input.disputeId}`;
+  const existing = await database.prepare(
+    `SELECT id, amount_minor::text AS "amountMinor", currency, status FROM transactions
+     WHERE organization_id = ? AND idempotency_key = ? LIMIT 1`,
+  ).bind(input.organizationId, operationKey).first<{ id: string; amountMinor: string; currency: Currency; status: string }>();
+  if (existing) {
+    if (BigInt(existing.amountMinor) !== input.amountMinor || existing.currency !== input.currency) {
+      throw new LedgerError('El crédito de la disputa no coincide con la operación ya registrada.', 409, 'dispute_credit_mismatch');
+    }
+    return { transactionId: existing.id, replayed: true };
+  }
+  if (input.amountMinor <= 0n) throw new LedgerError('El crédito de disputa debe ser positivo.', 400, 'invalid_dispute_credit');
+  const accounts = await getOrCreateCoreAccounts(input.organizationId, input.currency, database);
+  const target = await database.prepare(
+    `SELECT id FROM financial_accounts WHERE organization_id = ? AND id = ? AND currency = ? AND status = 'active'
+       AND account_class = 'liability' AND normal_balance = 'credit' LIMIT 1`,
+  ).bind(input.organizationId, input.creditAccountId, input.currency).first<{ id: string }>();
+  if (!target) throw new LedgerError('La cuenta de crédito de la disputa no es válida.', 409, 'dispute_credit_account_invalid');
+  const id = crypto.randomUUID(); const now = new Date().toISOString();
+  await database.prepare(
+    `INSERT INTO transactions
+      (id, organization_id, idempotency_key, type, counterparty, description, amount_minor, currency, status, risk_score, reversal_of, created_at, updated_at)
+     VALUES (?, ?, ?, 'dispute_credit', 'Cimbra Disputes', ?, ?, ?, 'settled', 0, NULL, ?, ?)`,
+  ).bind(id, input.organizationId, operationKey, input.description, input.amountMinor.toString(), input.currency, now, now).run();
+  await postJournal({ organizationId: input.organizationId, transactionId: id, idempotencyKey: operationKey,
+    kind: 'dispute_credit', description: input.description, currency: input.currency,
+    postings: [
+      { accountId: accounts.settlement, direction: 'debit', amountMinor: input.amountMinor },
+      { accountId: target.id, direction: 'credit', amountMinor: input.amountMinor },
+    ], createdAt: now }, database);
+  return { transactionId: id, replayed: false };
+}
+
+export async function reverseDisputeCreditInTransaction(input: {
+  organizationId: string;
+  disputeId: string;
+  creditTransactionId: string;
+}, database: DatabaseClient) {
+  const operationKey = `dispute-credit-reversal:${input.disputeId}`;
+  const existing = await database.prepare(
+    `SELECT id, reversal_of AS "reversalOf" FROM transactions WHERE organization_id = ? AND idempotency_key = ? LIMIT 1`,
+  ).bind(input.organizationId, operationKey).first<{ id: string; reversalOf: string | null }>();
+  if (existing) {
+    if (existing.reversalOf !== input.creditTransactionId) {
+      throw new LedgerError('La reversa de crédito no coincide con la operación ya registrada.', 409, 'dispute_credit_reversal_mismatch');
+    }
+    return { transactionId: existing.id, replayed: true };
+  }
+  const credit = await database.prepare(
+    `SELECT id, description, amount_minor::text AS "amountMinor", currency, status FROM transactions
+     WHERE organization_id = ? AND id = ? AND type = 'dispute_credit' FOR UPDATE`,
+  ).bind(input.organizationId, input.creditTransactionId).first<{
+    id: string; description: string; amountMinor: string; currency: Currency; status: string;
+  }>();
+  if (!credit) throw new LedgerError('No se encontró el crédito de la disputa.', 409, 'dispute_credit_not_found');
+  if (credit.status === 'reversed') {
+    const prior = await database.prepare('SELECT id FROM transactions WHERE reversal_of = ? LIMIT 1')
+      .bind(credit.id).first<{ id: string }>();
+    if (prior) return { transactionId: prior.id, replayed: true };
+  }
+  if (credit.status !== 'settled') throw new LedgerError('El crédito de disputa no puede compensarse.', 409, 'dispute_credit_not_reversible');
+  const originalJournal = await database.prepare(
+    `SELECT id FROM ledger_journals WHERE transaction_id = ? AND organization_id = ? LIMIT 1`,
+  ).bind(credit.id, input.organizationId).first<{ id: string }>();
+  if (!originalJournal) throw new LedgerError('El crédito no tiene asiento contable.', 409, 'journal_missing');
+  const postings = await database.prepare(
+    `SELECT account_id AS "accountId", direction, amount_minor::text AS "amountMinor"
+     FROM ledger_postings WHERE journal_id = ? ORDER BY id`,
+  ).bind(originalJournal.id).all<{ accountId: string; direction: Direction; amountMinor: string }>();
+  const id = crypto.randomUUID(); const now = new Date().toISOString();
+  await database.prepare(
+    `INSERT INTO transactions
+      (id, organization_id, idempotency_key, type, counterparty, description, amount_minor, currency, status, risk_score, reversal_of, created_at, updated_at)
+     VALUES (?, ?, ?, 'dispute_credit_reversal', 'Cimbra Disputes', ?, ?, ?, 'settled', 0, ?, ?, ?)`,
+  ).bind(id, input.organizationId, operationKey, `Compensación: ${credit.description}`,
+    (-BigInt(credit.amountMinor)).toString(), credit.currency, credit.id, now, now).run();
+  await postJournal({ organizationId: input.organizationId, transactionId: id, idempotencyKey: operationKey,
+    kind: 'dispute_credit_reversal', description: `Compensación del crédito ${credit.id}`, currency: credit.currency,
+    reversalOf: originalJournal.id, postings: postings.results.map((posting) => ({
+      accountId: posting.accountId, direction: posting.direction === 'debit' ? 'credit' : 'debit', amountMinor: BigInt(posting.amountMinor),
+    })), createdAt: now }, database);
+  await database.prepare("UPDATE transactions SET status = 'reversed', updated_at = ? WHERE id = ?").bind(now, credit.id).run();
+  await database.prepare("UPDATE ledger_journals SET status = 'reversed' WHERE id = ?").bind(originalJournal.id).run();
+  return { transactionId: id, replayed: false };
+}
+
 async function accountBalanceMinor(accountId: string, database: DatabaseClient) {
   const result = await database.prepare(
     `SELECT COALESCE(SUM(CASE WHEN p.direction = a.normal_balance THEN p.amount_minor ELSE -p.amount_minor END), 0)::text AS balanceMinor

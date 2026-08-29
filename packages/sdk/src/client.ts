@@ -1,10 +1,10 @@
 import { CimbraApiError, CimbraConnectionError, CimbraTimeoutError } from './errors.ts';
 import type {
   Account, ApprovalRequest, AuditEvent, Card, CardControls, CardLifecycleEvent, CardProgram, CimbraResult, CreateAccountInput,
-  CreateCardInput, CreateCardProgramInput, CreateCustomerInput, CreatePaymentInput,
+  CreateCardInput, CreateCardProgramInput, CreateCustomerInput, CreateDisputeInput, CreatePaymentInput,
   CreateReconciliationCsvImportInput, CreateReconciliationRunInput, CreateRiskEvaluationInput, CreateRiskListEntryInput, CreateRiskRuleInput, CreateRiskSimulationInput,
   CreateSettlementCycleInput, CreateTransferInput, CreateWebhookInput,
-  Customer, Hold, HoldResolution, LedgerBalance, LedgerJournal, ListOptions, Page, PlatformCapability,
+  Customer, Dispute, DisputeEventName, DisputeTimelineEvent, DisputeTransitionResult, Hold, HoldResolution, LedgerBalance, LedgerJournal, ListOptions, Page, PlatformCapability,
   OperationalEvidence, OperationalNote, OperationalState, OperationalWorkItem, TransitionCardInput, UpdateCardControlsInput,
   UpdateOperationalWorkItemInput, WorkItemType,
   ReconciliationException, ReconciliationExceptionResolutionResult, ReconciliationRun, RequestOptions, RiskCase,
@@ -52,6 +52,10 @@ function listPath(path: string, options?: ListOptions) {
   if (options?.cursor) parameters.set('cursor', options.cursor);
   const query = parameters.toString();
   return query ? `${path}?${query}` : path;
+}
+
+function operationalPath(type: WorkItemType) {
+  return type === 'risk_case' ? 'risk-case' : type === 'dispute' ? 'dispute' : 'reconciliation-exception';
 }
 
 export class Cimbra {
@@ -169,17 +173,28 @@ export class Cimbra {
       this.post<ReconciliationExceptionResolutionResult>(`/api/v1/reconciliation/exceptions/${encodeURIComponent(id)}/resolve`, input, options, true),
   };
 
+  readonly disputes = {
+    list: (options?: RequestOptions) => this.request<{ data: { disputes: Dispute[]; eligibleTransactions: Array<Dispute['originalTransaction'] & { disputableAmountMinor: string; disputableAmount: number }> } }>(
+      'GET', '/api/v1/disputes', undefined, options),
+    retrieve: (id: string, options?: RequestOptions) => this.request<{ data: { dispute: Dispute; events: DisputeTimelineEvent[] } }>(
+      'GET', `/api/v1/disputes/${encodeURIComponent(id)}`, undefined, options),
+    create: (input: CreateDisputeInput, options?: RequestOptions) =>
+      this.post<{ ok: true; dispute: Dispute; replayed: boolean }>('/api/v1/disputes', input, options, true),
+    transition: (id: string, input: { event: DisputeEventName; note: string }, options?: RequestOptions) =>
+      this.post<DisputeTransitionResult>(`/api/v1/disputes/${encodeURIComponent(id)}/events`, input, options, true),
+  };
+
   readonly operations = {
     list: (options?: RequestOptions) => this.request<{ data: OperationalState }>('GET', '/api/v1/operations/work-items', undefined, options),
     update: (type: WorkItemType, id: string, input: UpdateOperationalWorkItemInput, options?: RequestOptions) =>
       this.patch<{ ok: true; workItem: OperationalWorkItem; replayed: boolean }>(
-        `/api/v1/operations/work-items/${type === 'risk_case' ? 'risk-case' : 'reconciliation-exception'}/${encodeURIComponent(id)}`, input, options),
+        `/api/v1/operations/work-items/${operationalPath(type)}/${encodeURIComponent(id)}`, input, options),
     addNote: (type: WorkItemType, id: string, body: string, options?: RequestOptions) =>
       this.post<{ ok: true; note: OperationalNote; replayed: boolean }>(
-        `/api/v1/operations/work-items/${type === 'risk_case' ? 'risk-case' : 'reconciliation-exception'}/${encodeURIComponent(id)}/notes`, { body }, options, true),
+        `/api/v1/operations/work-items/${operationalPath(type)}/${encodeURIComponent(id)}/notes`, { body }, options, true),
     linkEvidence: (type: WorkItemType, id: string, documentId: string, options?: RequestOptions) =>
       this.post<{ ok: true; evidence: OperationalEvidence; replayed: boolean }>(
-        `/api/v1/operations/work-items/${type === 'risk_case' ? 'risk-case' : 'reconciliation-exception'}/${encodeURIComponent(id)}/evidence`, { documentId }, options, true),
+        `/api/v1/operations/work-items/${operationalPath(type)}/${encodeURIComponent(id)}/evidence`, { documentId }, options, true),
   };
 
   readonly settlements = {
@@ -206,7 +221,8 @@ export class Cimbra {
   };
 
   readonly events = {
-    list: (options?: RequestOptions) => this.request<{ data: AuditEvent[] }>('GET', '/api/v1/events', undefined, options),
+    list: (options?: ListOptions) => this.request<Page<AuditEvent>>('GET', listPath('/api/v1/events', options), undefined, options),
+    listAll: (options?: ListOptions) => this.iterate((page) => this.events.list({ ...options, cursor: page })),
   };
 
   readonly webhooks = {

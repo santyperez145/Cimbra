@@ -53,7 +53,9 @@ const GROUP_ORDER = [
   'Payments y transfers',
   'Ledger y holds',
   'Risk',
+  'Disputas',
   'Conciliación y settlement',
+  'Operaciones',
   'Aprobaciones',
   'Eventos y webhooks',
   'Compliance',
@@ -144,7 +146,9 @@ function operationGroup(path: string) {
   if (path.includes('/payments') || path.includes('/transfers')) return 'Payments y transfers';
   if (path.includes('/ledger') || path.includes('/holds')) return 'Ledger y holds';
   if (path.includes('/risk')) return 'Risk';
+  if (path.includes('/disputes')) return 'Disputas';
   if (path.includes('/reconciliation') || path.includes('/settlements')) return 'Conciliación y settlement';
+  if (path.includes('/operations')) return 'Operaciones';
   if (path.includes('/approvals') || path.includes('/approval-policy')) return 'Aprobaciones';
   if (path.includes('/events') || path.includes('/webhooks')) return 'Eventos y webhooks';
   if (path.includes('/compliance')) return 'Compliance';
@@ -162,6 +166,7 @@ function operationScope(path: string, method: string) {
   if (path.includes('/holds')) return 'transfers:write';
   if (path.includes('/ledger')) return 'ledger:read';
   if (path.includes('/risk')) return `risk:${access}`;
+  if (path.includes('/disputes')) return `disputes:${access}`;
   if (path.includes('/reconciliation')) return `reconciliation:${access}`;
   if (path.includes('/settlements')) return `settlements:${access}`;
   if (path.includes('/approvals')) return method === 'get' ? 'approvals:read' : null;
@@ -169,6 +174,7 @@ function operationScope(path: string, method: string) {
   if (path.includes('/compliance')) return 'compliance:write';
   if (path.includes('/webhooks')) return 'webhooks:manage';
   if (path.includes('/capabilities')) return 'platform:read';
+  if (path.includes('/operations')) return `operations:${access}`;
   return null;
 }
 

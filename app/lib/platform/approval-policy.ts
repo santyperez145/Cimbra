@@ -5,6 +5,7 @@ export const APPROVAL_ACTION_TYPES = [
   'transfer.create',
   'risk.case.resolve',
   'reconciliation.exception.resolve',
+  'dispute.resolve',
 ] as const;
 export type ApprovalActionType = typeof APPROVAL_ACTION_TYPES[number];
 export type ApprovalStatus = 'pending' | 'executed' | 'rejected' | 'cancelled' | 'expired' | 'failed';

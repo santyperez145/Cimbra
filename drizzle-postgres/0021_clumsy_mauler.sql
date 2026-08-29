@@ -1,0 +1,2 @@
+ALTER TABLE "disputes" ADD COLUMN "credit_account_id" text NOT NULL;--> statement-breakpoint
+ALTER TABLE "disputes" ADD CONSTRAINT "disputes_credit_account_id_financial_accounts_id_fk" FOREIGN KEY ("credit_account_id") REFERENCES "public"."financial_accounts"("id") ON DELETE restrict ON UPDATE no action;

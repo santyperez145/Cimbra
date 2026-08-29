@@ -4,7 +4,7 @@
 
 - marca y narrativa comercial orientada a compradores, con capacidades y límites verificables;
 - sitio responsive, sesión contextual y captación persistente;
-- portal developer conectado al OpenAPI real, con las 78 operaciones, parámetros, respuestas, búsqueda, quickstart ejecutable, límites del sandbox y changelog;
+- portal developer conectado al OpenAPI real, con las 82 operaciones, parámetros, respuestas, búsqueda, quickstart ejecutable, límites del sandbox y changelog;
 - identidad y consola multi-tenant básica;
 - registro e inicio de sesión propio, sesiones revocables y OAuth Google/Apple;
 - sandbox persistente para customers, accounts, cards y transfers;
@@ -26,8 +26,9 @@
 - motor de riesgo propio con políticas regionales, familias versionadas por tenant, champion/challenger, simulación sin impacto en vivo, métricas operativas, velocity, evaluaciones, casos y resolución sincronizada con holds.
 - conciliación propia de lotes contra el ledger con matches, diferencias, faltantes, cola de excepciones y resolución idempotente.
 - importación CSV canónica y ciclos de settlement sandbox programables, únicos por conciliación y entregados por webhooks.
-- doble aprobación maker/checker configurable por separado para settlement, transferencias, casos de riesgo y excepciones de conciliación, con MFA, separación de personas, expiración, fallo explícito, historial, API/SDK de lectura, consola y ejecución transaccional sin bypass.
-- cola operativa unificada para casos de riesgo y excepciones de conciliación, con asignación tenant-scoped, prioridad, SLA, escalamiento, comentarios, evidencia privada, API, SDK, consola, auditoría e idempotencia.
+- disputas parciales nativas sobre débitos liquidados, con ventana y máquina de estados explícitas, crédito provisional/final en ledger, compensación contable, auditoría, webhooks, API, SDK y consola por rol; `network_ready` no implica presentación real ante una red.
+- doble aprobación maker/checker configurable por separado para settlement, transferencias, casos de riesgo, excepciones de conciliación y disputas, con MFA, separación de personas, expiración, fallo explícito, historial, API/SDK de lectura, consola y ejecución transaccional sin bypass.
+- cola operativa unificada para casos de riesgo, excepciones de conciliación y disputas, con asignación tenant-scoped, prioridad, SLA, escalamiento, comentarios, evidencia privada, API, SDK, consola, auditoría e idempotencia.
 
 ## Gate 1 — design partners
 

@@ -788,10 +788,77 @@ paths:
         '200': { description: Exception resolved with actor and audit trail when direct execution is allowed }
         '202': { description: Dual-control policy is active and an approval request is pending }
         '409': { description: Exception already resolved differently, or a conflicting approval is pending }
+  /api/v1/disputes:
+    get:
+      operationId: listDisputes
+      summary: List disputes and eligible settled debits
+      description: Returns tenant-scoped native Cimbra disputes plus debits that remain eligible under the 90-day sandbox window.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      responses:
+        '200': { description: Disputes and eligible transactions }
+        '403': { description: Missing disputes:read scope or role }
+    post:
+      operationId: createDispute
+      summary: Open a partial or full dispute for a settled debit
+      description: Creates one dispute per transaction. The original transaction and postings remain immutable. A requested provisional credit is posted only when review begins.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [transactionId, reason, description, amount, currency]
+              additionalProperties: false
+              properties:
+                transactionId: { type: string, format: uuid }
+                reason: { type: string, enum: [card_not_present, duplicate, amount_mismatch, service_not_received, credit_not_processed, cash_not_received, other] }
+                description: { type: string, minLength: 3, maxLength: 500 }
+                amount: { type: string, pattern: '^\d+(\.\d+)?$' }
+                currency: { type: string, enum: [ARS, USD, MXN, COP, BRL, CLP, PEN] }
+                provisionalCreditRequested: { type: boolean, default: false }
+      responses:
+        '201': { description: Dispute opened atomically }
+        '200': { description: Idempotent replay }
+        '409': { description: Transaction not presented, outside the window, already disputed or idempotency conflict }
+  /api/v1/disputes/{id}:
+    get:
+      operationId: retrieveDispute
+      summary: Retrieve a dispute with its immutable timeline
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses:
+        '200': { description: Dispute and ordered event timeline }
+        '404': { description: Dispute not found in tenant }
+  /api/v1/disputes/{id}/events:
+    post:
+      operationId: transitionDispute
+      summary: Apply an allowed dispute lifecycle transition
+      description: Validates the state machine, posts or compensates dispute credits in the double-entry ledger, and emits audit and webhook events. network_ready never means sent to a real card network.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [event, note]
+              additionalProperties: false
+              properties:
+                event: { type: string, enum: [start_review, mark_network_ready, resolve_won, resolve_lost, reject, cancel] }
+                note: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200': { description: Transition executed or idempotently replayed }
+        '202': { description: Dual-control policy is active and an approval request is pending }
+        '409': { description: Invalid transition, conflicting approval or idempotency conflict }
   /api/v1/operations/work-items:
     get:
       operationId: listOperationalWorkItems
-      summary: List the unified risk and reconciliation work queue
+      summary: List the unified risk, reconciliation and disputes work queue
       description: Returns tenant-scoped work items, assignable members, private document metadata, notes and evidence links for an operational console.
       security: [{ session: [] }, { bearerApiKey: [] }]
       responses:
@@ -1097,10 +1164,14 @@ paths:
   /api/v1/events:
     get:
       operationId: listAuditEvents
-      summary: List recent audit events
+      summary: List the immutable tenant audit log
       security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/PageLimit' }
+        - { $ref: '#/components/parameters/PageCursor' }
       responses:
-        '200': { description: Event list }
+        '200': { description: Cursor-paginated audit event list }
+        '400': { description: Invalid cursor or limit }
         '401': { description: Authentication required }
   /api/v1/compliance/documents:
     post:
@@ -1245,7 +1316,7 @@ paths:
                   type: array
                   minItems: 1
                   uniqueItems: true
-                  items: { type: string, enum: ['customers:read', 'customers:write', 'accounts:read', 'accounts:write', 'cards:read', 'cards:write', 'transfers:read', 'transfers:write', 'payments:read', 'payments:write', 'risk:read', 'risk:write', 'reconciliation:read', 'reconciliation:write', 'settlements:read', 'settlements:write', 'approvals:read', 'platform:read', 'ledger:read', 'events:read', 'compliance:write', 'webhooks:manage'] }
+                  items: { type: string, enum: ['customers:read', 'customers:write', 'accounts:read', 'accounts:write', 'cards:read', 'cards:write', 'transfers:read', 'transfers:write', 'payments:read', 'payments:write', 'risk:read', 'risk:write', 'disputes:read', 'disputes:write', 'reconciliation:read', 'reconciliation:write', 'settlements:read', 'settlements:write', 'approvals:read', 'operations:read', 'operations:write', 'platform:read', 'ledger:read', 'events:read', 'compliance:write', 'webhooks:manage'] }
                 expiresInDays: { type: integer, minimum: 1, maximum: 365 }
       responses:
         '201': { description: API key created and secret returned once }
@@ -1350,7 +1421,7 @@ components:
       in: path
       name: type
       required: true
-      schema: { type: string, enum: [risk-case, reconciliation-exception] }
+      schema: { type: string, enum: [risk-case, reconciliation-exception, dispute] }
     PageLimit:
       in: query
       name: limit
@@ -1369,6 +1440,43 @@ components:
       description: Stable unique key for this logical write. Replays return the original resource; reusing it with a different payload returns 409.
       schema: { type: string, minLength: 8, maxLength: 100, pattern: '^[A-Za-z0-9._:-]+$' }
   schemas:
+    Dispute:
+      type: object
+      required: [id, transactionId, reason, description, amountMinor, amount, currency, status, open, priority, provisionalCreditRequested, creditStatus, possibleEvents, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        transactionId: { type: string, format: uuid }
+        reason: { type: string, enum: [card_not_present, duplicate, amount_mismatch, service_not_received, credit_not_processed, cash_not_received, other] }
+        description: { type: string }
+        amountMinor: { type: string }
+        amount: { type: number }
+        currency: { type: string, enum: [ARS, USD, MXN, COP, BRL, CLP, PEN] }
+        status: { type: string, enum: [opened, under_review, network_ready, won, lost, rejected, cancelled] }
+        open: { type: boolean }
+        priority: { type: string, enum: [low, medium, high, critical] }
+        provisionalCreditRequested: { type: boolean }
+        creditStatus: { type: string, enum: [none, posted, final, reversed] }
+        creditTransactionId: { type: [string, 'null'], format: uuid }
+        creditReversalTransactionId: { type: [string, 'null'], format: uuid }
+        possibleEvents: { type: array, items: { type: string, enum: [start_review, mark_network_ready, resolve_won, resolve_lost, reject, cancel] } }
+        dueAt: { type: [string, 'null'], format: date-time }
+        resolutionNote: { type: [string, 'null'] }
+        resolvedAt: { type: [string, 'null'], format: date-time }
+        originalTransaction: { type: object, additionalProperties: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    DisputeTimelineEvent:
+      type: object
+      required: [id, event, fromStatus, toStatus, note, actorId, actorName, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        event: { type: string, enum: [created, start_review, mark_network_ready, resolve_won, resolve_lost, reject, cancel] }
+        fromStatus: { type: [string, 'null'] }
+        toStatus: { type: string }
+        note: { type: string }
+        actorId: { type: string, format: uuid }
+        actorName: { type: string }
+        createdAt: { type: string, format: date-time }
     Card:
       type: object
       required: [id, programId, programName, accountId, customerId, product, format, last4, status, statusReason, activatedAt, terminatedAt, createdAt, updatedAt]
@@ -1438,11 +1546,12 @@ components:
         createdAt: { type: string, format: date-time }
     OperationalWorkItem:
       type: object
-      required: [id, type, status, priority, assignee, dueAt, escalatedAt, slaStatus, reference, summary, amountMinor, amount, currency, noteCount, evidenceCount, metadata, createdAt, updatedAt]
+      required: [id, type, status, open, priority, assignee, dueAt, escalatedAt, slaStatus, reference, summary, amountMinor, amount, currency, noteCount, evidenceCount, metadata, createdAt, updatedAt]
       properties:
         id: { type: string, format: uuid }
-        type: { type: string, enum: [risk_case, reconciliation_exception] }
-        status: { type: string, enum: [open, resolved, accepted] }
+        type: { type: string, enum: [risk_case, reconciliation_exception, dispute] }
+        status: { type: string, enum: [open, resolved, accepted, opened, under_review, network_ready, won, lost, rejected, cancelled] }
+        open: { type: boolean }
         priority: { type: string, enum: [low, medium, high, critical] }
         assignee: { type: [object, 'null'], additionalProperties: true }
         dueAt: { type: [string, 'null'], format: date-time }
@@ -1463,8 +1572,8 @@ components:
       required: [id, actionType, resourceType, resourceId, status, requestPayload, requestedBy, requestedByName, expiresAt, createdAt, updatedAt]
       properties:
         id: { type: string, format: uuid }
-        actionType: { type: string, enum: [settlement.execute, transfer.create, risk.case.resolve, reconciliation.exception.resolve] }
-        resourceType: { type: string, enum: [settlement_cycle, transfer, risk_case, reconciliation_exception] }
+        actionType: { type: string, enum: [settlement.execute, transfer.create, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve] }
+        resourceType: { type: string, enum: [settlement_cycle, transfer, risk_case, reconciliation_exception, dispute] }
         resourceId: { type: string, format: uuid }
         status: { type: string, enum: [pending, executed, rejected, cancelled, expired, failed] }
         requestPayload: { type: object, additionalProperties: true }

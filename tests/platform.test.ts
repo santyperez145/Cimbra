@@ -15,6 +15,7 @@ import { normalizeRiskRuleInput, normalizeRiskSimulationSamples } from '../app/l
 import { normalizeRawRiskSignals, parseProtectedRiskSignals, protectRiskSignals, publicRiskSignals, riskSubjectHash, riskSubjectPreview } from '../app/lib/platform/risk-signals.ts';
 import { initialCardStatus, normalizeCardControlsInput, normalizeCardProgramInput, normalizeCardTransition } from '../app/lib/platform/card-issuing.ts';
 import { authenticatedFetch } from '../app/lib/platform/client-http.ts';
+import { disputeEvent, disputeNextStatus, disputePossibleEvents, disputeReason, isOpenDispute } from '../app/lib/platform/disputes.ts';
 
 process.env.CIMBRA_ENCRYPTION_KEY = '3ea72fc13c567057870342c6ebd34d88f58f6d80b1dba61c4be4e1c2f1406afb';
 
@@ -118,8 +119,10 @@ test('una matriz canónica gobierna capacidades de API y consola', () => {
   assert.equal(roleCan('operator', 'cards.program.manage'), false);
   assert.equal(roleCan('operator', 'credentials.manage'), false);
   assert.equal(roleCan('viewer', 'console.read'), true);
+  assert.equal(roleCan('viewer', 'disputes.read'), true);
+  assert.equal(roleCan('viewer', 'disputes.write'), false);
   for (const capability of Object.keys(ACCESS_POLICY) as Array<keyof typeof ACCESS_POLICY>) {
-    if (!['console.read', 'operations.read', 'approvals.read', 'security.manage_self'].includes(capability)) assert.equal(roleCan('viewer', capability), false, capability);
+    if (!['console.read', 'disputes.read', 'operations.read', 'approvals.read', 'security.manage_self'].includes(capability)) assert.equal(roleCan('viewer', capability), false, capability);
   }
   assert.equal(ROLE_PROFILES.viewer.posture, 'Sólo lectura');
 });
@@ -157,6 +160,7 @@ test('maker/checker exige otro actor privilegiado con MFA y políticas acotadas'
   assert.equal(approvalActionType('transfer.create'), 'transfer.create');
   assert.equal(approvalActionType('risk.case.resolve'), 'risk.case.resolve');
   assert.equal(approvalActionType('reconciliation.exception.resolve'), 'reconciliation.exception.resolve');
+  assert.equal(approvalActionType('dispute.resolve'), 'dispute.resolve');
   assert.equal(approvalActionType('competitor.execute'), null);
   assert.equal(approvalExpiryMinutes(15), 15);
   assert.equal(approvalExpiryMinutes(10_081), null);
@@ -190,6 +194,19 @@ test('normaliza políticas versionables y acota las muestras de simulación', ()
   assert.equal(samples?.[1].amountMinor, 10n);
   assert.equal(normalizeRiskSimulationSamples([]), null);
   assert.equal(normalizeRiskSimulationSamples(Array.from({ length: 51 }, () => ({ operationType: 'transfer', amount: '1', currency: 'ARS', counterparty: 'QA' }))), null);
+});
+
+test('disputes aplica un lifecycle explícito y terminal', () => {
+  assert.equal(disputeReason('card_not_present'), 'card_not_present');
+  assert.equal(disputeReason('unknown'), null);
+  assert.equal(disputeEvent('start_review'), 'start_review');
+  assert.equal(disputeNextStatus('opened', 'start_review'), 'under_review');
+  assert.equal(disputeNextStatus('under_review', 'mark_network_ready'), 'network_ready');
+  assert.equal(disputeNextStatus('network_ready', 'resolve_won'), 'won');
+  assert.equal(disputeNextStatus('won', 'cancel'), null);
+  assert.deepEqual(disputePossibleEvents('opened'), ['start_review', 'cancel']);
+  assert.equal(isOpenDispute('network_ready'), true);
+  assert.equal(isOpenDispute('lost'), false);
 });
 
 test('la consola normaliza fallos de red y respuestas no JSON sin dejar acciones colgadas', async () => {

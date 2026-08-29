@@ -84,6 +84,8 @@ async function cleanup() {
       await transaction`DELETE FROM operational_evidence_links WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM operational_notes WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM operational_actions WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM dispute_events WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM disputes WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM reconciliation_exceptions WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM reconciliation_items WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM reconciliation_runs WHERE organization_id = ${organizationId}`;
@@ -640,6 +642,11 @@ try {
     body: JSON.stringify({ counterparty: 'QA Marketplace', description: 'Review transfer', amount: '2000000', currency: 'ARS' }),
   }), 201);
   assert.equal(high.transaction.status, 'review');
+  const notPresented = await json(await request('/api/v1/disputes', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-dispute-not-presented-${runId}` },
+    body: JSON.stringify({ transactionId: high.transaction.id, reason: 'other', description: 'No liquidada.', amount: '1.00', currency: 'ARS' }),
+  }), 409);
+  assert.equal(notPresented.error.code, 'transaction_not_presented');
   const afterHigh = (await json(await request('/api/v1/ledger'), 200)).data;
   const highHold = afterHigh.holds.find((hold) => hold.transactionId === high.transaction.id);
   assert.ok(highHold);
@@ -866,6 +873,82 @@ try {
   }), 201);
   await json(await request(`/api/platform/api-keys/${operationsKey.key.id}`, { method: 'DELETE' }), 200);
 
+  const disputeState = (await json(await request('/api/v1/disputes'), 200)).data;
+  assert.ok(disputeState.eligibleTransactions.some((item) => item.id === cashOut.payment.id));
+  const disputeKey = `qa-dispute-${runId}`;
+  const disputePayload = { transactionId: cashOut.payment.id, reason: 'service_not_received',
+    description: 'Servicio no recibido; evidencia privada disponible.', amount: '25.00', currency: 'ARS', provisionalCreditRequested: true };
+  const openedDispute = await json(await request('/api/v1/disputes', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': disputeKey }, body: JSON.stringify(disputePayload),
+  }), 201);
+  assert.equal(openedDispute.dispute.status, 'opened'); assert.equal(openedDispute.dispute.creditStatus, 'none');
+  const disputeReplay = await json(await request('/api/v1/disputes', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': disputeKey }, body: JSON.stringify(disputePayload),
+  }), 200);
+  assert.equal(disputeReplay.replayed, true); assert.equal(disputeReplay.dispute.id, openedDispute.dispute.id);
+  await json(await request('/api/v1/disputes', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': disputeKey },
+    body: JSON.stringify({ ...disputePayload, amount: '20.00' }),
+  }), 409);
+  const disputesApiKey = await json(await request('/api/platform/api-keys', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'QA disputes SDK', scopes: ['disputes:read', 'disputes:write'], expiresInDays: 1 }),
+  }), 201);
+  const machineDisputes = await json(await fetch(new URL('/api/v1/disputes', target), {
+    headers: { Authorization: `Bearer ${disputesApiKey.secret}` },
+  }), 200);
+  assert.equal(machineDisputes.data.disputes.some((item) => item.id === openedDispute.dispute.id), true);
+  const reviewDispute = await json(await fetch(new URL(`/api/v1/disputes/${openedDispute.dispute.id}/events`, target), {
+    method: 'POST', headers: { Authorization: `Bearer ${disputesApiKey.secret}`, 'Content-Type': 'application/json', 'Idempotency-Key': `qa-dispute-review-${runId}` },
+    body: JSON.stringify({ event: 'start_review', note: 'Operaciones validó evidencia inicial.' }),
+  }), 200);
+  assert.equal(reviewDispute.dispute.status, 'under_review'); assert.equal(reviewDispute.dispute.creditStatus, 'posted');
+  assert.ok(reviewDispute.dispute.creditTransactionId);
+  await json(await fetch(new URL(`/api/v1/disputes/${openedDispute.dispute.id}`, target), {
+    headers: { Authorization: `Bearer ${disputesApiKey.secret}` },
+  }), 200);
+  await json(await request(`/api/platform/api-keys/${disputesApiKey.key.id}`, { method: 'DELETE' }), 200);
+  const disputeDetail = (await json(await request(`/api/v1/disputes/${openedDispute.dispute.id}`), 200)).data;
+  assert.equal(disputeDetail.events.length, 2); assert.equal(disputeDetail.events[1].event, 'start_review');
+  const disputeEvidenceKey = `qa-dispute-evidence-${runId}`;
+  await json(await request(`/api/v1/operations/work-items/dispute/${openedDispute.dispute.id}/evidence`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': disputeEvidenceKey },
+    body: JSON.stringify({ documentId: evidenceDocument.document.id }),
+  }), 201);
+  await json(await request(`/api/v1/operations/work-items/dispute/${openedDispute.dispute.id}/notes`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-dispute-note-${runId}` },
+    body: JSON.stringify({ body: 'Documento de soporte validado para la disputa.' }),
+  }), 201);
+  const operationsWithDispute = (await json(await request('/api/v1/operations/work-items'), 200)).data;
+  const disputeWorkItem = operationsWithDispute.workItems.find((item) => item.type === 'dispute' && item.id === openedDispute.dispute.id);
+  assert.ok(disputeWorkItem); assert.equal(disputeWorkItem.open, true); assert.equal(disputeWorkItem.evidenceCount, 1);
+  await json(await request(`/api/v1/disputes/${openedDispute.dispute.id}/events`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-dispute-network-ready-${runId}` },
+    body: JSON.stringify({ event: 'mark_network_ready', note: 'Expediente preparado; no enviado a ninguna red.' }),
+  }), 200);
+  const disputePolicy = await json(await request('/api/platform/approval-policy', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actionType: 'dispute.resolve', enabled: true, expiresInMinutes: 60 }),
+  }), 200);
+  assert.equal(disputePolicy.policy.enabled, true);
+  const disputeResolution = await json(await request(`/api/v1/disputes/${openedDispute.dispute.id}/events`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-dispute-lost-${runId}` },
+    body: JSON.stringify({ event: 'resolve_lost', note: 'La evidencia no sustenta el reclamo.' }),
+  }), 202);
+  assert.equal(disputeResolution.requiresApproval, true); assert.equal(disputeResolution.approval.actionType, 'dispute.resolve');
+  await json(await request(`/api/v1/approvals/${disputeResolution.approval.id}/approve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-dispute-self-${runId}` },
+    body: JSON.stringify({ reason: 'self approval must fail' }),
+  }), 409);
+  cookie = checkerCookie;
+  const executedDispute = await json(await request(`/api/v1/approvals/${disputeResolution.approval.id}/approve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-dispute-checker-${runId}` },
+    body: JSON.stringify({ reason: 'QA checker revisó expediente y evidencia.' }),
+  }), 200);
+  assert.equal(executedDispute.approval.status, 'executed'); assert.equal(executedDispute.dispute.status, 'lost');
+  assert.equal(executedDispute.dispute.creditStatus, 'reversed'); assert.ok(executedDispute.dispute.creditReversalTransactionId);
+  cookie = ownerCookieAfterRequest;
+
   const disabledTransferPolicy = await json(await request('/api/platform/approval-policy', {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ actionType: 'transfer.create', enabled: false, expiresInMinutes: 1440 }),
@@ -963,6 +1046,7 @@ try {
   cookie = checkerCookie;
   await json(await request('/api/v1/ledger'), 200);
   await json(await request('/api/v1/operations/work-items'), 200);
+  await json(await request('/api/v1/disputes'), 200);
   await json(await request(`/api/v1/cards/${card.id}/lifecycle`), 200);
   assert.equal((await request('/console')).status, 200);
   const viewerWriteDenied = await json(await request('/api/v1/transfers', {
@@ -974,6 +1058,11 @@ try {
     method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-viewer-work-${runId}` }, body: JSON.stringify({ priority: 'low' }),
   }), 403);
   assert.equal(viewerOperationsDenied.error.code, 'insufficient_role');
+  const viewerDisputeDenied = await json(await request(`/api/v1/disputes/${openedDispute.dispute.id}/events`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-viewer-dispute-${runId}` },
+    body: JSON.stringify({ event: 'cancel', note: 'Viewer cannot mutate.' }),
+  }), 403);
+  assert.equal(viewerDisputeDenied.error.code, 'insufficient_role');
   const viewerProgramDenied = await json(await request('/api/v1/card-programs', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-viewer-card-program-${runId}` },
     body: JSON.stringify({ name: 'Viewer denied', product: 'debit', formats: ['virtual'], defaultCurrency: 'ARS' }),
@@ -986,9 +1075,16 @@ try {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role: 'admin' }),
   }), 200);
 
-  const events = (await json(await request('/api/v1/events'), 200)).data;
+  const events = [];
+  let auditCursor = null;
+  do {
+    const page = await json(await request(`/api/v1/events?limit=25${auditCursor ? `&cursor=${encodeURIComponent(auditCursor)}` : ''}`), 200);
+    events.push(...page.data); auditCursor = page.hasMore ? page.nextCursor : null;
+  } while (auditCursor);
   assert.ok(events.some((event) => event.action === 'transfer.reversed'));
   assert.ok(events.some((event) => event.action === 'operations.evidence_linked'));
+  assert.ok(events.some((event) => event.action === 'dispute.start_review'));
+  assert.ok(events.some((event) => event.action === 'dispute.resolve_lost'));
   assert.ok(events.every((event) => typeof event.payload === 'object'));
 
   const [integrity] = await sql`
@@ -1007,7 +1103,7 @@ try {
 
   console.log(JSON.stringify({
     ok: true,
-    checks: ['auth', 'landing-session-state', 'console-session-guard', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'viewer-read-only', 'member-invitations', 'dual-control', 'maker-checker', 'transfer-approval', 'approval-replay', 'approval-fail-closed', 'risk-case-approval', 'risk-hold-bypass-guard', 'reconciliation-exception-approval', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'card-programs', 'card-lifecycle', 'card-controls', 'card-terminal-state', 'card-rbac', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'risk-signals-privacy', 'risk-decision-lists', 'risk-confirmed-outcomes', 'risk-supervised-metrics', 'risk-outcome-revisions', 'reconciliation', 'operations-work-queue', 'operations-idempotency', 'operations-evidence', 'operations-rbac', 'csv-import', 'settlement', 'private-evidence', 'audit'],
+    checks: ['auth', 'landing-session-state', 'console-session-guard', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'viewer-read-only', 'member-invitations', 'dual-control', 'maker-checker', 'transfer-approval', 'approval-replay', 'approval-fail-closed', 'risk-case-approval', 'risk-hold-bypass-guard', 'reconciliation-exception-approval', 'disputes', 'partial-dispute', 'dispute-ledger-credit', 'dispute-compensation', 'dispute-approval', 'dispute-evidence', 'dispute-rbac', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'card-programs', 'card-lifecycle', 'card-controls', 'card-terminal-state', 'card-rbac', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'risk-signals-privacy', 'risk-decision-lists', 'risk-confirmed-outcomes', 'risk-supervised-metrics', 'risk-outcome-revisions', 'reconciliation', 'operations-work-queue', 'operations-idempotency', 'operations-evidence', 'operations-rbac', 'csv-import', 'settlement', 'private-evidence', 'audit'],
   }));
 } finally {
   await cleanup();

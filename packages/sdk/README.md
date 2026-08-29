@@ -170,9 +170,29 @@ await cimbra.reconciliation.createRun({
 
 Cada corrida conserva partidas exactas, totales, faltantes en ambos lados y diferencias. Las excepciones se resuelven con nota, actor, timestamp e idempotencia.
 
+## Disputas y chargebacks
+
+```ts
+const opened = await cimbra.disputes.create({
+  transactionId: '00000000-0000-4000-8000-000000000001',
+  reason: 'service_not_received',
+  description: 'El servicio no fue entregado y existe evidencia privada.',
+  amount: '1250.00',
+  currency: 'ARS',
+  provisionalCreditRequested: true,
+});
+
+await cimbra.disputes.transition(opened.data.dispute.id, {
+  event: 'start_review',
+  note: 'Evidencia inicial validada por Operaciones.',
+});
+```
+
+El crédito provisional y su eventual compensación se contabilizan como transacciones y journals nuevos: nunca se alteran postings históricos. `network_ready` significa que el expediente está preparado, no que Cimbra lo haya presentado a una red real. Esa conexión exige sponsor y certificación directos.
+
 ## Cola operativa
 
-Los casos de riesgo y las excepciones de conciliación comparten una cola operativa sin perder sus modelos de dominio:
+Los casos de riesgo, las excepciones de conciliación y las disputas comparten una cola operativa sin perder sus modelos de dominio:
 
 ```ts
 const queue = await cimbra.operations.list();

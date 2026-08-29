@@ -82,15 +82,15 @@ export type SettlementCycle = {
   status: 'ready' | 'scheduled' | 'settled'; scheduledFor: string | null; settledAt: string | null; createdAt: string; updatedAt: string;
 };
 export type ApprovalRequest = {
-  id: string; actionType: 'settlement.execute' | 'transfer.create' | 'risk.case.resolve' | 'reconciliation.exception.resolve';
-  resourceType: 'settlement_cycle' | 'transfer' | 'risk_case' | 'reconciliation_exception'; resourceId: string;
+  id: string; actionType: 'settlement.execute' | 'transfer.create' | 'risk.case.resolve' | 'reconciliation.exception.resolve' | 'dispute.resolve';
+  resourceType: 'settlement_cycle' | 'transfer' | 'risk_case' | 'reconciliation_exception' | 'dispute'; resourceId: string;
   status: 'pending' | 'executed' | 'rejected' | 'cancelled' | 'expired' | 'failed'; requestPayload: {
     name?: string; rail?: ReconciliationRun['source']; currency?: Currency; netMinor?: string; differenceMinor?: string;
     scheduledFor?: string | null; executionMode?: 'manual' | 'scheduled'; counterparty?: string; description?: string;
     amountMinor?: string; origin?: 'session' | 'api_key'; apiKeyId?: string | null; sandbox?: boolean;
     signals?: RiskSignals;
-    resolution?: 'approved' | 'declined' | 'corrected' | 'accepted'; note?: string; priority?: RiskCase['priority']; score?: number;
-    externalReference?: string; runName?: string;
+    resolution?: 'approved' | 'declined' | 'corrected' | 'accepted' | DisputeEventName; note?: string; priority?: RiskCase['priority']; score?: number;
+    externalReference?: string; runName?: string; reason?: DisputeReason; creditStatus?: Dispute['creditStatus'];
   };
   requestedBy: string; requestedByName: string; resolvedBy: string | null; resolvedByName: string | null;
   resolutionReason: string | null; expiresAt: string; resolvedAt: string | null; executedAt: string | null;
@@ -107,6 +107,25 @@ export type RiskCaseResolutionResult =
   | { ok: true; requiresApproval: true; approval: ApprovalRequest; replayed: boolean; deduplicated: boolean };
 export type ReconciliationExceptionResolutionResult =
   | { ok: true; requiresApproval: false; exception: { id: string; status: 'resolved' | 'accepted'; resolution: 'corrected' | 'accepted'; replayed: boolean }; replayed: boolean }
+  | { ok: true; requiresApproval: true; approval: ApprovalRequest; replayed: boolean; deduplicated: boolean };
+export type DisputeReason = 'card_not_present' | 'duplicate' | 'amount_mismatch' | 'service_not_received' | 'credit_not_processed' | 'cash_not_received' | 'other';
+export type DisputeStatus = 'opened' | 'under_review' | 'network_ready' | 'won' | 'lost' | 'rejected' | 'cancelled';
+export type DisputeEventName = 'start_review' | 'mark_network_ready' | 'resolve_won' | 'resolve_lost' | 'reject' | 'cancel';
+export type Dispute = {
+  id: string; transactionId: string; reason: DisputeReason; description: string; amountMinor: string; amount: number; currency: Currency;
+  status: DisputeStatus; open: boolean; priority: 'low' | 'medium' | 'high' | 'critical'; provisionalCreditRequested: boolean;
+  creditStatus: 'none' | 'posted' | 'final' | 'reversed'; creditTransactionId: string | null; creditReversalTransactionId: string | null;
+  assignedTo: string | null; assigneeName: string | null; dueAt: string | null; escalatedAt: string | null;
+  openedBy: string; openedByName: string; resolvedBy: string | null; resolvedByName: string | null;
+  resolutionNote: string | null; resolvedAt: string | null; possibleEvents: DisputeEventName[]; createdAt: string; updatedAt: string;
+  originalTransaction: { id: string; counterparty: string; description: string; amountMinor: string; amount: number; currency: Currency; status: string; createdAt: string };
+};
+export type DisputeTimelineEvent = {
+  id: string; event: 'created' | DisputeEventName; fromStatus: DisputeStatus | null; toStatus: DisputeStatus;
+  note: string; actorId: string; actorName: string; createdAt: string;
+};
+export type DisputeTransitionResult =
+  | { ok: true; requiresApproval: false; dispute: Dispute; replayed: boolean }
   | { ok: true; requiresApproval: true; approval: ApprovalRequest; replayed: boolean; deduplicated: boolean };
 export type ReconciliationException = {
   id: string; runId: string; itemId: string; kind: 'amount_mismatch' | 'missing_internal' | 'missing_external'; status: 'open' | 'resolved' | 'accepted';
@@ -129,9 +148,9 @@ export type RiskMetrics = {
     losses: Array<{ currency: Currency; amountMinor: string; amount: number; count: number }>;
   };
 };
-export type WorkItemType = 'risk_case' | 'reconciliation_exception';
+export type WorkItemType = 'risk_case' | 'reconciliation_exception' | 'dispute';
 export type OperationalWorkItem = {
-  id: string; type: WorkItemType; status: 'open' | 'resolved' | 'accepted'; priority: 'low' | 'medium' | 'high' | 'critical';
+  id: string; type: WorkItemType; status: 'open' | 'resolved' | 'accepted' | DisputeStatus; open: boolean; priority: 'low' | 'medium' | 'high' | 'critical';
   assignee: { userId: string; displayName: string; email: string } | null; dueAt: string | null; escalatedAt: string | null;
   slaStatus: 'none' | 'overdue' | 'due_soon' | 'on_track'; reference: string; summary: string;
   amountMinor: string; amount: number; currency: Currency; noteCount: number; evidenceCount: number;
@@ -201,4 +220,7 @@ export type CreateReconciliationCsvImportInput = {
   csv: string; fileName?: string;
 };
 export type CreateSettlementCycleInput = { reconciliationRunId: string; name: string; scheduledFor?: string };
+export type CreateDisputeInput = {
+  transactionId: string; reason: DisputeReason; description: string; amount: string; currency: Currency; provisionalCreditRequested?: boolean;
+};
 export type CreateWebhookInput = { name: string; url: string; eventTypes: string[] };

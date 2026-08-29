@@ -88,6 +88,22 @@ test('el SDK auto-pagina bajo demanda y respeta la señal de retry del servidor'
   assert.equal(retryCalls, 1);
 });
 
+test('el SDK pagina el historial de auditoría sin truncarlo', async () => {
+  const urls: string[] = [];
+  const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', fetch: async (input) => {
+    const url = String(input); urls.push(url);
+    if (url.includes('cursor=audit_2')) return Response.json({ data: [{ id: 'evt_2', action: 'dispute.resolve_lost' }], hasMore: false, nextCursor: null });
+    return Response.json({ data: [{ id: 'evt_1', action: 'dispute.created' }], hasMore: true, nextCursor: 'audit_2' });
+  } });
+  const actions: string[] = [];
+  for await (const event of client.events.listAll({ limit: 1 })) actions.push(event.action);
+  assert.deepEqual(actions, ['dispute.created', 'dispute.resolve_lost']);
+  assert.deepEqual(urls, [
+    'https://api.test/api/v1/events?limit=1',
+    'https://api.test/api/v1/events?limit=1&cursor=audit_2',
+  ]);
+});
+
 test('el SDK crea payments regionales con idempotencia automática', async () => {
   let requestUrl = '';
   let idempotencyKey = '';
@@ -131,6 +147,28 @@ test('el SDK representa resoluciones operativas pendientes de checker', async ()
     'https://api.test/api/v1/risk/cases/case_1/resolve',
     'https://api.test/api/v1/reconciliation/exceptions/exception_1/resolve',
   ]);
+});
+
+test('el SDK abre, recupera y transiciona disputas nativas', async () => {
+  const calls: Array<{ url: string; method: string; idempotencyKey: string | null }> = [];
+  const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async (input, init) => {
+    const url = String(input); const method = init?.method ?? 'GET';
+    calls.push({ url, method, idempotencyKey: new Headers(init?.headers).get('idempotency-key') });
+    if (method === 'GET') return Response.json({ data: { dispute: { id: 'dispute_1', status: 'opened' }, events: [] } });
+    if (url.endsWith('/events')) return Response.json({ ok: true, requiresApproval: false, replayed: false, dispute: { id: 'dispute_1', status: 'under_review' } });
+    return Response.json({ ok: true, replayed: false, dispute: { id: 'dispute_1', status: 'opened' } }, { status: 201 });
+  } });
+  const opened = await client.disputes.create({ transactionId: 'transaction_1', reason: 'service_not_received',
+    description: 'Servicio no entregado', amount: '25.00', currency: 'ARS', provisionalCreditRequested: true });
+  await client.disputes.retrieve(opened.data.dispute.id);
+  await client.disputes.transition(opened.data.dispute.id, { event: 'start_review', note: 'Evidencia validada.' });
+  assert.deepEqual(calls.map(({ method, url }) => `${method} ${url}`), [
+    'POST https://api.test/api/v1/disputes', 'GET https://api.test/api/v1/disputes/dispute_1',
+    'POST https://api.test/api/v1/disputes/dispute_1/events',
+  ]);
+  assert.match(calls[0].idempotencyKey ?? '', /^idem_[a-f0-9]{32}$/);
+  assert.equal(calls[1].idempotencyKey, null);
+  assert.match(calls[2].idempotencyKey ?? '', /^idem_[a-f0-9]{32}$/);
 });
 
 test('el SDK expone el catálogo de servicios nativos de Cimbra', async () => {
@@ -221,11 +259,13 @@ test('el SDK administra la cola operativa con rutas e idempotencia canónicas', 
   await client.operations.update('risk_case', 'case_1', { priority: 'critical', escalated: true });
   await client.operations.addNote('risk_case', 'case_1', 'Revisión prioritaria');
   await client.operations.linkEvidence('reconciliation_exception', 'exception_1', 'document_1');
+  await client.operations.addNote('dispute', 'dispute_1', 'Evidencia de disputa');
   assert.deepEqual(calls.map(({ url, method }) => `${method} ${url}`), [
     'GET https://api.test/api/v1/operations/work-items',
     'PATCH https://api.test/api/v1/operations/work-items/risk-case/case_1',
     'POST https://api.test/api/v1/operations/work-items/risk-case/case_1/notes',
     'POST https://api.test/api/v1/operations/work-items/reconciliation-exception/exception_1/evidence',
+    'POST https://api.test/api/v1/operations/work-items/dispute/dispute_1/notes',
   ]);
   for (const call of calls.slice(1)) assert.match(call.idempotencyKey ?? '', /^idem_[a-f0-9]{32}$/);
 });
