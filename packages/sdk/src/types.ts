@@ -62,6 +62,30 @@ export type ReconciliationException = {
   externalReference: string; transactionId: string | null; expectedMinor: string; expected: number; actualMinor: string; actual: number;
   differenceMinor: string; difference: number; currency: Currency; reason: string; resolution: 'corrected' | 'accepted' | null; createdAt: string;
 };
+export type WorkItemType = 'risk_case' | 'reconciliation_exception';
+export type OperationalWorkItem = {
+  id: string; type: WorkItemType; status: 'open' | 'resolved' | 'accepted'; priority: 'low' | 'medium' | 'high' | 'critical';
+  assignee: { userId: string; displayName: string; email: string } | null; dueAt: string | null; escalatedAt: string | null;
+  slaStatus: 'none' | 'overdue' | 'due_soon' | 'on_track'; reference: string; summary: string;
+  amountMinor: string; amount: number; currency: Currency; noteCount: number; evidenceCount: number;
+  metadata: Record<string, unknown>; createdAt: string; updatedAt: string;
+};
+export type OperationalNote = {
+  id: string; subjectType: WorkItemType; subjectId: string; body: string; authorId: string; authorName: string; createdAt: string;
+};
+export type OperationalEvidence = {
+  id: string; subjectType: WorkItemType; subjectId: string; documentId: string; fileName: string; contentType: string;
+  linkedBy: string; linkedByName: string; createdAt: string;
+};
+export type OperationalState = {
+  workItems: OperationalWorkItem[];
+  members: Array<{ userId: string; displayName: string; email: string; role: 'owner' | 'admin' | 'operator' | 'viewer' }>;
+  documents: Array<{ id: string; fileName: string; contentType: string; status: string; createdAt: string }>;
+  notes: OperationalNote[]; evidence: OperationalEvidence[];
+};
+export type UpdateOperationalWorkItemInput = {
+  assignedToUserId?: string | null; priority?: OperationalWorkItem['priority']; dueAt?: string | null; escalated?: boolean;
+};
 export type Hold = { id: string; transactionId: string; amountMinor: string; amount: number; currency: Currency; status: string; expiresAt: string | null; createdAt: string; counterparty: string; description: string };
 export type LedgerBalance = { currency: Currency; currentMinor: string; heldMinor: string; availableMinor: string; current: number; held: number; available: number };
 export type LedgerJournal = { id: string; transactionId: string | null; kind: string; description: string; currency: Currency; status: string; reversalOf: string | null; postedAt: string | null; amountMinor: string; amount: number; postingCount: number };

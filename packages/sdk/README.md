@@ -109,6 +109,26 @@ await cimbra.reconciliation.createRun({
 
 Cada corrida conserva partidas exactas, totales, faltantes en ambos lados y diferencias. Las excepciones se resuelven con nota, actor, timestamp e idempotencia.
 
+## Cola operativa
+
+Los casos de riesgo y las excepciones de conciliación comparten una cola operativa sin perder sus modelos de dominio:
+
+```ts
+const queue = await cimbra.operations.list();
+const item = queue.data.data.workItems.find((candidate) => candidate.status === 'open');
+
+if (item) {
+  await cimbra.operations.update(item.type, item.id, {
+    assignedToUserId: queue.data.data.members[0]?.userId ?? null,
+    priority: 'high',
+    dueAt: '2026-08-30T12:00:00.000Z',
+  });
+  await cimbra.operations.addNote(item.type, item.id, 'Evidencia revisada por Operaciones.');
+}
+```
+
+La asignación valida membresía en el tenant. Los SLA, comentarios y vínculos a documentos privados quedan persistidos, auditados y publicados mediante webhooks. Las mutaciones son idempotentes.
+
 También podés importar el contrato CSV canónico sin construir el array manualmente:
 
 ```ts

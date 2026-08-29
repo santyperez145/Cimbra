@@ -276,6 +276,8 @@ export const riskCases = pgTable('risk_cases', {
   transactionId: text('transaction_id').references(() => transactions.id, { onDelete: 'restrict' }),
   holdId: text('hold_id').references(() => holds.id, { onDelete: 'restrict' }),
   status: text('status').notNull().default('open'), priority: text('priority').notNull().default('medium'),
+  assignedTo: text('assigned_to').references(() => users.id, { onDelete: 'set null' }),
+  dueAt: text('due_at'), escalatedAt: text('escalated_at'),
   resolution: text('resolution'), resolutionNote: text('resolution_note'), resolutionIdempotencyKey: text('resolution_idempotency_key'),
   resolvedBy: text('resolved_by').references(() => users.id, { onDelete: 'restrict' }), resolvedAt: text('resolved_at'),
   createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
@@ -386,6 +388,8 @@ export const reconciliationExceptions = pgTable('reconciliation_exceptions', {
   runId: text('run_id').notNull().references(() => reconciliationRuns.id, { onDelete: 'cascade' }),
   itemId: text('item_id').notNull().references(() => reconciliationItems.id, { onDelete: 'cascade' }),
   kind: text('kind').notNull(), differenceMinor: bigint('difference_minor', { mode: 'bigint' }).notNull(), status: text('status').notNull().default('open'),
+  priority: text('priority').notNull().default('medium'), assignedTo: text('assigned_to').references(() => users.id, { onDelete: 'set null' }),
+  dueAt: text('due_at'), escalatedAt: text('escalated_at'),
   resolution: text('resolution'), resolutionNote: text('resolution_note'), resolutionIdempotencyKey: text('resolution_idempotency_key'),
   resolvedBy: text('resolved_by').references(() => users.id, { onDelete: 'restrict' }), resolvedAt: text('resolved_at'),
   createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
@@ -395,7 +399,48 @@ export const reconciliationExceptions = pgTable('reconciliation_exceptions', {
   index('idx_reconciliation_exceptions_org_status_created').on(table.organizationId, table.status, table.createdAt),
   check('reconciliation_exceptions_kind', sql`${table.kind} IN ('amount_mismatch', 'missing_internal', 'missing_external')`),
   check('reconciliation_exceptions_status', sql`${table.status} IN ('open', 'resolved', 'accepted')`),
+  check('reconciliation_exceptions_priority', sql`${table.priority} IN ('low', 'medium', 'high', 'critical')`),
   check('reconciliation_exceptions_resolution', sql`${table.resolution} IS NULL OR ${table.resolution} IN ('corrected', 'accepted')`),
+]);
+
+export const operationalActions = pgTable('operational_actions', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  idempotencyKey: text('idempotency_key').notNull(), requestFingerprint: text('request_fingerprint').notNull(),
+  subjectType: text('subject_type').notNull(), subjectId: text('subject_id').notNull(), action: text('action').notNull(),
+  payload: text('payload').notNull().default('{}'),
+  createdBy: text('created_by').notNull().references(() => users.id, { onDelete: 'restrict' }), createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_operational_actions_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  index('idx_operational_actions_subject').on(table.organizationId, table.subjectType, table.subjectId, table.createdAt),
+  check('operational_actions_subject', sql`${table.subjectType} IN ('risk_case', 'reconciliation_exception')`),
+  check('operational_actions_action', sql`${table.action} IN ('update', 'note', 'evidence')`),
+]);
+
+export const operationalNotes = pgTable('operational_notes', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  subjectType: text('subject_type').notNull(), subjectId: text('subject_id').notNull(), body: text('body').notNull(),
+  authorId: text('author_id').notNull().references(() => users.id, { onDelete: 'restrict' }),
+  actionId: text('action_id').notNull().references(() => operationalActions.id, { onDelete: 'restrict' }), createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_operational_notes_action').on(table.actionId),
+  index('idx_operational_notes_subject').on(table.organizationId, table.subjectType, table.subjectId, table.createdAt),
+  check('operational_notes_subject', sql`${table.subjectType} IN ('risk_case', 'reconciliation_exception')`),
+]);
+
+export const operationalEvidenceLinks = pgTable('operational_evidence_links', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  subjectType: text('subject_type').notNull(), subjectId: text('subject_id').notNull(),
+  documentId: text('document_id').notNull().references(() => complianceDocuments.id, { onDelete: 'restrict' }),
+  linkedBy: text('linked_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
+  actionId: text('action_id').notNull().references(() => operationalActions.id, { onDelete: 'restrict' }), createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_operational_evidence_action').on(table.actionId),
+  uniqueIndex('idx_operational_evidence_subject_document').on(table.organizationId, table.subjectType, table.subjectId, table.documentId),
+  index('idx_operational_evidence_subject').on(table.organizationId, table.subjectType, table.subjectId, table.createdAt),
+  check('operational_evidence_subject', sql`${table.subjectType} IN ('risk_case', 'reconciliation_exception')`),
 ]);
 
 export const webhookEndpoints = pgTable('webhook_endpoints', {

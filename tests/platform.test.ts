@@ -10,6 +10,7 @@ import { systemAmountRisk } from '../app/lib/platform/risk-engine.ts';
 import { csvObjects, CsvError } from '../app/lib/platform/csv.ts';
 import { ACCESS_POLICY, ROLE_PROFILES, assignableRole, canManageRole, normalizeAccessEmail, roleCan, rolesFor } from '../app/lib/platform/access-policy.ts';
 import { approvalActionType, approvalExpiryMinutes, approvalReason, canDecideApproval } from '../app/lib/platform/approval-policy.ts';
+import { normalizeEvidenceLink, normalizeOperationalNote, normalizeWorkItemUpdate } from '../app/lib/platform/operations-input.ts';
 
 process.env.CIMBRA_ENCRYPTION_KEY = '3ea72fc13c567057870342c6ebd34d88f58f6d80b1dba61c4be4e1c2f1406afb';
 
@@ -112,9 +113,21 @@ test('una matriz canónica gobierna capacidades de API y consola', () => {
   assert.equal(roleCan('operator', 'credentials.manage'), false);
   assert.equal(roleCan('viewer', 'console.read'), true);
   for (const capability of Object.keys(ACCESS_POLICY) as Array<keyof typeof ACCESS_POLICY>) {
-    if (!['console.read', 'approvals.read', 'security.manage_self'].includes(capability)) assert.equal(roleCan('viewer', capability), false, capability);
+    if (!['console.read', 'operations.read', 'approvals.read', 'security.manage_self'].includes(capability)) assert.equal(roleCan('viewer', capability), false, capability);
   }
   assert.equal(ROLE_PROFILES.viewer.posture, 'Sólo lectura');
+});
+
+test('la cola operativa valida cambios, SLA, comentarios y evidencia', () => {
+  assert.deepEqual(normalizeWorkItemUpdate({ priority: 'critical', dueAt: '2026-08-30T12:00:00Z', escalated: true }), {
+    priority: 'critical', dueAt: '2026-08-30T12:00:00.000Z', escalated: true,
+  });
+  assert.deepEqual(normalizeWorkItemUpdate({ assignedToUserId: null }), { assignedToUserId: null });
+  assert.equal(normalizeWorkItemUpdate({ priority: 'urgent' }), null);
+  assert.equal(normalizeWorkItemUpdate({}), null);
+  assert.equal(normalizeOperationalNote({ body: '  Evidencia revisada  ' }), 'Evidencia revisada');
+  assert.equal(normalizeOperationalNote({ body: 'x' }), null);
+  assert.equal(normalizeEvidenceLink({ documentId: '00000000-0000-4000-8000-000000000001' }), '00000000-0000-4000-8000-000000000001');
 });
 
 test('maker/checker exige otro actor privilegiado con MFA y políticas acotadas', () => {

@@ -49,7 +49,7 @@ Prioridad de producto resultante:
 
 1. Evolucionar la ingestión CSV/checksum y el scheduling sandbox ya disponibles hacia intercambio firmado, cierre y settlement por riel directo.
 2. Agregar señales de dispositivo/identidad, listas, versionado de reglas, simulación, champion/challenger y métricas de falsos positivos.
-3. Añadir asignación, SLA, evidencia, comentarios y doble control a casos y excepciones.
+3. Asignación, SLA, escalamiento, evidencia y comentarios ya están operativos; extender maker/checker a las resoluciones sensibles de casos y excepciones.
 4. Publicar Postman, generación de SDKs adicionales, changelog y SLOs medidos; luego ejecutar homologación y certificaciones.
 
 Ninguno de estos gaps autoriza conectar Cimbra con un competidor. Las únicas dependencias externas admisibles para operación real son bancos, cámaras, esquemas, redes, fuentes oficiales y sponsors regulados donde sean jurídicamente necesarios.
@@ -64,6 +64,12 @@ Pismo publica un patrón maker/checker en el que una persona solicita, otra con 
 
 Cimbra implementa el patrón como propiedad propia para settlement y transferencias salientes sandbox: políticas independientes por tenant, maker y checker distintos, owner/admin con MFA para decidir, idempotencia, locks compartidos/exclusivos, expiración, rechazo, cancelación, fallo, auditoría, webhooks y ejecución atómica. El scheduler atraviesa el mismo control. Una transferencia pendiente no reserva fondos; al aprobar se recalculan saldo y riesgo y sólo entonces se crean ledger, hold o caso. Las integraciones S2S pueden originar una transferencia protegida y leer el historial con los scopes correspondientes, pero no aprobar ni rechazar. A diferencia del fallback documentado por Pismo ante ciertos fallos de su workflow, Cimbra falla cerrado y nunca ejecuta fuera de la política. Pismo mantiene hoy mayor cobertura —fondos retenidos, límites, tarjetas, credenciales, configuración y lending—; esas acciones, notificaciones específicas y un rol approver dedicado permanecen en el roadmap propio de Cimbra.
 
+## Benchmark aplicado — case operations (29/08/2026)
+
+Pismo expone historial y notas de acciones operativas, perfiles RBAC y navegación por estados; Pomelo modela remedies/chargebacks como expedientes vinculados a una transacción y admite archivos; Dock destaca workflows, alertas y comunicación bidireccional en fraude. El patrón común útil no es copiar pantallas: es hacer visible quién posee el caso, cuándo vence, qué evidencia sustenta la decisión y qué cambió.
+
+Cimbra implementa esa capa como proyección propia sobre `risk_cases` y `reconciliation_exceptions`: cola unificada, responsable validado contra la membresía del tenant, prioridad, SLA inicial, escalamiento, comentarios append-only y evidencia enlazada desde almacenamiento privado. API v1, SDK, consola, scopes, RBAC, idempotencia, auditoría y webhooks comparten el mismo contrato. Las resoluciones siguen en los módulos de dominio existentes; aplicar maker/checker a decisiones sensibles permanece como el siguiente control, sin declararlo terminado.
+
 ## Benchmark aplicado — narrativa comercial y acceso developer (29/08/2026)
 
 Las superficies públicas de Pismo y Dock priorizan una promesa modular, una integración y amplitud de plataforma; tapi conecta esa promesa con casos de uso, sandbox y portal developer; Pomelo separa con claridad issuing, processing, sponsorship y requisitos de certificación; BIND PSP distingue staging/producción, OAuth 2.0 y permisos por scope. Cimbra adopta esos patrones de comprensión, no sus marcas ni contratos: hero orientado al resultado, catálogo modular con estado verificable, casos de uso por comprador, arquitectura de una integración, prueba técnica, documentación y CTA contextual.
@@ -74,7 +80,7 @@ La decisión propia es no fingir clientes, volumen, uptime, tiempos de integraci
 
 Pismo reúne guías, referencia REST, esquemas de eventos, changelog, consola interactiva y colección Postman; además documenta autenticación S2S y verificación de webhooks como contratos separados. Pomelo hace explícitos OAuth 2.0, scopes, montos decimales, idempotencia y firma HMAC de webhooks. BIND PSP publica URLs distintas para staging y producción, autenticación, scopes, ejemplos curl, códigos de error y política de reintentos de webhooks. Esos patrones reducen el tiempo hasta el primer request y, sobre todo, evitan que el integrador tenga que adivinar límites operativos.
 
-Cimbra adopta el estándar de claridad como propiedad propia: `/developers` publica la única base URL activa, diferencia sandbox de producción no habilitada, genera la referencia de 61 operaciones desde OpenAPI, consume scopes y eventos canónicos, ofrece quickstarts exactos, errores estructurados, rate limits, paginación, modelo monetario, contrato de firma y calendario de reintentos. El SDK TypeScript se distribuye como artefacto real con checksum mientras no exista publicación npm. Postman y SDKs adicionales se muestran explícitamente como backlog; no se ofrecen botones ni instalaciones ficticias. La consola interactiva contra endpoints mutantes se posterga hasta poder aislar credenciales y datos de forma segura. Dock, tapi y Wibond continúan como benchmarks de producto; no se atribuyen contratos técnicos específicos cuando la documentación pública consultada no alcanza para verificarlos.
+Cimbra adopta el estándar de claridad como propiedad propia: `/developers` publica la única base URL activa, diferencia sandbox de producción no habilitada, genera la referencia de 65 operaciones desde OpenAPI, consume scopes y eventos canónicos, ofrece quickstarts exactos, errores estructurados, rate limits, paginación, modelo monetario, contrato de firma y calendario de reintentos. El SDK TypeScript se distribuye como artefacto real con checksum mientras no exista publicación npm. Postman y SDKs adicionales se muestran explícitamente como backlog; no se ofrecen botones ni instalaciones ficticias. La consola interactiva contra endpoints mutantes se posterga hasta poder aislar credenciales y datos de forma segura. Dock, tapi y Wibond continúan como benchmarks de producto; no se atribuyen contratos técnicos específicos cuando la documentación pública consultada no alcanza para verificarlos.
 
 ## Wedge recomendado
 
@@ -139,6 +145,8 @@ Una ronda pre-seed debe financiar 18 meses para cerrar el producto inicial, cont
 - https://developers.pismo.io/pismo-docs/docs/security-guide-for-control-center
 - https://developers.pismo.io/pismo-docs/docs/control-center-access-profiles-and-roles
 - https://developers.pismo.io/pismo-docs/docs/dual-approval
+- https://developers.pismo.io/pismo-docs/docs/account-actions
+- https://developers.pismo.io/pismo-docs/docs/control-center-navigation
 - https://developers.pismo.io/pismo-docs/changelog/6-march-2026
 - https://developers.pismo.io/pismo-docs/docs/file-based-check-processing-and-bulk-settlement
 - https://developers.pomelo.la/api-reference/processing/transactions
@@ -149,6 +157,7 @@ Una ronda pre-seed debe financiar 18 meses para cerrar el producto inicial, cont
 - https://docs.pomelo.la/en/docs/cards/processing/reports/download-report
 - https://developers.pomelo.la/guides/solutions/processing/reports
 - https://developers.pomelo.la/api-reference/fraud/remedies/tx-remedy
+- https://developers.pomelo.la/en/api-reference/fraud-prevention/chargebacks
 - https://developers.pomelo.la/guides/dashboard/company/administration
 - https://www.wibond.co/
 

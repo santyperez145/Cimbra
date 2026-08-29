@@ -16,6 +16,8 @@ export const API_SCOPES = [
   'settlements:read',
   'settlements:write',
   'approvals:read',
+  'operations:read',
+  'operations:write',
   'platform:read',
   'ledger:read',
   'events:read',

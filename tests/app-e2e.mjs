@@ -81,6 +81,9 @@ async function cleanup() {
       await transaction`DELETE FROM approval_requests WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM approval_policies WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM settlement_cycles WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM operational_evidence_links WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM operational_notes WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM operational_actions WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM reconciliation_exceptions WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM reconciliation_items WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM reconciliation_runs WHERE organization_id = ${organizationId}`;
@@ -503,10 +506,15 @@ try {
   }), 409);
   cookie = ownerCookieAfterRequest;
   assert.equal(settled.cycle.status, 'settled');
+  const approvalReadKey = await json(await request('/api/platform/api-keys', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'QA approvals reader', scopes: ['approvals:read'], expiresInDays: 1 }),
+  }), 201);
   const approvalList = await json(await fetch(new URL('/api/v1/approvals', target), {
-    headers: { Authorization: `Bearer ${createdKey.secret}` },
+    headers: { Authorization: `Bearer ${approvalReadKey.secret}` },
   }), 200);
   assert.equal(approvalList.data.some((item) => item.id === approvalPending.approval.id && item.status === 'executed'), true);
+  await json(await request(`/api/platform/api-keys/${approvalReadKey.key.id}`, { method: 'DELETE' }), 200);
 
   const transferPolicy = await json(await request('/api/platform/approval-policy', {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' },
@@ -579,7 +587,53 @@ try {
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');
   const form = new FormData();
   form.append('file', new File([png], 'qa-evidence.png', { type: 'image/png' }));
-  await json(await request('/api/v1/compliance/documents', { method: 'POST', body: form }), 201);
+  const evidenceDocument = await json(await request('/api/v1/compliance/documents', { method: 'POST', body: form }), 201);
+
+  const operations = (await json(await request('/api/v1/operations/work-items'), 200)).data;
+  const operationalCase = operations.workItems.find((item) => item.type === 'risk_case' && item.metadata.transactionId === high.transaction.id);
+  const operationalOwnerMember = operations.members.find((member) => member.email === email);
+  assert.ok(operationalCase); assert.ok(operationalOwnerMember); assert.equal(operationalCase.status, 'open');
+  const workUpdateKey = `qa-work-update-${runId}`;
+  const workUpdate = { assignedToUserId: operationalOwnerMember.userId, priority: 'high', dueAt: new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString(), escalated: true };
+  const updatedWork = await json(await request(`/api/v1/operations/work-items/risk-case/${operationalCase.id}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': workUpdateKey }, body: JSON.stringify(workUpdate),
+  }), 200);
+  assert.equal(updatedWork.workItem.assignee.userId, operationalOwnerMember.userId); assert.equal(updatedWork.workItem.priority, 'high');
+  const updateReplay = await json(await request(`/api/v1/operations/work-items/risk-case/${operationalCase.id}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': workUpdateKey }, body: JSON.stringify(workUpdate),
+  }), 200);
+  assert.equal(updateReplay.replayed, true);
+  await json(await request(`/api/v1/operations/work-items/risk-case/${operationalCase.id}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': workUpdateKey }, body: JSON.stringify({ priority: 'medium' }),
+  }), 409);
+  const noteKey = `qa-work-note-${runId}`;
+  await json(await request(`/api/v1/operations/work-items/risk-case/${operationalCase.id}/notes`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': noteKey }, body: JSON.stringify({ body: 'Contexto validado por el E2E operativo.' }),
+  }), 201);
+  const noteReplay = await json(await request(`/api/v1/operations/work-items/risk-case/${operationalCase.id}/notes`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': noteKey }, body: JSON.stringify({ body: 'Contexto validado por el E2E operativo.' }),
+  }), 200);
+  assert.equal(noteReplay.replayed, true);
+  const evidenceKey = `qa-work-evidence-${runId}`;
+  await json(await request(`/api/v1/operations/work-items/risk-case/${operationalCase.id}/evidence`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': evidenceKey }, body: JSON.stringify({ documentId: evidenceDocument.document.id }),
+  }), 201);
+  const evidenceReplay = await json(await request(`/api/v1/operations/work-items/risk-case/${operationalCase.id}/evidence`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': evidenceKey }, body: JSON.stringify({ documentId: evidenceDocument.document.id }),
+  }), 200);
+  assert.equal(evidenceReplay.replayed, true);
+  const operationsKey = await json(await request('/api/platform/api-keys', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'QA operations SDK', scopes: ['operations:read', 'operations:write'], expiresInDays: 1 }),
+  }), 201);
+  await json(await fetch(new URL('/api/v1/operations/work-items', target), {
+    headers: { Authorization: `Bearer ${operationsKey.secret}` },
+  }), 200);
+  await json(await fetch(new URL(`/api/v1/operations/work-items/risk-case/${operationalCase.id}/notes`, target), {
+    method: 'POST', headers: { Authorization: `Bearer ${operationsKey.secret}`, 'Content-Type': 'application/json', 'Idempotency-Key': `qa-work-api-note-${runId}` },
+    body: JSON.stringify({ body: 'Seguimiento agregado mediante credencial S2S.' }),
+  }), 201);
+  await json(await request(`/api/platform/api-keys/${operationsKey.key.id}`, { method: 'DELETE' }), 200);
 
   const finalAccess = await json(await request('/api/platform/access'), 200);
   const checkerMember = finalAccess.data.members.find((member) => member.email === checkerEmail);
@@ -589,12 +643,17 @@ try {
   }), 200);
   cookie = checkerCookie;
   await json(await request('/api/v1/ledger'), 200);
+  await json(await request('/api/v1/operations/work-items'), 200);
   assert.equal((await request('/console')).status, 200);
   const viewerWriteDenied = await json(await request('/api/v1/transfers', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-viewer-denied-${runId}` },
     body: JSON.stringify({ counterparty: 'QA Denied', description: 'Viewer cannot mutate', amount: '1.00', currency: 'ARS' }),
   }), 403);
   assert.equal(viewerWriteDenied.error.code, 'insufficient_role');
+  const viewerOperationsDenied = await json(await request(`/api/v1/operations/work-items/risk-case/${operationalCase.id}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-viewer-work-${runId}` }, body: JSON.stringify({ priority: 'low' }),
+  }), 403);
+  assert.equal(viewerOperationsDenied.error.code, 'insufficient_role');
   const viewerCredentialsDenied = await json(await request('/api/platform/api-keys'), 403);
   assert.equal(viewerCredentialsDenied.code, 'insufficient_role');
   cookie = ownerCookieAfterRequest;
@@ -604,6 +663,7 @@ try {
 
   const events = (await json(await request('/api/v1/events'), 200)).data;
   assert.ok(events.some((event) => event.action === 'transfer.reversed'));
+  assert.ok(events.some((event) => event.action === 'operations.evidence_linked'));
   assert.ok(events.every((event) => typeof event.payload === 'object'));
 
   const [integrity] = await sql`
@@ -622,7 +682,7 @@ try {
 
   console.log(JSON.stringify({
     ok: true,
-    checks: ['auth', 'landing-session-state', 'console-session-guard', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'viewer-read-only', 'member-invitations', 'dual-control', 'maker-checker', 'transfer-approval', 'approval-replay', 'approval-fail-closed', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'reconciliation', 'csv-import', 'settlement', 'private-evidence', 'audit'],
+    checks: ['auth', 'landing-session-state', 'console-session-guard', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'viewer-read-only', 'member-invitations', 'dual-control', 'maker-checker', 'transfer-approval', 'approval-replay', 'approval-fail-closed', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'reconciliation', 'operations-work-queue', 'operations-idempotency', 'operations-evidence', 'operations-rbac', 'csv-import', 'settlement', 'private-evidence', 'audit'],
   }));
 } finally {
   await cleanup();

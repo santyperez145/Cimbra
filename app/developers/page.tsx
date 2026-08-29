@@ -29,6 +29,11 @@ const errorResponses = [
 const changelog = [
   {
     date: '29 AGO 2026',
+    title: 'Cola operativa con SLA y evidencia',
+    detail: 'Riesgo y conciliación comparten ownership, prioridad, vencimiento, escalamiento, comentarios y documentos privados mediante API, SDK y consola.',
+  },
+  {
+    date: '29 AGO 2026',
     title: 'RBAC y sesiones consistentes',
     detail: 'Una matriz canónica gobierna consola y API; 401 y 403 quedan diferenciados y las sesiones vencidas preservan el destino.',
   },

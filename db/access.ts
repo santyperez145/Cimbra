@@ -168,10 +168,20 @@ export async function updateOrganizationMember(input: {
     assertCanManage(input.actorRole, current.role, input.role);
     if (current.role === input.role) return { id: current.id, email: current.email, role: current.role, replayed: true };
     const now = new Date().toISOString();
+    let unassignedWorkItems = 0;
+    if (input.role === 'viewer') {
+      const risk = await database.prepare(
+        `UPDATE risk_cases SET assigned_to = NULL, updated_at = ? WHERE organization_id = ? AND assigned_to = ? AND status = 'open'`,
+      ).bind(now, input.organizationId, current.userId).run();
+      const reconciliation = await database.prepare(
+        `UPDATE reconciliation_exceptions SET assigned_to = NULL, updated_at = ? WHERE organization_id = ? AND assigned_to = ? AND status = 'open'`,
+      ).bind(now, input.organizationId, current.userId).run();
+      unassignedWorkItems = risk.rowsAffected + reconciliation.rowsAffected;
+    }
     await database.prepare('UPDATE members SET role = ? WHERE id = ?').bind(input.role, current.id).run();
     await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId,
       action: 'organization.member_role_updated', resourceType: 'organization_member', resourceId: current.id,
-      payload: { email: current.email, previousRole: current.role, role: input.role, updatedAt: now } });
+      payload: { email: current.email, previousRole: current.role, role: input.role, updatedAt: now, unassignedWorkItems } });
     return { id: current.id, email: current.email, role: input.role, replayed: false };
   });
 }
@@ -186,10 +196,17 @@ export async function removeOrganizationMember(input: {
     if (!current) throw new AccessControlError('Miembro no encontrado.', 404, 'member_not_found');
     if (current.userId === input.actor.userId) throw new AccessControlError('No podés quitar tu propio acceso.', 409, 'self_removal');
     assertCanManage(input.actorRole, current.role);
+    const now = new Date().toISOString();
+    const risk = await database.prepare(
+      `UPDATE risk_cases SET assigned_to = NULL, updated_at = ? WHERE organization_id = ? AND assigned_to = ? AND status = 'open'`,
+    ).bind(now, input.organizationId, current.userId).run();
+    const reconciliation = await database.prepare(
+      `UPDATE reconciliation_exceptions SET assigned_to = NULL, updated_at = ? WHERE organization_id = ? AND assigned_to = ? AND status = 'open'`,
+    ).bind(now, input.organizationId, current.userId).run();
     await database.prepare('DELETE FROM members WHERE id = ?').bind(current.id).run();
     await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId,
       action: 'organization.member_removed', resourceType: 'organization_member', resourceId: current.id,
-      payload: { email: current.email, role: current.role } });
+      payload: { email: current.email, role: current.role, unassignedWorkItems: risk.rowsAffected + reconciliation.rowsAffected } });
     return { id: current.id, removed: true };
   });
 }

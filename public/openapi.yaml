@@ -483,6 +483,107 @@ paths:
       responses:
         '200': { description: Exception resolved with actor and audit trail }
         '409': { description: Exception already resolved differently }
+  /api/v1/operations/work-items:
+    get:
+      operationId: listOperationalWorkItems
+      summary: List the unified risk and reconciliation work queue
+      description: Returns tenant-scoped work items, assignable members, private document metadata, notes and evidence links for an operational console.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      responses:
+        '200':
+          description: Unified operational work queue
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [workItems, members, documents, notes, evidence]
+                    properties:
+                      workItems: { type: array, items: { $ref: '#/components/schemas/OperationalWorkItem' } }
+                      members: { type: array, items: { type: object, additionalProperties: true } }
+                      documents: { type: array, items: { type: object, additionalProperties: true } }
+                      notes: { type: array, items: { type: object, additionalProperties: true } }
+                      evidence: { type: array, items: { type: object, additionalProperties: true } }
+        '401': { description: Authentication required }
+        '403': { description: Missing operations:read scope or role }
+  /api/v1/operations/work-items/{type}/{id}:
+    patch:
+      operationId: updateOperationalWorkItem
+      summary: Assign, prioritize, schedule or escalate an open work item
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/WorkItemType'
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              additionalProperties: false
+              properties:
+                assignedToUserId: { type: [string, 'null'], format: uuid }
+                priority: { type: string, enum: [low, medium, high, critical] }
+                dueAt: { type: [string, 'null'], format: date-time }
+                escalated: { type: boolean }
+      responses:
+        '200': { description: Work item updated or idempotently replayed }
+        '400': { description: Invalid update or assignee }
+        '404': { description: Work item not found in tenant }
+        '409': { description: Closed item or idempotency conflict }
+  /api/v1/operations/work-items/{type}/{id}/notes:
+    post:
+      operationId: addOperationalWorkItemNote
+      summary: Add an immutable comment to a work item
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/WorkItemType'
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body]
+              additionalProperties: false
+              properties:
+                body: { type: string, minLength: 3, maxLength: 2000 }
+      responses:
+        '201': { description: Comment appended }
+        '200': { description: Idempotent replay }
+        '404': { description: Work item not found in tenant }
+        '409': { description: Idempotency conflict }
+  /api/v1/operations/work-items/{type}/{id}/evidence:
+    post:
+      operationId: linkOperationalWorkItemEvidence
+      summary: Link a private compliance document to a work item
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/WorkItemType'
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [documentId]
+              additionalProperties: false
+              properties:
+                documentId: { type: string, format: uuid }
+      responses:
+        '201': { description: Evidence linked }
+        '200': { description: Idempotent replay }
+        '404': { description: Work item or document not found in tenant }
+        '409': { description: Duplicate evidence or idempotency conflict }
   /api/v1/settlements:
     get:
       operationId: listSettlementCycles
@@ -940,6 +1041,11 @@ components:
       name: id
       required: true
       schema: { type: string, format: uuid }
+    WorkItemType:
+      in: path
+      name: type
+      required: true
+      schema: { type: string, enum: [risk-case, reconciliation-exception] }
     PageLimit:
       in: query
       name: limit
@@ -958,6 +1064,28 @@ components:
       description: Stable unique key for this logical write. Replays return the original resource; reusing it with a different payload returns 409.
       schema: { type: string, minLength: 8, maxLength: 100, pattern: '^[A-Za-z0-9._:-]+$' }
   schemas:
+    OperationalWorkItem:
+      type: object
+      required: [id, type, status, priority, assignee, dueAt, escalatedAt, slaStatus, reference, summary, amountMinor, amount, currency, noteCount, evidenceCount, metadata, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        type: { type: string, enum: [risk_case, reconciliation_exception] }
+        status: { type: string, enum: [open, resolved, accepted] }
+        priority: { type: string, enum: [low, medium, high, critical] }
+        assignee: { type: [object, 'null'], additionalProperties: true }
+        dueAt: { type: [string, 'null'], format: date-time }
+        escalatedAt: { type: [string, 'null'], format: date-time }
+        slaStatus: { type: string, enum: [none, overdue, due_soon, on_track] }
+        reference: { type: string }
+        summary: { type: string }
+        amountMinor: { type: string }
+        amount: { type: number }
+        currency: { type: string }
+        noteCount: { type: integer, minimum: 0 }
+        evidenceCount: { type: integer, minimum: 0 }
+        metadata: { type: object, additionalProperties: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
     ApprovalRequest:
       type: object
       required: [id, actionType, resourceType, resourceId, status, requestPayload, requestedBy, requestedByName, expiresAt, createdAt, updatedAt]

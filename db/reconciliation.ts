@@ -93,9 +93,10 @@ export async function createReconciliationRun(input: {
         const kind = item.status === 'mismatch' ? 'amount_mismatch' : item.status;
         await database.prepare(
           `INSERT INTO reconciliation_exceptions
-            (id, organization_id, run_id, item_id, kind, difference_minor, status, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?)`,
-        ).bind(crypto.randomUUID(), input.organizationId, runId, item.id, kind, item.differenceMinor.toString(), now, now).run();
+            (id, organization_id, run_id, item_id, kind, difference_minor, status, priority, due_at, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, 'open', 'medium', ?, ?, ?)`,
+        ).bind(crypto.randomUUID(), input.organizationId, runId, item.id, kind, item.differenceMinor.toString(),
+          new Date(Date.parse(now) + 24 * 60 * 60 * 1000).toISOString(), now, now).run();
       }
     }
     await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId, action: 'reconciliation.run_created',

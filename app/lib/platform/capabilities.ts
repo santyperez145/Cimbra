@@ -91,8 +91,8 @@ export const PLATFORM_CAPABILITIES: readonly PlatformCapability[] = [
   },
   {
     id: 'reconciliation-settlement', name: 'Reconciliation & Settlement', domain: 'operations', availability: 'sandbox', delivery: 'cimbra_native',
-    summary: 'Ingestión API/CSV, comparación contra el ledger, excepciones y ciclos de settlement sandbox.',
-    features: ['batch reconciliation', 'CSV ingestion', 'exception queue', 'missing-entry detection', 'scheduled settlement cycles', 'dual approval'],
+    summary: 'Ingestión API/CSV, comparación contra el ledger, work queue con SLA y ciclos de settlement sandbox.',
+    features: ['batch reconciliation', 'CSV ingestion', 'unified work queue', 'assignment and SLA', 'private evidence', 'scheduled settlement cycles', 'dual approval'],
     interfaces: ['rest_api', 'webhooks', 'sdk', 'files', 'console'], regulatoryBoundary: 'La conciliación productiva depende de extractos oficiales de cada banco, cámara o red y segregación operativa; el settlement sandbox no mueve fondos.',
   },
   {

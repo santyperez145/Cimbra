@@ -173,11 +173,13 @@ export async function persistRiskAssessment(input: {
   if (input.assessment.decision !== 'approve') {
     const caseId = crypto.randomUUID();
     const priority = input.assessment.decision === 'decline' || input.assessment.score >= 85 ? 'critical' : input.assessment.score >= 70 ? 'high' : 'medium';
+    const dueHours = priority === 'critical' ? 1 : priority === 'high' ? 4 : 24;
+    const dueAt = new Date(Date.parse(now) + dueHours * 60 * 60 * 1000).toISOString();
     await database.prepare(
       `INSERT INTO risk_cases
-        (id, organization_id, evaluation_id, transaction_id, hold_id, status, priority, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?) ON CONFLICT (evaluation_id) DO NOTHING`,
-    ).bind(caseId, input.organizationId, id, input.resourceId ?? null, input.holdId ?? null, priority, now, now).run();
+        (id, organization_id, evaluation_id, transaction_id, hold_id, status, priority, due_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?) ON CONFLICT (evaluation_id) DO NOTHING`,
+    ).bind(caseId, input.organizationId, id, input.resourceId ?? null, input.holdId ?? null, priority, dueAt, now, now).run();
     await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId, action: 'risk.case_created', resourceType: 'risk_case', resourceId: caseId,
       payload: { evaluationId: id, transactionId: input.resourceId ?? null, decision: input.assessment.decision, score: input.assessment.score } });
   }

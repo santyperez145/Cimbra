@@ -1,6 +1,6 @@
 # Cimbra
 
-Cimbra es una plataforma de infraestructura financiera modular para Latinoamérica. Este repositorio contiene el sitio comercial, documentación, consola autenticada y un sandbox persistente con tenancy/RBAC, cuentas, ledger de doble partida, transferencias idempotentes, motor de riesgo, casos, holds, conciliación, excepciones, reversas, doble aprobación maker/checker, tarjetas de prueba, evidencia privada, credenciales S2S y webhooks firmados.
+Cimbra es una plataforma de infraestructura financiera modular para Latinoamérica. Este repositorio contiene el sitio comercial, documentación, consola autenticada y un sandbox persistente con tenancy/RBAC, cuentas, ledger de doble partida, transferencias idempotentes, motor de riesgo, casos, holds, conciliación, excepciones, cola operativa con SLA, reversas, doble aprobación maker/checker, tarjetas de prueba, evidencia privada, credenciales S2S y webhooks firmados.
 
 ## Estado del producto
 
@@ -9,12 +9,12 @@ La aplicación es un MVP lanzable para venta, discovery e integración en sandbo
 Superficies disponibles:
 
 - `/` — propuesta comercial profesional, estado de sesión contextual, prueba técnica, casos de uso, modelo de acceso y captación persistente de leads.
-- `/developers` — portal técnico generado desde OpenAPI con entornos, quickstart ejecutable, auth/RBAC/scopes, errores, rate limits, SDK descargable, webhooks, catálogo de eventos y las 61 operaciones publicadas.
+- `/developers` — portal técnico generado desde OpenAPI con entornos, quickstart ejecutable, auth/RBAC/scopes, errores, rate limits, SDK descargable, webhooks, catálogo de eventos y las 65 operaciones publicadas.
 - `/login` — registro e inicio de sesión propio con usuario/email y contraseña; OAuth Google y Apple se activa al configurar sus credenciales.
 - `/forgot-password`, `/reset-password` y `/verify-email` — ciclo de vida de cuenta con tokens opacos, expiración, uso único y respuestas anti-enumeración.
-- `/console` — consola protegida y consciente del rol; owner/admin administran miembros e invitaciones, operator ejecuta y viewer trabaja en modo lectura.
+- `/console` — consola protegida y consciente del rol; owner/admin administran miembros e invitaciones, operator ejecuta, viewer trabaja en modo lectura y Operaciones unifica ownership, SLA y expedientes de riesgo/conciliación.
 - `/api/health` — healthcheck sin caché.
-- `/api/v1/*` — API pública versionada para customers, accounts, cards, transfers, payments, riesgo, conciliación CSV/API, settlement sandbox, aprobaciones, holds, ledger, events, compliance y webhooks.
+- `/api/v1/*` — API pública versionada para customers, accounts, cards, transfers, payments, riesgo, conciliación CSV/API, work items operativos, settlement sandbox, aprobaciones, holds, ledger, events, compliance y webhooks.
 - `/api/sandbox/*` — alias de compatibilidad deprecado; las integraciones nuevas deben usar v1.
 - `/api/platform/api-keys` — claves Bearer con scopes, vencimiento, rate limit, rotación y revocación inmediata.
 - `/api/platform/access` — miembros, invitaciones verificadas, jerarquía de roles, revocación y trazabilidad del tenant.
@@ -84,6 +84,7 @@ Apple requiere un Services ID asociado a una app habilitada para Sign in with Ap
 - conciliación exacta de lotes contra el ledger, faltantes en ambos sentidos y excepciones resolubles con idempotencia.
 - importación CSV UTF-8 con checksum y ciclos de settlement sandbox únicos, programables, auditados y emitidos por webhook.
 - políticas maker/checker fail-closed para settlement y transferencias, con locks concurrentes, revalidación financiera y decisión/ejecución atómicas.
+- work queue multitenant para casos de riesgo y excepciones, con responsable, prioridad, SLA, escalamiento, comentarios inmutables y vínculos a evidencia privada.
 
 ## Garantías de integración
 

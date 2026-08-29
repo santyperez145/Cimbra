@@ -4,12 +4,13 @@ import type {
   CreateReconciliationCsvImportInput, CreateReconciliationRunInput, CreateRiskEvaluationInput, CreateRiskRuleInput,
   CreateSettlementCycleInput, CreateTransferInput, CreateWebhookInput,
   Customer, Hold, HoldResolution, LedgerBalance, LedgerJournal, ListOptions, Page, PlatformCapability,
+  OperationalEvidence, OperationalNote, OperationalState, OperationalWorkItem, UpdateOperationalWorkItemInput, WorkItemType,
   ReconciliationException, ReconciliationRun, RequestOptions, RiskCase, RiskEvaluation, RiskRule, SettlementCycle, SettlementExecutionResult,
   Transaction, TransferCreationResult, WebhookOperationalState,
 } from './types.ts';
 
 type Fetch = typeof globalThis.fetch;
-type Method = 'GET' | 'POST' | 'DELETE';
+type Method = 'GET' | 'POST' | 'PATCH' | 'DELETE';
 type Sleep = (milliseconds: number) => Promise<void>;
 
 export type CimbraConfig = {
@@ -133,6 +134,19 @@ export class Cimbra {
       this.post<{ ok: true; exception: { id: string; status: 'resolved' | 'accepted'; resolution: 'corrected' | 'accepted'; replayed: boolean } }>(`/api/v1/reconciliation/exceptions/${encodeURIComponent(id)}/resolve`, input, options, true),
   };
 
+  readonly operations = {
+    list: (options?: RequestOptions) => this.request<{ data: OperationalState }>('GET', '/api/v1/operations/work-items', undefined, options),
+    update: (type: WorkItemType, id: string, input: UpdateOperationalWorkItemInput, options?: RequestOptions) =>
+      this.patch<{ ok: true; workItem: OperationalWorkItem; replayed: boolean }>(
+        `/api/v1/operations/work-items/${type === 'risk_case' ? 'risk-case' : 'reconciliation-exception'}/${encodeURIComponent(id)}`, input, options),
+    addNote: (type: WorkItemType, id: string, body: string, options?: RequestOptions) =>
+      this.post<{ ok: true; note: OperationalNote; replayed: boolean }>(
+        `/api/v1/operations/work-items/${type === 'risk_case' ? 'risk-case' : 'reconciliation-exception'}/${encodeURIComponent(id)}/notes`, { body }, options, true),
+    linkEvidence: (type: WorkItemType, id: string, documentId: string, options?: RequestOptions) =>
+      this.post<{ ok: true; evidence: OperationalEvidence; replayed: boolean }>(
+        `/api/v1/operations/work-items/${type === 'risk_case' ? 'risk-case' : 'reconciliation-exception'}/${encodeURIComponent(id)}/evidence`, { documentId }, options, true),
+  };
+
   readonly settlements = {
     list: (options?: RequestOptions) => this.request<{ data: SettlementCycle[] }>('GET', '/api/v1/settlements', undefined, options),
     create: (input: CreateSettlementCycleInput, options?: RequestOptions) =>
@@ -201,6 +215,11 @@ export class Cimbra {
   private post<T>(path: string, body: unknown, options: RequestOptions | undefined, retryable: boolean) {
     const idempotencyKey = retryable ? options?.idempotencyKey ?? identifier('idem') : options?.idempotencyKey;
     return this.request<T>('POST', path, body, { ...options, idempotencyKey });
+  }
+
+  private patch<T>(path: string, body: unknown, options?: RequestOptions) {
+    const idempotencyKey = options?.idempotencyKey ?? identifier('idem');
+    return this.request<T>('PATCH', path, body, { ...options, idempotencyKey });
   }
 
   private postForm<T>(path: string, body: FormData, options: RequestOptions | undefined, retryable: boolean) {

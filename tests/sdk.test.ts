@@ -139,6 +139,28 @@ test('el SDK crea reglas de riesgo y conciliaciones con idempotencia', async () 
   for (const call of calls) assert.match(call.idempotencyKey ?? '', /^idem_[a-f0-9]{32}$/);
 });
 
+test('el SDK administra la cola operativa con rutas e idempotencia canónicas', async () => {
+  const calls: Array<{ url: string; method: string; idempotencyKey: string | null }> = [];
+  const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async (input, init) => {
+    calls.push({ url: String(input), method: init?.method ?? 'GET', idempotencyKey: new Headers(init?.headers).get('idempotency-key') });
+    if ((init?.method ?? 'GET') === 'GET') return Response.json({ data: { workItems: [], members: [], documents: [], notes: [], evidence: [] } });
+    if (String(input).endsWith('/notes')) return Response.json({ ok: true, replayed: false, note: { id: 'note_1' } }, { status: 201 });
+    if (String(input).endsWith('/evidence')) return Response.json({ ok: true, replayed: false, evidence: { id: 'evidence_1' } }, { status: 201 });
+    return Response.json({ ok: true, replayed: false, workItem: { id: 'case_1', type: 'risk_case', status: 'open' } });
+  } });
+  await client.operations.list();
+  await client.operations.update('risk_case', 'case_1', { priority: 'critical', escalated: true });
+  await client.operations.addNote('risk_case', 'case_1', 'Revisión prioritaria');
+  await client.operations.linkEvidence('reconciliation_exception', 'exception_1', 'document_1');
+  assert.deepEqual(calls.map(({ url, method }) => `${method} ${url}`), [
+    'GET https://api.test/api/v1/operations/work-items',
+    'PATCH https://api.test/api/v1/operations/work-items/risk-case/case_1',
+    'POST https://api.test/api/v1/operations/work-items/risk-case/case_1/notes',
+    'POST https://api.test/api/v1/operations/work-items/reconciliation-exception/exception_1/evidence',
+  ]);
+  for (const call of calls.slice(1)) assert.match(call.idempotencyKey ?? '', /^idem_[a-f0-9]{32}$/);
+});
+
 test('el SDK importa CSV, ejecuta settlements y consulta aprobaciones', async () => {
   const calls: Array<{ url: string; contentType: string | null; body: BodyInit | null | undefined }> = [];
   const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async (input, init) => {
