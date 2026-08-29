@@ -97,53 +97,51 @@ export async function retrieveSettlementCycle(organizationId: string, id: string
   return cycle ? serializeCycle(cycle) : null;
 }
 
-export async function executeSettlementCycle(input: {
+export async function executeSettlementCycleInTransaction(database: DatabaseClient, input: {
   organizationId: string; actorId: string; cycleId: string; idempotencyKey: string; executionMode: 'manual' | 'scheduled';
-}, client: DatabaseClient = getDatabaseClient()) {
-  return client.transaction(async (database) => {
-    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
-      .bind(`${input.organizationId}:settlement-cycle:${input.cycleId}`).first();
-    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
-      .bind(`${input.organizationId}:settlement-execution:${input.idempotencyKey}`).first();
-    const keyOwner = await database.prepare(
-      `SELECT id FROM settlement_cycles WHERE organization_id = ? AND execution_idempotency_key = ? LIMIT 1`,
-    ).bind(input.organizationId, input.idempotencyKey).first<{ id: string }>();
-    if (keyOwner && keyOwner.id !== input.cycleId) throw new SettlementError('La Idempotency-Key ya ejecutó otro ciclo.', 409, 'idempotency_mismatch');
-    const cycle = await database.prepare(
-      `${cycleSelect}, execution_idempotency_key AS "executionIdempotencyKey" FROM settlement_cycles
-       WHERE id = ? AND organization_id = ? FOR UPDATE`,
-    ).bind(input.cycleId, input.organizationId).first<CycleRow & { executionIdempotencyKey: string | null }>();
-    if (!cycle) throw new SettlementError('Ciclo de settlement no encontrado.', 404, 'settlement_cycle_not_found');
-    if (cycle.status === 'settled') {
-      if (cycle.executionIdempotencyKey === input.idempotencyKey) return { cycle: serializeCycle(cycle), replayed: true };
-      throw new SettlementError('El ciclo ya fue ejecutado.', 409, 'settlement_cycle_already_executed');
+  approvalAuthorized?: boolean;
+}) {
+  await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+    .bind(`${input.organizationId}:approval-policy:settlement.execute`).first();
+  if (!input.approvalAuthorized) {
+    const policy = await database.prepare(
+      `SELECT enabled FROM approval_policies WHERE organization_id = ? AND action_type = 'settlement.execute' LIMIT 1`,
+    ).bind(input.organizationId).first<{ enabled: number }>();
+    if (policy?.enabled === 1) {
+      throw new SettlementError('La política maker/checker exige una solicitud aprobada.', 409, 'approval_required');
     }
-    const now = new Date().toISOString();
-    if (cycle.scheduledFor && cycle.scheduledFor > now) throw new SettlementError('El ciclo todavía no alcanzó su horario programado.', 409, 'settlement_not_due');
-    await database.prepare(
-      `UPDATE settlement_cycles SET status = 'settled', execution_idempotency_key = ?, settled_by = ?, settled_at = ?, updated_at = ? WHERE id = ?`,
-    ).bind(input.idempotencyKey, input.actorId, now, now, cycle.id).run();
-    const settled = { ...cycle, status: 'settled' as const, settledAt: now, updatedAt: now };
-    await audit(database, { organizationId: input.organizationId, actorId: input.actorId, action: 'settlement.cycle_settled', resourceId: cycle.id,
-      payload: { reconciliationRunId: cycle.reconciliationRunId, executionMode: input.executionMode, netMinor: cycle.netMinor,
-        differenceMinor: cycle.differenceMinor, currency: cycle.currency, sandbox: true } });
-    return { cycle: serializeCycle(settled), replayed: false };
-  });
+  }
+  await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+    .bind(`${input.organizationId}:settlement-cycle:${input.cycleId}`).first();
+  await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+    .bind(`${input.organizationId}:settlement-execution:${input.idempotencyKey}`).first();
+  const keyOwner = await database.prepare(
+    `SELECT id FROM settlement_cycles WHERE organization_id = ? AND execution_idempotency_key = ? LIMIT 1`,
+  ).bind(input.organizationId, input.idempotencyKey).first<{ id: string }>();
+  if (keyOwner && keyOwner.id !== input.cycleId) throw new SettlementError('La Idempotency-Key ya ejecutó otro ciclo.', 409, 'idempotency_mismatch');
+  const cycle = await database.prepare(
+    `${cycleSelect}, execution_idempotency_key AS "executionIdempotencyKey" FROM settlement_cycles
+     WHERE id = ? AND organization_id = ? FOR UPDATE`,
+  ).bind(input.cycleId, input.organizationId).first<CycleRow & { executionIdempotencyKey: string | null }>();
+  if (!cycle) throw new SettlementError('Ciclo de settlement no encontrado.', 404, 'settlement_cycle_not_found');
+  if (cycle.status === 'settled') {
+    if (cycle.executionIdempotencyKey === input.idempotencyKey) return { cycle: serializeCycle(cycle), replayed: true };
+    throw new SettlementError('El ciclo ya fue ejecutado.', 409, 'settlement_cycle_already_executed');
+  }
+  const now = new Date().toISOString();
+  if (cycle.scheduledFor && cycle.scheduledFor > now) throw new SettlementError('El ciclo todavía no alcanzó su horario programado.', 409, 'settlement_not_due');
+  await database.prepare(
+    `UPDATE settlement_cycles SET status = 'settled', execution_idempotency_key = ?, settled_by = ?, settled_at = ?, updated_at = ? WHERE id = ?`,
+  ).bind(input.idempotencyKey, input.actorId, now, now, cycle.id).run();
+  const settled = { ...cycle, status: 'settled' as const, settledAt: now, updatedAt: now };
+  await audit(database, { organizationId: input.organizationId, actorId: input.actorId, action: 'settlement.cycle_settled', resourceId: cycle.id,
+    payload: { reconciliationRunId: cycle.reconciliationRunId, executionMode: input.executionMode, netMinor: cycle.netMinor,
+      differenceMinor: cycle.differenceMinor, currency: cycle.currency, sandbox: true } });
+  return { cycle: serializeCycle(settled), replayed: false };
 }
 
-export async function processDueSettlementCycles(limit = 25) {
-  const database = getDatabaseClient();
-  const due = await database.prepare(
-    `SELECT id, organization_id AS "organizationId", created_by AS "createdBy" FROM settlement_cycles
-     WHERE status = 'scheduled' AND scheduled_for <= ? ORDER BY scheduled_for, id LIMIT ?`,
-  ).bind(new Date().toISOString(), limit).all<{ id: string; organizationId: string; createdBy: string }>();
-  const results: Array<{ id: string; status: 'settled' | 'failed'; error?: string }> = [];
-  for (const cycle of due.results) {
-    try {
-      await executeSettlementCycle({ organizationId: cycle.organizationId, actorId: cycle.createdBy, cycleId: cycle.id,
-        idempotencyKey: `scheduled:${cycle.id}`, executionMode: 'scheduled' }, database);
-      results.push({ id: cycle.id, status: 'settled' });
-    } catch (error) { results.push({ id: cycle.id, status: 'failed', error: error instanceof Error ? error.message : 'unknown_error' }); }
-  }
-  return results;
+export function executeSettlementCycle(input: {
+  organizationId: string; actorId: string; cycleId: string; idempotencyKey: string; executionMode: 'manual' | 'scheduled';
+}, client: DatabaseClient = getDatabaseClient()) {
+  return client.transaction((database) => executeSettlementCycleInTransaction(database, input));
 }

@@ -14,8 +14,12 @@ const email = `cimbra-qa-${runId}@example.test`;
 const username = `qa${runId.replaceAll('-', '').slice(0, 20)}`;
 const password = `Cimbra-QA-${runId}!`;
 const replacementPassword = `Cimbra-QA-Recovered-${runId}!`;
+const checkerEmail = `cimbra-checker-${runId}@example.test`;
+const checkerUsername = `checker${runId.replaceAll('-', '').slice(0, 16)}`;
+const checkerPassword = `Cimbra-Checker-${runId}!`;
 const sql = postgres(process.env.DATABASE_URL, { max: 1 });
 let cookie = '';
+let checkerCookie = '';
 let userId = '';
 let organizationId = '';
 const authAttemptHashes = new Set();
@@ -74,6 +78,8 @@ async function cleanup() {
       await transaction`DELETE FROM webhook_events WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM webhook_endpoints WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM api_keys WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM approval_requests WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM approval_policies WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM settlement_cycles WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM reconciliation_exceptions WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM reconciliation_items WHERE organization_id = ${organizationId}`;
@@ -100,6 +106,11 @@ async function cleanup() {
   }
   await sql`DELETE FROM auth_sessions WHERE user_id = ${userId}`;
   await sql`DELETE FROM users WHERE id = ${userId}`;
+  const [checker] = await sql`SELECT id FROM users WHERE email = ${checkerEmail} LIMIT 1`;
+  if (checker) {
+    await sql`DELETE FROM auth_sessions WHERE user_id = ${checker.id}`;
+    await sql`DELETE FROM users WHERE id = ${checker.id}`;
+  }
   for (const identityHash of authAttemptHashes) await sql`DELETE FROM auth_attempts WHERE identity_hash = ${identityHash}`;
 }
 
@@ -206,10 +217,41 @@ try {
   const revokedAccess = await json(await request('/api/platform/access'), 200);
   assert.equal(revokedAccess.data.invitations.find((item) => item.id === invited.invitation.id).status, 'revoked');
 
+  const adminInvitation = await json(await request('/api/platform/access', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: checkerEmail, role: 'admin' }),
+  }), 201);
+  assert.equal(adminInvitation.invitation.role, 'admin');
+  const ownerCookie = cookie;
+  cookie = '';
+  trackAuthAttempt('register', checkerEmail);
+  const checkerRegistration = await request('/api/auth/register', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ displayName: 'Cimbra Checker', username: checkerUsername, email: checkerEmail, password: checkerPassword }),
+  });
+  await json(checkerRegistration, 201);
+  cookie = checkerRegistration.headers.get('set-cookie')?.split(';', 1)[0] ?? '';
+  await sql`UPDATE users SET email_verified = 1, updated_at = ${new Date().toISOString()} WHERE email = ${checkerEmail}`;
+  assert.equal((await request('/console')).status, 200);
+  const checkerSetup = await json(await request('/api/auth/mfa/setup', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ currentPassword: checkerPassword }),
+  }), 200);
+  await json(await request('/api/auth/mfa/enable', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: totp(checkerSetup.secret) }),
+  }), 200);
+  checkerCookie = cookie;
+  const checkerAccess = await json(await request('/api/platform/access'), 200);
+  assert.equal(checkerAccess.current.role, 'admin');
+  cookie = ownerCookie;
+  const approvalPolicy = await json(await request('/api/platform/approval-policy', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: true, expiresInMinutes: 60 }),
+  }), 200);
+  assert.equal(approvalPolicy.policy.enabled, true);
+
   const initialLedgerResponse = await request('/api/v1/ledger', { headers: { 'X-Request-Id': `qa-request-${runId}` } });
   const initialLedger = (await json(initialLedgerResponse, 200)).data;
   assert.equal(initialLedgerResponse.headers.get('x-request-id'), `qa-request-${runId}`);
-  assert.equal(initialLedgerResponse.headers.get('cimbra-version'), '2026-08-28');
+  assert.equal(initialLedgerResponse.headers.get('cimbra-version'), '2026-08-29');
   const ars = initialLedger.balances.find((balance) => balance.currency === 'ARS');
   const usd = initialLedger.balances.find((balance) => balance.currency === 'USD');
   assert.deepEqual(
@@ -223,7 +265,7 @@ try {
 
   const createdKey = await json(await request('/api/platform/api-keys', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: 'QA integration', scopes: ['ledger:read', 'customers:read', 'customers:write'], expiresInDays: 30 }),
+    body: JSON.stringify({ name: 'QA integration', scopes: ['ledger:read', 'customers:read', 'customers:write', 'approvals:read'], expiresInDays: 30 }),
   }), 201);
   assert.match(createdKey.secret, /^cim_sk_test_/);
   const keyList = (await json(await request('/api/platform/api-keys'), 200)).data;
@@ -419,10 +461,38 @@ try {
     body: JSON.stringify({ reconciliationRunId: reconciliation.run.id, name: 'QA settlement cycle' }),
   }), 201);
   assert.equal(cycle.cycle.status, 'ready');
-  const settled = await json(await request(`/api/v1/settlements/${cycle.cycle.id}/execute`, {
+  const approvalPending = await json(await request(`/api/v1/settlements/${cycle.cycle.id}/execute`, {
     method: 'POST', headers: { 'Idempotency-Key': `qa-settlement-execute-${runId}` },
+  }), 202);
+  assert.equal(approvalPending.requiresApproval, true);
+  assert.equal(approvalPending.approval.status, 'pending');
+  await json(await request(`/api/v1/approvals/${approvalPending.approval.id}/approve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-approval-self-${runId}` },
+    body: JSON.stringify({ reason: 'self approval must fail' }),
+  }), 409);
+  const ownerCookieAfterRequest = cookie;
+  cookie = checkerCookie;
+  const approvalDecisionKey = `qa-approval-checker-${runId}`;
+  const settled = await json(await request(`/api/v1/approvals/${approvalPending.approval.id}/approve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': approvalDecisionKey },
+    body: JSON.stringify({ reason: 'QA independent checker approval' }),
   }), 200);
+  assert.equal(settled.approval.status, 'executed');
+  const approvalReplay = await json(await request(`/api/v1/approvals/${approvalPending.approval.id}/approve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': approvalDecisionKey },
+    body: JSON.stringify({ reason: 'QA independent checker approval' }),
+  }), 200);
+  assert.equal(approvalReplay.replayed, true);
+  await json(await request(`/api/v1/approvals/${approvalPending.approval.id}/approve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': approvalDecisionKey },
+    body: JSON.stringify({ reason: 'Changed payload must conflict' }),
+  }), 409);
+  cookie = ownerCookieAfterRequest;
   assert.equal(settled.cycle.status, 'settled');
+  const approvalList = await json(await fetch(new URL('/api/v1/approvals', target), {
+    headers: { Authorization: `Bearer ${createdKey.secret}` },
+  }), 200);
+  assert.equal(approvalList.data.some((item) => item.id === approvalPending.approval.id && item.status === 'executed'), true);
 
   const csv = new FormData();
   csv.set('name', 'QA CSV import'); csv.set('source', 'bank'); csv.set('currency', 'ARS');
@@ -460,7 +530,7 @@ try {
 
   console.log(JSON.stringify({
     ok: true,
-    checks: ['auth', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'member-invitations', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'reconciliation', 'csv-import', 'settlement', 'private-evidence', 'audit'],
+    checks: ['auth', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'member-invitations', 'dual-control', 'maker-checker', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'reconciliation', 'csv-import', 'settlement', 'private-evidence', 'audit'],
   }));
 } finally {
   await cleanup();

@@ -20,7 +20,7 @@ export const PLATFORM_CAPABILITIES: readonly PlatformCapability[] = [
   {
     id: 'identity-tenancy', name: 'Identity & Tenancy', domain: 'platform', availability: 'sandbox', delivery: 'cimbra_native',
     summary: 'Identidad, organizaciones, invitaciones, roles, API keys, sesiones, MFA y aislamiento por tenant.',
-    features: ['RBAC multi-tenant', 'invitaciones verificadas', 'jerarquía owner/admin', 'OAuth/OIDC', 'MFA TOTP', 'API keys con scopes', 'auditoría'],
+    features: ['RBAC multi-tenant', 'invitaciones verificadas', 'jerarquía owner/admin', 'maker/checker', 'OAuth/OIDC', 'MFA TOTP', 'API keys con scopes', 'auditoría'],
     interfaces: ['rest_api', 'webhooks', 'console'], regulatoryBoundary: 'Cimbra administra identidad y autorización; cada cliente conserva la responsabilidad sobre sus usuarios autorizados.',
   },
   {
@@ -92,7 +92,7 @@ export const PLATFORM_CAPABILITIES: readonly PlatformCapability[] = [
   {
     id: 'reconciliation-settlement', name: 'Reconciliation & Settlement', domain: 'operations', availability: 'sandbox', delivery: 'cimbra_native',
     summary: 'Ingestión API/CSV, comparación contra el ledger, excepciones y ciclos de settlement sandbox.',
-    features: ['batch reconciliation', 'CSV ingestion', 'exception queue', 'missing-entry detection', 'scheduled settlement cycles'],
+    features: ['batch reconciliation', 'CSV ingestion', 'exception queue', 'missing-entry detection', 'scheduled settlement cycles', 'dual approval'],
     interfaces: ['rest_api', 'webhooks', 'sdk', 'files', 'console'], regulatoryBoundary: 'La conciliación productiva depende de extractos oficiales de cada banco, cámara o red y segregación operativa; el settlement sandbox no mueve fondos.',
   },
   {

@@ -1,10 +1,11 @@
 import { CimbraApiError, CimbraConnectionError, CimbraTimeoutError } from './errors.ts';
 import type {
-  Account, AuditEvent, Card, CimbraResult, CreateAccountInput, CreateCardInput, CreateCustomerInput, CreatePaymentInput,
+  Account, ApprovalRequest, AuditEvent, Card, CimbraResult, CreateAccountInput, CreateCardInput, CreateCustomerInput, CreatePaymentInput,
   CreateReconciliationCsvImportInput, CreateReconciliationRunInput, CreateRiskEvaluationInput, CreateRiskRuleInput,
   CreateSettlementCycleInput, CreateTransferInput, CreateWebhookInput,
   Customer, Hold, HoldResolution, LedgerBalance, LedgerJournal, ListOptions, Page, PlatformCapability,
-  ReconciliationException, ReconciliationRun, RequestOptions, RiskCase, RiskEvaluation, RiskRule, SettlementCycle, Transaction, WebhookOperationalState,
+  ReconciliationException, ReconciliationRun, RequestOptions, RiskCase, RiskEvaluation, RiskRule, SettlementCycle, SettlementExecutionResult,
+  Transaction, WebhookOperationalState,
 } from './types.ts';
 
 type Fetch = typeof globalThis.fetch;
@@ -139,7 +140,13 @@ export class Cimbra {
     retrieve: (id: string, options?: RequestOptions) =>
       this.request<SettlementCycle>('GET', `/api/v1/settlements/${encodeURIComponent(id)}`, undefined, options),
     execute: (id: string, options?: RequestOptions) =>
-      this.post<{ ok: true; cycle: SettlementCycle; replayed: boolean }>(`/api/v1/settlements/${encodeURIComponent(id)}/execute`, undefined, options, true),
+      this.post<SettlementExecutionResult>(`/api/v1/settlements/${encodeURIComponent(id)}/execute`, undefined, options, true),
+  };
+
+  readonly approvals = {
+    list: (options?: RequestOptions) => this.request<{ data: ApprovalRequest[] }>('GET', '/api/v1/approvals', undefined, options),
+    retrieve: (id: string, options?: RequestOptions) =>
+      this.request<ApprovalRequest>('GET', `/api/v1/approvals/${encodeURIComponent(id)}`, undefined, options),
   };
 
   readonly holds = {

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { FormEvent, useMemo, useState, useSyncExternalStore } from 'react';
 import type { DashboardData } from '@/db/runtime';
 import AccessPanel from './access-panel';
+import ApprovalsPanel from './approvals-panel';
 import DevelopersPanel from './developers-panel';
 import PlatformPanel from './platform-panel';
 import ReconciliationPanel from './reconciliation-panel';
@@ -15,7 +16,7 @@ type Role = 'owner' | 'admin' | 'operator' | 'viewer';
 const nav: Array<{ icon: string; label: string; roles?: Role[] }> = [
   { icon: '▦', label: 'Vista general' }, { icon: '↔', label: 'Movimientos' }, { icon: '⇄', label: 'Payments' },
   { icon: '◉', label: 'Cuentas' }, { icon: '▰', label: 'Tarjetas' }, { icon: '◇', label: 'Riesgo' },
-  { icon: '≋', label: 'Conciliación' }, { icon: '✓', label: 'Compliance' }, { icon: '⌘', label: 'Plataforma' },
+  { icon: '≋', label: 'Conciliación' }, { icon: '⚖', label: 'Aprobaciones' }, { icon: '✓', label: 'Compliance' }, { icon: '⌘', label: 'Plataforma' },
   { icon: '⌁', label: 'Developers', roles: ['owner', 'admin'] }, { icon: '♙', label: 'Accesos', roles: ['owner', 'admin'] },
   { icon: '⌾', label: 'Seguridad' },
 ];
@@ -134,7 +135,7 @@ export default function ConsoleClient({ data, user }: {
             </article>
             <aside className="risk-card"><div className="card-head"><div><h2>Control de riesgo</h2><p>Reservas persistidas del sandbox</p></div><span className="risk-live">● ACTIVO</span></div><div className="risk-score"><div><strong>{data.riskAlerts}</strong><span>reservas abiertas</span></div><div><strong>{data.journalCount}</strong><span>journals posteados</span></div></div>{data.holds.slice(0,1).map((hold)=><div className="risk-item" key={hold.id}><i className="coral-dot">!</i><span><strong>Fondos reservados</strong><small>{hold.counterparty} · {money(hold.amount,hold.currency)}</small></span><b>Revisar</b></div>)}<div className="risk-item"><i>✓</i><span><strong>Integridad del ledger</strong><small>Débitos y créditos validados en PostgreSQL</small></span><b className="normal">Activo</b></div><button className="risk-button" onClick={() => setActive('Riesgo')}>Abrir centro de riesgo →</button></aside>
           </div>
-          </> : active === 'Seguridad' ? <SecurityPanel user={user} /> : active === 'Accesos' && (user.role === 'owner' || user.role === 'admin') ? <AccessPanel actorRole={user.role} /> : <SecondaryConsoleView active={active} data={data} role={user.role} busy={busy} feedback={feedback} onTransfer={() => setTransferOpen(true)} onPayment={() => setPaymentOpen(true)} onReverse={reverseTransaction} onHold={resolveReview} />}
+          </> : active === 'Seguridad' ? <SecurityPanel user={user} /> : active === 'Aprobaciones' ? <ApprovalsPanel actorRole={user.role} mfaEnabled={user.mfaEnabled} /> : active === 'Accesos' && (user.role === 'owner' || user.role === 'admin') ? <AccessPanel actorRole={user.role} /> : <SecondaryConsoleView active={active} data={data} role={user.role} busy={busy} feedback={feedback} onTransfer={() => setTransferOpen(true)} onPayment={() => setPaymentOpen(true)} onReverse={reverseTransaction} onHold={resolveReview} />}
         </div>
       </section>
 

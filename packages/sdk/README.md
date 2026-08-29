@@ -129,10 +129,13 @@ const created = await cimbra.settlements.create({
   scheduledFor: '2026-08-29T03:00:00.000Z',
 });
 
-await cimbra.settlements.execute(created.data.cycle.id);
+const execution = await cimbra.settlements.execute(created.data.cycle.id);
+if ('approval' in execution.data) {
+  console.log('Pendiente de doble aprobación:', execution.data.approval.id);
+}
 ```
 
-Sólo una conciliación `completed` puede generar un ciclo y cada corrida admite uno. El ciclo registra el neto, diferencia, programación, ejecución, auditoría y webhooks; en sandbox no ordena ni mueve fondos reales.
+Sólo una conciliación `completed` puede generar un ciclo y cada corrida admite uno. El ciclo registra el neto, diferencia, programación, ejecución, auditoría y webhooks; en sandbox no ordena ni mueve fondos reales. Si el tenant activa maker/checker, `execute` devuelve una solicitud pendiente y la ejecución sólo ocurre cuando otro owner/admin con MFA la aprueba desde una sesión humana. Las integraciones pueden consultar el estado con `cimbra.approvals.list()` o `retrieve()`; el SDK no permite que una API key actúe como checker.
 
 Las escrituras financieras seguras generan automáticamente una clave de idempotencia y conservan el mismo `X-Request-Id` durante los reintentos. También se puede proporcionar una clave propia:
 

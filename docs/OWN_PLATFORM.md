@@ -10,7 +10,7 @@ La independencia tecnológica no elimina la realidad de los rieles. Para mover f
 
 | Dominio propio | Superficie objetivo | Interfaces | Estado actual |
 | --- | --- | --- | --- |
-| Identity & Tenancy | organizaciones, invitaciones verificadas, RBAC, API keys, MFA, auditoría | API, webhooks, consola | Sandbox operativo |
+| Identity & Tenancy | organizaciones, invitaciones verificadas, RBAC, API keys, MFA, maker/checker, auditoría | API, webhooks, consola | Sandbox operativo |
 | Customers, KYC & KYB | personas/empresas, evidencia, screening, casos | API, webhooks, SDK, consola | Base técnica |
 | Financial Core | cuentas, ledger, holds, límites, fees, reversas | API, webhooks, SDK, consola | Sandbox operativo |
 | Payment Orchestration | intents, cash-in/out, transfers, routing, estados | API, webhooks, SDK, consola | Sandbox operativo |
@@ -22,7 +22,7 @@ La independencia tecnológica no elimina la realidad de los rieles. Para mover f
 | Wallets | white-label, balances, pockets y payouts | API, webhooks, SDK, consola | Base técnica |
 | Lending | originación, líneas, schedules, intereses y cobranza | API, webhooks, SDK, consola | Roadmap |
 | Risk & Fraud | reglas, velocity, scoring, casos y decisiones | API, webhooks, SDK, consola | Sandbox operativo |
-| Reconciliation & Settlement | ingestión API/CSV, matches, excepciones y ciclos programables | API, webhooks, SDK, archivos, consola | Sandbox operativo |
+| Reconciliation & Settlement | ingestión API/CSV, matches, excepciones, ciclos programables y doble aprobación | API, webhooks, SDK, archivos, consola | Sandbox operativo |
 | Treasury | posición, prefunding, forecasting y sweeps | API, webhooks, archivos, consola | Roadmap |
 | Developer Platform | API v1, SDK, sandbox, webhooks y observabilidad | API, SDK, consola | Sandbox operativo |
 

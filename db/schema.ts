@@ -331,6 +331,39 @@ export const settlementCycles = pgTable('settlement_cycles', {
   check('settlement_cycles_status', sql`${table.status} IN ('ready', 'scheduled', 'settled')`),
 ]);
 
+export const approvalPolicies = pgTable('approval_policies', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  actionType: text('action_type').notNull(), enabled: integer('enabled').notNull().default(0),
+  expiresInMinutes: integer('expires_in_minutes').notNull().default(1440),
+  createdBy: text('created_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
+  createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_approval_policies_org_action').on(table.organizationId, table.actionType),
+  check('approval_policies_action', sql`${table.actionType} IN ('settlement.execute')`),
+  check('approval_policies_enabled', sql`${table.enabled} IN (0, 1)`),
+  check('approval_policies_expiry', sql`${table.expiresInMinutes} BETWEEN 15 AND 10080`),
+]);
+
+export const approvalRequests = pgTable('approval_requests', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  actionType: text('action_type').notNull(), resourceType: text('resource_type').notNull(), resourceId: text('resource_id').notNull(),
+  idempotencyKey: text('idempotency_key').notNull(), requestFingerprint: text('request_fingerprint').notNull(),
+  status: text('status').notNull().default('pending'), requestPayload: text('request_payload').notNull().default('{}'),
+  requestedBy: text('requested_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
+  resolvedBy: text('resolved_by').references(() => users.id, { onDelete: 'restrict' }), resolutionReason: text('resolution_reason'),
+  expiresAt: text('expires_at').notNull(), resolvedAt: text('resolved_at'), executedAt: text('executed_at'),
+  createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_approval_requests_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  index('idx_approval_requests_org_status').on(table.organizationId, table.status, table.createdAt),
+  index('idx_approval_requests_org_resource').on(table.organizationId, table.actionType, table.resourceId),
+  check('approval_requests_action', sql`${table.actionType} IN ('settlement.execute')`),
+  check('approval_requests_resource', sql`${table.resourceType} IN ('settlement_cycle')`),
+  check('approval_requests_status', sql`${table.status} IN ('pending', 'executed', 'rejected', 'cancelled', 'expired')`),
+]);
+
 export const reconciliationItems = pgTable('reconciliation_items', {
   id: text('id').primaryKey(),
   organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),

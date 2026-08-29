@@ -56,7 +56,13 @@ Ninguno de estos gaps autoriza conectar Cimbra con un competidor. Las únicas de
 
 ## Benchmark aplicado — identidad y operación por rol (28/08/2026)
 
-Pismo documenta roles predefinidos por función, permission groups, acceso por organización, SSO y perfiles separados de operador, viewer, auditor y approver. Pomelo permite crear operadores, asignar roles y limitar pantallas y acciones, con alta por email y 2FA. Cimbra adopta ahora el núcleo propio necesario: invitaciones verificadas y vencibles, owner protegido, administración delegada sin escalamiento, operator mutante, viewer de lectura y eventos auditables. Roles personalizados, SSO empresarial y perfiles approver específicos permanecen como evolución posterior; no se presentan como terminados.
+Pismo documenta roles predefinidos por función, permission groups, acceso por organización, SSO y perfiles separados de operador, viewer, auditor y approver. Pomelo permite crear operadores, asignar roles y limitar pantallas y acciones, con alta por email y 2FA. Cimbra adopta ahora el núcleo propio necesario: invitaciones verificadas y vencibles, owner protegido, administración delegada sin escalamiento, operator mutante, viewer de lectura y eventos auditables. Owner/admin pueden actuar como checker bajo una política específica; roles personalizados, SSO empresarial y un perfil approver dedicado permanecen como evolución posterior y no se presentan como terminados.
+
+## Benchmark aplicado — doble aprobación (29/08/2026)
+
+Pismo publica un patrón maker/checker en el que una persona solicita, otra con rol autorizado decide y la operación no cambia el recurso hasta la aprobación; también documenta estados pendientes y terminales, expiración, historial y notificaciones para operaciones sensibles. BIND/bindX documenta OAuth 2.0 y permisos robustos para transferencias automatizadas, pero su material público consultado no alcanza para atribuirle un contrato maker/checker equivalente. No se encontraron contratos públicos suficientemente precisos de Dock, tapi, Pomelo o Wibond para afirmar paridad de doble aprobación endpoint por endpoint.
+
+Cimbra implementa el patrón como propiedad propia y lo aplica primero a settlement sandbox: política por tenant, maker y checker distintos, owner/admin con MFA para decidir, idempotencia, locks de concurrencia, expiración, rechazo, cancelación, auditoría, webhooks y ejecución atómica. El scheduler atraviesa el mismo control. Las integraciones S2S pueden leer el historial con `approvals:read`, pero no aprobar ni rechazar. La extensión a transferencias, límites, tarjetas, credenciales, casos y configuración sensible, junto con notificaciones específicas y un rol approver dedicado, permanece en roadmap.
 
 ## Wedge recomendado
 
@@ -111,6 +117,9 @@ Una ronda pre-seed debe financiar 18 meses para cerrar el producto inicial, cont
 - https://developers.pismo.io/pismo-docs/docs/anti-fraud-integration
 - https://developers.pismo.io/pismo-docs/docs/security-guide-for-apis
 - https://developers.pismo.io/pismo-docs/docs/get-started-with-sso-for-control-center
+- https://developers.pismo.io/pismo-docs/docs/security-guide-for-control-center
+- https://developers.pismo.io/pismo-docs/docs/control-center-access-profiles-and-roles
+- https://developers.pismo.io/pismo-docs/docs/dual-approval
 - https://developers.pismo.io/pismo-docs/changelog/6-march-2026
 - https://developers.pismo.io/pismo-docs/docs/file-based-check-processing-and-bulk-settlement
 - https://developers.pomelo.la/api-reference/processing/transactions

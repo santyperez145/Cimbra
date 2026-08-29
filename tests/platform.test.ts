@@ -9,6 +9,7 @@ import { matchReconciliationEntries } from '../app/lib/platform/reconciliation.t
 import { systemAmountRisk } from '../app/lib/platform/risk-engine.ts';
 import { csvObjects, CsvError } from '../app/lib/platform/csv.ts';
 import { assignableRole, canManageRole, normalizeAccessEmail } from '../app/lib/platform/access-policy.ts';
+import { approvalActionType, approvalExpiryMinutes, approvalReason, canDecideApproval } from '../app/lib/platform/approval-policy.ts';
 
 process.env.CIMBRA_ENCRYPTION_KEY = '3ea72fc13c567057870342c6ebd34d88f58f6d80b1dba61c4be4e1c2f1406afb';
 
@@ -97,6 +98,19 @@ test('la jerarquía RBAC protege owner, admins y emails de invitación', () => {
   assert.equal(canManageRole('admin', 'operator', 'admin'), false);
   assert.equal(canManageRole('admin', 'operator', 'viewer'), true);
   assert.equal(canManageRole('owner', 'owner', 'admin'), false);
+});
+
+test('maker/checker exige otro actor privilegiado con MFA y políticas acotadas', () => {
+  assert.equal(approvalActionType('settlement.execute'), 'settlement.execute');
+  assert.equal(approvalActionType('competitor.execute'), null);
+  assert.equal(approvalExpiryMinutes(15), 15);
+  assert.equal(approvalExpiryMinutes(10_081), null);
+  assert.equal(approvalReason('  diferencia validada  ', true), 'diferencia validada');
+  assert.equal(approvalReason('x', true), null);
+  assert.equal(canDecideApproval({ actorRole: 'admin', actorId: 'checker', requesterId: 'maker', mfaEnabled: true }), true);
+  assert.equal(canDecideApproval({ actorRole: 'owner', actorId: 'maker', requesterId: 'maker', mfaEnabled: true }), false);
+  assert.equal(canDecideApproval({ actorRole: 'admin', actorId: 'checker', requesterId: 'maker', mfaEnabled: false }), false);
+  assert.equal(canDecideApproval({ actorRole: 'operator', actorId: 'checker', requesterId: 'maker', mfaEnabled: true }), false);
 });
 
 test('las políticas de monto son regionales y explicables', () => {

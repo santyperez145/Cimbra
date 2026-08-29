@@ -9,6 +9,8 @@ export const WEBHOOK_EVENT_TYPES = [
   'hold.captured', 'hold.released', 'payment.created', 'risk.rule_created', 'risk.rule_disabled',
   'risk.case_created', 'risk.case_resolved', 'reconciliation.run_created', 'reconciliation.exception_resolved',
   'settlement.cycle_created', 'settlement.cycle_settled',
+  'approval.policy_updated', 'approval.request_created', 'approval.request_executed',
+  'approval.request_rejected', 'approval.request_cancelled', 'approval.request_expired',
   'organization.invitation_created', 'organization.invitation_accepted', 'organization.invitation_revoked',
   'organization.member_role_updated', 'organization.member_removed',
   'compliance.document_uploaded',

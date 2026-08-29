@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Cimbra API v1
-  version: 2026-08-28
+  version: 2026-08-29
   description: Versioned financial infrastructure API backed by a persistent double-entry ledger, scoped S2S API keys and signed durable webhooks. This deployment is a sandbox and does not move real funds. Every response includes X-Request-Id and Cimbra-Version; API-key responses also expose X-RateLimit-Limit, X-RateLimit-Remaining and X-RateLimit-Reset. Mutations replayed from an idempotency key include Idempotent-Replayed, while error responses may include Cimbra-Should-Retry so official SDKs can make safe retry decisions.
   license:
     name: Proprietary
@@ -527,8 +527,91 @@ paths:
         - $ref: '#/components/parameters/ResourceId'
         - $ref: '#/components/parameters/IdempotencyKey'
       responses:
-        '200': { description: Cycle settled and webhook enqueued }
+        '200': { description: 'Cycle settled directly, or an already executed approval replayed' }
+        '202': { description: Dual-control policy is active and an approval request is pending }
         '409': { description: Cycle is not due or was already executed differently }
+  /api/v1/approvals:
+    get:
+      operationId: listApprovalRequests
+      summary: List maker/checker requests for the tenant
+      description: API keys require approvals:read. Decisions remain session-only so an S2S credential cannot act as a human checker.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      responses:
+        '200':
+          description: Approval request history
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/ApprovalRequest' } }
+  /api/v1/approvals/{id}:
+    get:
+      operationId: retrieveApprovalRequest
+      summary: Retrieve one tenant approval request
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses:
+        '200': { description: Approval request, content: { application/json: { schema: { $ref: '#/components/schemas/ApprovalRequest' } } } }
+        '404': { description: Approval request not found }
+  /api/v1/approvals/{id}/approve:
+    post:
+      operationId: approveRequest
+      summary: Approve and atomically execute a protected settlement
+      description: Requires a different owner/admin with MFA and a console session. API keys are rejected.
+      security: [{ session: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: { reason: { type: string, maxLength: 500 } }
+      responses:
+        '200': { description: Request approved and settlement executed in the same transaction }
+        '403': { description: 'MFA, checker role or human session required' }
+        '409': { description: 'Maker attempted self-approval, request expired or is no longer pending' }
+  /api/v1/approvals/{id}/reject:
+    post:
+      operationId: rejectApprovalRequest
+      summary: Reject a protected operation with a reason
+      security: [{ session: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties: { reason: { type: string, minLength: 3, maxLength: 500 } }
+      responses:
+        '200': { description: Request rejected and operation left unapplied }
+        '403': { description: 'MFA, checker role or human session required' }
+        '409': { description: Request expired or is no longer pending }
+  /api/v1/approvals/{id}/cancel:
+    post:
+      operationId: cancelApprovalRequest
+      summary: Cancel a pending request as its maker
+      security: [{ session: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: { reason: { type: string, maxLength: 500 } }
+      responses:
+        '200': { description: Request cancelled and history preserved }
+        '403': { description: Only the maker may cancel }
+        '409': { description: Request expired or is no longer pending }
   /api/v1/transfers/{id}/reverse:
     post:
       operationId: reverseTransfer
@@ -692,6 +775,33 @@ paths:
       responses:
         '200': { description: Invitation revoked }
         '409': { description: Invitation is no longer pending }
+  /api/platform/approval-policy:
+    get:
+      operationId: getSettlementApprovalPolicy
+      summary: Read settlement dual-control policy and eligible checker count
+      security: [{ session: [] }]
+      responses:
+        '200': { description: Effective policy for owner or admin }
+        '403': { description: Owner or admin role required }
+    patch:
+      operationId: configureSettlementApprovalPolicy
+      summary: Enable or disable dual approval as owner with MFA
+      description: Enabling requires another owner/admin with MFA. Disabling is blocked while requests are pending.
+      security: [{ session: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled, expiresInMinutes]
+              properties:
+                enabled: { type: boolean }
+                expiresInMinutes: { type: integer, minimum: 15, maximum: 10080 }
+      responses:
+        '200': { description: Policy updated and audit event emitted }
+        '403': { description: Owner role and MFA required }
+        '409': { description: No independent checker exists or requests remain pending }
   /api/platform/api-keys:
     get:
       operationId: listApiKeys
@@ -716,7 +826,7 @@ paths:
                   type: array
                   minItems: 1
                   uniqueItems: true
-                  items: { type: string, enum: ['customers:read', 'customers:write', 'accounts:read', 'accounts:write', 'cards:read', 'cards:write', 'transfers:read', 'transfers:write', 'payments:read', 'payments:write', 'risk:read', 'risk:write', 'reconciliation:read', 'reconciliation:write', 'settlements:read', 'settlements:write', 'platform:read', 'ledger:read', 'events:read', 'compliance:write', 'webhooks:manage'] }
+                  items: { type: string, enum: ['customers:read', 'customers:write', 'accounts:read', 'accounts:write', 'cards:read', 'cards:write', 'transfers:read', 'transfers:write', 'payments:read', 'payments:write', 'risk:read', 'risk:write', 'reconciliation:read', 'reconciliation:write', 'settlements:read', 'settlements:write', 'approvals:read', 'platform:read', 'ledger:read', 'events:read', 'compliance:write', 'webhooks:manage'] }
                 expiresInDays: { type: integer, minimum: 1, maximum: 365 }
       responses:
         '201': { description: API key created and secret returned once }
@@ -835,6 +945,26 @@ components:
       description: Stable unique key for this logical write. Replays return the original resource; reusing it with a different payload returns 409.
       schema: { type: string, minLength: 8, maxLength: 100, pattern: '^[A-Za-z0-9._:-]+$' }
   schemas:
+    ApprovalRequest:
+      type: object
+      required: [id, actionType, resourceType, resourceId, status, requestPayload, requestedBy, requestedByName, expiresAt, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        actionType: { type: string, const: settlement.execute }
+        resourceType: { type: string, const: settlement_cycle }
+        resourceId: { type: string, format: uuid }
+        status: { type: string, enum: [pending, executed, rejected, cancelled, expired] }
+        requestPayload: { type: object, additionalProperties: true }
+        requestedBy: { type: string, format: uuid }
+        requestedByName: { type: string }
+        resolvedBy: { type: [string, 'null'], format: uuid }
+        resolvedByName: { type: [string, 'null'] }
+        resolutionReason: { type: [string, 'null'] }
+        expiresAt: { type: string, format: date-time }
+        resolvedAt: { type: [string, 'null'], format: date-time }
+        executedAt: { type: [string, 'null'], format: date-time }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
     OrganizationMember:
       type: object
       required: [id, userId, email, displayName, role, emailVerified, mfaEnabled, createdAt]

@@ -11,7 +11,7 @@ export async function GET() {
     ).first<{ ready: boolean }>();
     if (!readiness?.ready) throw new Error('schema_not_ready');
     return NextResponse.json({
-      status: 'ok', service: 'cimbra-platform', version: '2026-08-28',
+      status: 'ok', service: 'cimbra-platform', version: '2026-08-29',
       dependencies: { database: 'ok' }, latencyMs: Math.round(performance.now() - startedAt),
       timestamp: new Date().toISOString(),
     }, { headers: { 'Cache-Control': 'no-store' } });

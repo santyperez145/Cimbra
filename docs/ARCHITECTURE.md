@@ -37,7 +37,7 @@ Risk & Fraud evalúa transferencias y payments dentro de la transacción que cre
 
 Reconciliation toma partidas API o un CSV UTF-8 versionado por Idempotency-Key y las compara con movimientos `settled/reversed` del mismo tenant, moneda y período. El archivo crudo se valida en memoria y se descarta; quedan checksum, nombre seguro y partidas normalizadas. Cada partida queda como `matched`, `mismatch`, `missing_internal` o `missing_external`; las diferencias generan excepciones con resolución auditable. No modifica postings ni oculta breaks: una corrección financiera debe ingresar como operación compensatoria independiente.
 
-Una conciliación `completed` puede originar un único ciclo de settlement sandbox. El ciclo conserva neto, diferencia, rail lógico, programación y ejecución idempotente; el dispatcher diario ejecuta ciclos vencidos y emite eventos mediante el mismo outbox. Es una confirmación operativa de sandbox: los settlement instructions, el intercambio de archivos con rieles y el movimiento de fondos permanecen fuera hasta homologar conectividad directa.
+Una conciliación `completed` puede originar un único ciclo de settlement sandbox. El ciclo conserva neto, diferencia, rail lógico, programación y ejecución idempotente. Cuando el tenant activa doble control, ejecutar no modifica el ciclo: crea una solicitud `pending`, con expiración e idempotencia, y exige un checker owner/admin con MFA distinto del maker. La aprobación, el settlement, la auditoría y el outbox se confirman en una misma transacción; rechazo, cancelación y expiración son estados terminales preservados. El dispatcher diario atraviesa el mismo orquestador y no puede eludir la política. Es una confirmación operativa de sandbox: los settlement instructions, el intercambio de archivos con rieles y el movimiento de fondos permanecen fuera hasta homologar conectividad directa.
 
 Los deployments productivos de Vercel ejecutan las migraciones versionadas antes de compilar y publicar la nueva aplicación. Los previews no mutan la base compartida; ECS conserva una task definition de migración separada y el rollout exige su finalización correcta.
 
@@ -74,6 +74,7 @@ El sandbox ya impone:
 - decisiones de riesgo persistidas y explicables antes de contabilizar;
 - conciliaciones reproducibles con cola de excepciones y cierre explícito;
 - importaciones con checksum y settlement sandbox sin doble ejecución;
+- doble control maker/checker para settlement, con identidad humana, MFA, separación de funciones y decisión atómica;
 
 Antes de dinero real todavía se requieren secuencia estable para extractos, conciliación independiente contra Cimbra, banco/cámara y settlement, cierres, snapshots, operación multi-región y controles regulatorios.
 

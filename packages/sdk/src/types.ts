@@ -40,6 +40,19 @@ export type SettlementCycle = {
   periodStart: string; periodEnd: string; netMinor: string; net: number; differenceMinor: string; difference: number;
   status: 'ready' | 'scheduled' | 'settled'; scheduledFor: string | null; settledAt: string | null; createdAt: string; updatedAt: string;
 };
+export type ApprovalRequest = {
+  id: string; actionType: 'settlement.execute'; resourceType: 'settlement_cycle'; resourceId: string;
+  status: 'pending' | 'executed' | 'rejected' | 'cancelled' | 'expired'; requestPayload: {
+    name?: string; rail?: ReconciliationRun['source']; currency?: Currency; netMinor?: string; differenceMinor?: string;
+    scheduledFor?: string | null; executionMode?: 'manual' | 'scheduled'; sandbox?: boolean;
+  };
+  requestedBy: string; requestedByName: string; resolvedBy: string | null; resolvedByName: string | null;
+  resolutionReason: string | null; expiresAt: string; resolvedAt: string | null; executedAt: string | null;
+  createdAt: string; updatedAt: string;
+};
+export type SettlementExecutionResult =
+  | { ok: true; cycle: SettlementCycle; replayed: boolean; requiresApproval?: false }
+  | { ok: true; requiresApproval: true; approval: ApprovalRequest; replayed: boolean; deduplicated: boolean };
 export type ReconciliationException = {
   id: string; runId: string; itemId: string; kind: 'amount_mismatch' | 'missing_internal' | 'missing_external'; status: 'open' | 'resolved' | 'accepted';
   externalReference: string; transactionId: string | null; expectedMinor: string; expected: number; actualMinor: string; actual: number;

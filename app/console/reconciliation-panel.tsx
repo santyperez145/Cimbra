@@ -75,8 +75,10 @@ export default function ReconciliationPanel({ readOnly = false }: { readOnly?: b
 
   async function executeSettlement(id: string) {
     setBusy(true); setFeedback(''); const response = await fetch(`/api/v1/settlements/${id}/execute`, { method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() } });
-    const result = await response.json() as { error?: { message?: string } | string };
-    setFeedback(response.ok ? 'Settlement sandbox ejecutado y evento emitido.' : typeof result.error === 'string' ? result.error : result.error?.message ?? 'No pudimos ejecutar el settlement.');
+    const result = await response.json() as { error?: { message?: string } | string; requiresApproval?: boolean; approval?: { status?: string } };
+    setFeedback(response.ok ? result.requiresApproval && result.approval?.status === 'pending'
+      ? 'Solicitud enviada a doble aprobación. Otro owner/admin con MFA debe decidirla.'
+      : 'Settlement sandbox ejecutado y evento emitido.' : typeof result.error === 'string' ? result.error : result.error?.message ?? 'No pudimos ejecutar el settlement.');
     if (response.ok) await load(); setBusy(false);
   }
 

@@ -1,5 +1,5 @@
 import { dispatchWebhookDeliveries } from '@/db/platform';
-import { processDueSettlementCycles } from '@/db/settlements';
+import { processDueSettlementCycles } from '@/db/approvals';
 
 export const maxDuration = 60;
 
