@@ -81,7 +81,7 @@ El sandbox ya impone:
 - conciliaciones reproducibles con cola de excepciones y cierre explícito;
 - ownership, prioridad, SLA, comentarios y evidencia privada para la cola operativa;
 - importaciones con checksum y settlement sandbox sin doble ejecución;
-- doble control maker/checker para settlement y transferencias, con identidad humana, MFA, separación de funciones, revalidación y decisión atómica;
+- doble control maker/checker para settlement, transferencias, casos de riesgo y excepciones de conciliación, con identidad humana, MFA, separación de funciones, revalidación y decisión atómica;
 
 Antes de dinero real todavía se requieren secuencia estable para extractos, conciliación independiente contra Cimbra, banco/cámara y settlement, cierres, snapshots, operación multi-región y controles regulatorios.
 

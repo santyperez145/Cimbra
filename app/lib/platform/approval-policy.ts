@@ -1,6 +1,11 @@
 import type { OrganizationRole } from './access-policy';
 
-export const APPROVAL_ACTION_TYPES = ['settlement.execute', 'transfer.create'] as const;
+export const APPROVAL_ACTION_TYPES = [
+  'settlement.execute',
+  'transfer.create',
+  'risk.case.resolve',
+  'reconciliation.exception.resolve',
+] as const;
 export type ApprovalActionType = typeof APPROVAL_ACTION_TYPES[number];
 export type ApprovalStatus = 'pending' | 'executed' | 'rejected' | 'cancelled' | 'expired' | 'failed';
 

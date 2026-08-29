@@ -5,6 +5,9 @@ import { scheduleWebhookDispatch } from '@/app/lib/platform/dispatch';
 import { IdempotencyError, requestIdempotencyKey } from '@/app/lib/platform/idempotency';
 import { versionedApi } from '@/app/lib/platform/versioned-api';
 import { ApprovalError, decideApprovalRequest } from '@/db/approvals';
+import { LedgerError } from '@/db/ledger';
+import { ReconciliationError } from '@/db/reconciliation';
+import { RiskError } from '@/db/risk';
 import { SettlementError } from '@/db/settlements';
 import type { OrganizationRole } from '@/db/runtime';
 
@@ -23,7 +26,8 @@ async function approve(request: Request, id: string) {
     return NextResponse.json({ ok: true, ...result }, { headers: rateLimitHeaders(principal) });
   } catch (error) {
     const authorization = authorizationErrorResponse(error); if (authorization) return authorization;
-    if (error instanceof IdempotencyError || error instanceof ApprovalError || error instanceof SettlementError) {
+    if (error instanceof IdempotencyError || error instanceof ApprovalError || error instanceof LedgerError ||
+      error instanceof RiskError || error instanceof ReconciliationError || error instanceof SettlementError) {
       return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
     }
     throw error;

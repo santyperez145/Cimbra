@@ -54,8 +54,11 @@ export default function RiskPanel({ holds, busy: externalBusy, canManageRules, c
     setBusy(true); setFeedback(''); const response = await authenticatedFetch(`/api/v1/risk/cases/${id}/resolve`, { method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
       body: JSON.stringify({ resolution, note: `Decisión ${resolution} desde consola sandbox.` }) });
-    const result = await response.json() as { error?: { message?: string } | string };
-    setFeedback(response.ok ? `Caso ${resolution === 'approved' ? 'aprobado' : 'rechazado'} y estado operativo sincronizado.` : typeof result.error === 'string' ? result.error : result.error?.message ?? 'No pudimos resolver el caso.');
+    const result = await response.json() as { error?: { message?: string } | string; requiresApproval?: boolean; approval?: { status?: string } };
+    setFeedback(response.ok ? result.requiresApproval && result.approval?.status === 'pending'
+      ? 'Solicitud enviada a doble aprobación. El caso sigue abierto hasta que otro owner/admin con MFA decida.'
+      : `Caso ${resolution === 'approved' ? 'aprobado' : 'rechazado'} y estado operativo sincronizado.`
+      : typeof result.error === 'string' ? result.error : result.error?.message ?? 'No pudimos resolver el caso.');
     if (response.ok) await load(); setBusy(false);
   }
 

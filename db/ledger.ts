@@ -456,6 +456,7 @@ export async function resolveHold(input: {
   holdId: string;
   action: 'capture' | 'release';
   idempotencyKey: string;
+  approvalAuthorized?: boolean;
 }, database: DatabaseClient = getDatabaseClient()) {
   return database.transaction(async (transaction) => {
     await transaction.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
@@ -491,6 +492,23 @@ export async function resolveHold(input: {
         return { id: hold.id, status: hold.status, replayed: true };
       }
       throw new LedgerError('La reserva ya fue resuelta con otra operación.', 409, 'hold_already_resolved');
+    }
+    if (!input.approvalAuthorized) {
+      await transaction.prepare('SELECT pg_advisory_xact_lock_shared(hashtextextended(?, 0::bigint))')
+        .bind(`${input.organizationId}:approval-policy:risk.case.resolve`).first();
+      const protectedCase = await transaction.prepare(
+        `SELECT rc.id FROM risk_cases rc
+         JOIN approval_policies ap ON ap.organization_id = rc.organization_id
+           AND ap.action_type = 'risk.case.resolve' AND ap.enabled = 1
+         WHERE rc.organization_id = ? AND rc.hold_id = ? AND rc.status = 'open' LIMIT 1`,
+      ).bind(input.organizationId, hold.id).first<{ id: string }>();
+      if (protectedCase) {
+        throw new LedgerError(
+          'La reserva pertenece a un caso protegido; resolvé el caso mediante doble aprobación.',
+          409,
+          'risk_case_approval_required',
+        );
+      }
     }
     await transaction.prepare('SELECT id FROM financial_accounts WHERE id = ? FOR UPDATE')
       .bind(hold.accountId).first();

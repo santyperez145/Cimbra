@@ -177,6 +177,21 @@ if (transfer.data.requiresApproval) {
 
 Si la política `transfer.create` está activa, la llamada no crea aún un movimiento: devuelve `202` y una solicitud. Otro owner/admin con MFA debe aprobar desde una sesión humana; recién entonces Cimbra vuelve a validar saldo y riesgo y crea la transferencia, el hold o el ledger correspondiente dentro de la misma transacción. Un pending no reserva fondos, por lo que una aprobación puede finalizar como `failed` si el saldo o riesgo cambian. Los montos enviados se representan como strings decimales y los montos contables de respuesta incluyen su valor en unidades menores como string. Esto evita errores de punto flotante.
 
+El mismo contrato protege decisiones operativas cuando el tenant activa `risk.case.resolve` o `reconciliation.exception.resolve`:
+
+```ts
+const decision = await cimbra.risk.resolveCase(caseId, {
+  resolution: 'approved',
+  note: 'Evidencia y contraparte verificadas.',
+});
+
+if (decision.data.requiresApproval) {
+  console.log('Caso pendiente de checker:', decision.data.approval.id);
+}
+```
+
+El caso o la excepción permanecen abiertos hasta la decisión independiente. La aprobación vuelve a validar el estado y ejecuta la resolución, el hold asociado y la auditoría en la misma transacción. Las API keys pueden originar el pedido con su scope de escritura, pero nunca actuar como checker.
+
 ## Verificar webhooks
 
 ```ts

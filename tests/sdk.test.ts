@@ -112,6 +112,27 @@ test('el SDK representa transferencias pendientes de aprobación humana', async 
   if (result.data.requiresApproval) assert.equal(result.data.approval.actionType, 'transfer.create');
 });
 
+test('el SDK representa resoluciones operativas pendientes de checker', async () => {
+  const calls: string[] = [];
+  const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async (input) => {
+    calls.push(String(input));
+    const risk = String(input).includes('/risk/cases/');
+    return Response.json({ ok: true, requiresApproval: true, replayed: false, deduplicated: false,
+      approval: { id: risk ? 'approval_risk' : 'approval_reconciliation',
+        actionType: risk ? 'risk.case.resolve' : 'reconciliation.exception.resolve',
+        resourceType: risk ? 'risk_case' : 'reconciliation_exception', resourceId: risk ? 'case_1' : 'exception_1', status: 'pending' } },
+    { status: 202 });
+  } });
+  const risk = await client.risk.resolveCase('case_1', { resolution: 'approved', note: 'Evidencia validada.' });
+  const reconciliation = await client.reconciliation.resolveException('exception_1', { resolution: 'accepted', note: 'Diferencia validada.' });
+  assert.equal(risk.data.requiresApproval && risk.data.approval.actionType, 'risk.case.resolve');
+  assert.equal(reconciliation.data.requiresApproval && reconciliation.data.approval.actionType, 'reconciliation.exception.resolve');
+  assert.deepEqual(calls, [
+    'https://api.test/api/v1/risk/cases/case_1/resolve',
+    'https://api.test/api/v1/reconciliation/exceptions/exception_1/resolve',
+  ]);
+});
+
 test('el SDK expone el catálogo de servicios nativos de Cimbra', async () => {
   let requestUrl = '';
   const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async (input) => {

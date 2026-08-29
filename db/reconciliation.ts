@@ -155,8 +155,9 @@ export async function retrieveReconciliationRun(organizationId: string, id: stri
 
 export async function resolveReconciliationException(input: {
   organizationId: string; actor: AuthUser; exceptionId: string; resolution: 'corrected' | 'accepted'; note: string; idempotencyKey: string;
-}) {
-  return getDatabaseClient().transaction(async (database) => {
+  approvalContext?: { requestId: string; requestedBy: string };
+}, database: DatabaseClient = getDatabaseClient()) {
+  return database.transaction(async (database) => {
     await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
       .bind(`${input.organizationId}:reconciliation-exception:${input.idempotencyKey}`).first();
     const keyOwner = await database.prepare(
@@ -183,7 +184,9 @@ export async function resolveReconciliationException(input: {
     ).bind(current.runId).first<{ count: number }>();
     if (Number(remaining?.count ?? 0) === 0) await database.prepare(`UPDATE reconciliation_runs SET status = 'completed', updated_at = ? WHERE id = ?`).bind(now, current.runId).run();
     await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId, action: 'reconciliation.exception_resolved',
-      resourceType: 'reconciliation_exception', resourceId: input.exceptionId, payload: { runId: current.runId, resolution: input.resolution, note: input.note } });
+      resourceType: 'reconciliation_exception', resourceId: input.exceptionId, payload: { runId: current.runId,
+        resolution: input.resolution, note: input.note, approvalRequestId: input.approvalContext?.requestId,
+        requestedBy: input.approvalContext?.requestedBy } });
     return { id: input.exceptionId, status, resolution: input.resolution, replayed: false };
   });
 }

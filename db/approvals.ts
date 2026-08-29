@@ -4,8 +4,10 @@ import { canDecideApproval, type ApprovalActionType, type ApprovalStatus } from 
 import type { OrganizationRole } from '@/app/lib/platform/access-policy';
 import type { Currency } from '@/app/lib/ledger/money';
 import { type DatabaseClient, getDatabaseClient } from './client';
-import { createTransferInTransaction, findTransferByIdempotency, LedgerError, type TransferCreationInput } from './ledger';
+import { createTransferInTransaction, findTransferByIdempotency, LedgerError, resolveHold, type TransferCreationInput } from './ledger';
 import { enqueueWebhookEvent } from './platform';
+import { ReconciliationError, resolveReconciliationException } from './reconciliation';
+import { getRiskCaseForResolution, resolveRiskCase, RiskError } from './risk';
 import { executeSettlementCycle, executeSettlementCycleInTransaction, SettlementError } from './settlements';
 
 export class ApprovalError extends Error {
@@ -13,7 +15,8 @@ export class ApprovalError extends Error {
 }
 
 type ApprovalRow = {
-  id: string; actionType: ApprovalActionType; resourceType: 'settlement_cycle' | 'transfer'; resourceId: string;
+  id: string; actionType: ApprovalActionType;
+  resourceType: 'settlement_cycle' | 'transfer' | 'risk_case' | 'reconciliation_exception'; resourceId: string;
   status: ApprovalStatus; requestFingerprint: string; requestPayload: string; requestedBy: string; requestedByName: string;
   resolvedBy: string | null; resolvedByName: string | null; resolutionReason: string | null;
   expiresAt: string; resolvedAt: string | null; executedAt: string | null; createdAt: string; updatedAt: string;
@@ -94,7 +97,7 @@ export async function getApprovalPolicies(organizationId: string) {
        WHERE m.organization_id = ? AND m.role IN ('owner', 'admin') AND u.mfa_enabled = 1`,
     ).bind(organizationId).first<{ count: number }>(),
   ]);
-  return (['settlement.execute', 'transfer.create'] as const).map((actionType) => {
+  return (['settlement.execute', 'transfer.create', 'risk.case.resolve', 'reconciliation.exception.resolve'] as const).map((actionType) => {
     const policy = policies.results.find((item) => item.actionType === actionType);
     return { id: policy?.id ?? null, actionType, enabled: policy?.enabled === 1,
       expiresInMinutes: policy?.expiresInMinutes ?? 1440, eligibleApprovers: approvers?.count ?? 0,
@@ -315,6 +318,160 @@ function transferPayload(row: ApprovalRow) {
   } catch { return null; }
 }
 
+function riskResolutionPayload(row: ApprovalRow): { resolution: 'approved' | 'declined'; note: string } | null {
+  try {
+    const payload = JSON.parse(row.requestPayload) as Record<string, unknown>;
+    if ((payload.resolution !== 'approved' && payload.resolution !== 'declined') ||
+      typeof payload.note !== 'string' || payload.note.length < 3) return null;
+    return { resolution: payload.resolution, note: payload.note };
+  } catch { return null; }
+}
+
+function reconciliationResolutionPayload(row: ApprovalRow): { resolution: 'corrected' | 'accepted'; note: string } | null {
+  try {
+    const payload = JSON.parse(row.requestPayload) as Record<string, unknown>;
+    if ((payload.resolution !== 'corrected' && payload.resolution !== 'accepted') ||
+      typeof payload.note !== 'string' || payload.note.length < 3) return null;
+    return { resolution: payload.resolution, note: payload.note };
+  } catch { return null; }
+}
+
+type ResolutionApprovalAction = 'risk.case.resolve' | 'reconciliation.exception.resolve';
+
+async function resolutionApproval(
+  database: DatabaseClient,
+  input: {
+    organizationId: string; actorId: string; actionType: ResolutionApprovalAction;
+    resourceType: 'risk_case' | 'reconciliation_exception'; resourceId: string;
+    idempotencyKey: string; resolution: string; note: string;
+  },
+  loadPayload: () => Promise<Record<string, unknown>>,
+) {
+  const fingerprint = await sha256(JSON.stringify({ actionType: input.actionType, resourceId: input.resourceId,
+    resolution: input.resolution, note: input.note }));
+  await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+    .bind(`${input.organizationId}:approval:${input.idempotencyKey}`).first();
+  await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+    .bind(`${input.organizationId}:approval:${input.actionType}:${input.resourceId}`).first();
+  await database.prepare('SELECT pg_advisory_xact_lock_shared(hashtextextended(?, 0::bigint))')
+    .bind(`${input.organizationId}:approval-policy:${input.actionType}`).first();
+  const existingKey = await database.prepare(
+    `${approvalSelect} WHERE ar.organization_id = ? AND ar.idempotency_key = ? LIMIT 1`,
+  ).bind(input.organizationId, input.idempotencyKey).first<ApprovalRow>();
+  if (existingKey) {
+    if (existingKey.requestFingerprint !== fingerprint) {
+      throw new ApprovalError('La Idempotency-Key ya fue usada para otra aprobación.', 409, 'idempotency_mismatch');
+    }
+    return { required: true as const, approval: serializeApproval(existingKey), replayed: true, deduplicated: false };
+  }
+  const policy = await database.prepare(
+    `SELECT expires_in_minutes AS "expiresInMinutes" FROM approval_policies
+     WHERE organization_id = ? AND action_type = ? AND enabled = 1 LIMIT 1`,
+  ).bind(input.organizationId, input.actionType).first<{ expiresInMinutes: number }>();
+  if (!policy) return { required: false as const };
+  const payload = await loadPayload();
+  const now = new Date().toISOString();
+  const stale = await database.prepare(
+    `${approvalSelect} WHERE ar.organization_id = ? AND ar.action_type = ? AND ar.resource_id = ?
+     AND ar.status = 'pending' AND ar.expires_at <= ? FOR UPDATE OF ar`,
+  ).bind(input.organizationId, input.actionType, input.resourceId, now).all<ApprovalRow>();
+  for (const row of stale.results) await expireApproval(database, input.organizationId, row, now);
+  const pending = await database.prepare(
+    `${approvalSelect} WHERE ar.organization_id = ? AND ar.action_type = ? AND ar.resource_id = ?
+     AND ar.status = 'pending' AND ar.expires_at > ? ORDER BY ar.created_at DESC LIMIT 1`,
+  ).bind(input.organizationId, input.actionType, input.resourceId, now).first<ApprovalRow>();
+  if (pending) {
+    if (pending.requestFingerprint !== fingerprint) {
+      throw new ApprovalError('Ya existe una solicitud pendiente con otra decisión para este recurso.', 409, 'approval_request_conflict');
+    }
+    return { required: true as const, approval: serializeApproval(pending), replayed: true, deduplicated: true };
+  }
+  const id = crypto.randomUUID();
+  const expiresAt = new Date(Date.now() + policy.expiresInMinutes * 60_000).toISOString();
+  const requestPayload = { resolution: input.resolution, note: input.note, ...payload, sandbox: true };
+  await database.prepare(
+    `INSERT INTO approval_requests
+      (id, organization_id, action_type, resource_type, resource_id, idempotency_key, request_fingerprint, status,
+       request_payload, requested_by, expires_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
+  ).bind(id, input.organizationId, input.actionType, input.resourceType, input.resourceId, input.idempotencyKey, fingerprint,
+    JSON.stringify(requestPayload), input.actorId, expiresAt, now, now).run();
+  await audit(database, { organizationId: input.organizationId, actorId: input.actorId, action: 'approval.request_created',
+    resourceType: 'approval_request', resourceId: id, payload: { actionType: input.actionType,
+      resourceType: input.resourceType, resourceId: input.resourceId, expiresAt, ...requestPayload } });
+  const approval = await approvalById(database, input.organizationId, id);
+  if (!approval) throw new ApprovalError('No pudimos recuperar la solicitud.', 500, 'approval_create_failed');
+  return { required: true as const, approval, replayed: false, deduplicated: false };
+}
+
+export async function resolveRiskCaseWithApprovalPolicy(input: {
+  organizationId: string; actor: AuthUser; caseId: string; resolution: 'approved' | 'declined'; note: string; idempotencyKey: string;
+}) {
+  return getDatabaseClient().transaction(async (database) => {
+    const protectedResult = await resolutionApproval(database, {
+      organizationId: input.organizationId, actorId: input.actor.userId, actionType: 'risk.case.resolve',
+      resourceType: 'risk_case', resourceId: input.caseId, idempotencyKey: input.idempotencyKey,
+      resolution: input.resolution, note: input.note,
+    }, async () => {
+      const riskCase = await database.prepare(
+        `SELECT rc.id, rc.status, rc.hold_id AS "holdId", rc.transaction_id AS "transactionId", rc.priority,
+          re.counterparty, re.amount_minor::text AS "amountMinor", re.currency, re.score
+         FROM risk_cases rc JOIN risk_evaluations re ON re.id = rc.evaluation_id
+         WHERE rc.organization_id = ? AND rc.id = ? FOR UPDATE OF rc`,
+      ).bind(input.organizationId, input.caseId).first<{
+        id: string; status: string; holdId: string | null; transactionId: string | null; priority: string;
+        counterparty: string; amountMinor: string; currency: string; score: number;
+      }>();
+      if (!riskCase) throw new RiskError('Caso de riesgo no encontrado.', 404, 'risk_case_not_found');
+      if (riskCase.status !== 'open') throw new RiskError('El caso ya fue resuelto.', 409, 'risk_case_already_resolved');
+      return { holdId: riskCase.holdId, transactionId: riskCase.transactionId, priority: riskCase.priority,
+        counterparty: riskCase.counterparty, amountMinor: riskCase.amountMinor, currency: riskCase.currency, score: riskCase.score };
+    });
+    if (protectedResult.required) return { requiresApproval: true as const, approval: protectedResult.approval,
+      replayed: protectedResult.replayed, deduplicated: protectedResult.deduplicated };
+    const riskCase = await getRiskCaseForResolution(input.organizationId, input.caseId, database);
+    if (!riskCase) throw new RiskError('Caso de riesgo no encontrado.', 404, 'risk_case_not_found');
+    if (riskCase.status === 'open' && riskCase.holdId) {
+      await resolveHold({ organizationId: input.organizationId, actor: input.actor, holdId: riskCase.holdId,
+        action: input.resolution === 'approved' ? 'capture' : 'release', idempotencyKey: `risk:${input.idempotencyKey}` }, database);
+    }
+    const riskCaseResult = await resolveRiskCase(input, database);
+    return { requiresApproval: false as const, case: riskCaseResult, replayed: riskCaseResult.replayed };
+  });
+}
+
+export async function resolveReconciliationExceptionWithApprovalPolicy(input: {
+  organizationId: string; actor: AuthUser; exceptionId: string; resolution: 'corrected' | 'accepted'; note: string; idempotencyKey: string;
+}) {
+  return getDatabaseClient().transaction(async (database) => {
+    const protectedResult = await resolutionApproval(database, {
+      organizationId: input.organizationId, actorId: input.actor.userId, actionType: 'reconciliation.exception.resolve',
+      resourceType: 'reconciliation_exception', resourceId: input.exceptionId, idempotencyKey: input.idempotencyKey,
+      resolution: input.resolution, note: input.note,
+    }, async () => {
+      const exception = await database.prepare(
+        `SELECT re.id, re.status, re.kind, re.difference_minor::text AS "differenceMinor", ri.external_reference AS "externalReference",
+          ri.currency, rr.name AS "runName"
+         FROM reconciliation_exceptions re JOIN reconciliation_items ri ON ri.id = re.item_id
+         JOIN reconciliation_runs rr ON rr.id = re.run_id
+         WHERE re.organization_id = ? AND re.id = ? FOR UPDATE OF re`,
+      ).bind(input.organizationId, input.exceptionId).first<{
+        id: string; status: string; kind: string; differenceMinor: string; externalReference: string; currency: string; runName: string;
+      }>();
+      if (!exception) throw new ReconciliationError('Excepción no encontrada.', 404, 'reconciliation_exception_not_found');
+      if (exception.status !== 'open') {
+        throw new ReconciliationError('La excepción ya fue resuelta.', 409, 'reconciliation_exception_already_resolved');
+      }
+      return { kind: exception.kind, differenceMinor: exception.differenceMinor, externalReference: exception.externalReference,
+        currency: exception.currency, runName: exception.runName };
+    });
+    if (protectedResult.required) return { requiresApproval: true as const, approval: protectedResult.approval,
+      replayed: protectedResult.replayed, deduplicated: protectedResult.deduplicated };
+    const exception = await resolveReconciliationException(input, database);
+    return { requiresApproval: false as const, exception, replayed: exception.replayed };
+  });
+}
+
 export async function decideApprovalRequest(input: {
   organizationId: string; actor: AuthUser; actorRole: OrganizationRole; requestId: string;
   decision: 'approve' | 'reject'; reason: string; idempotencyKey: string;
@@ -349,6 +506,8 @@ export async function decideApprovalRequest(input: {
     }
     let executedCycle: Awaited<ReturnType<typeof executeSettlementCycleInTransaction>>['cycle'] | undefined;
     let executedTransfer: Awaited<ReturnType<typeof findTransferByIdempotency>> | undefined;
+    let executedRiskCase: Awaited<ReturnType<typeof resolveRiskCase>> | undefined;
+    let executedException: Awaited<ReturnType<typeof resolveReconciliationException>> | undefined;
     let failure: { message: string; code: string; status: number } | undefined;
     if (input.decision === 'reject') {
       await database.prepare(
@@ -362,7 +521,7 @@ export async function decideApprovalRequest(input: {
         const execution = await executeSettlementCycleInTransaction(database, { organizationId: input.organizationId, actorId: input.actor.userId,
           cycleId: row.resourceId, idempotencyKey: `approval:${row.id}`, executionMode: approvalExecutionMode(row), approvalAuthorized: true });
         executedCycle = execution.cycle;
-      } else {
+      } else if (row.actionType === 'transfer.create') {
         const payload = transferPayload(row);
         if (!payload) throw new ApprovalError('El payload protegido de la transferencia es inválido.', 500, 'approval_payload_invalid');
         try {
@@ -375,6 +534,35 @@ export async function decideApprovalRequest(input: {
         } catch (error) {
           if (error instanceof LedgerError && error.status === 422) failure = { message: error.message, code: error.code, status: error.status };
           else throw error;
+        }
+      } else if (row.actionType === 'risk.case.resolve') {
+        const payload = riskResolutionPayload(row);
+        if (!payload) throw new ApprovalError('El payload protegido del caso es inválido.', 500, 'approval_payload_invalid');
+        const riskCase = await getRiskCaseForResolution(input.organizationId, row.resourceId, database);
+        if (!riskCase || riskCase.status !== 'open') {
+          failure = { message: 'El caso ya no está abierto para resolución.', code: 'risk_case_not_open', status: 409 };
+        } else {
+          if (riskCase.holdId) {
+            await resolveHold({ organizationId: input.organizationId, actor: input.actor, holdId: riskCase.holdId,
+              action: payload.resolution === 'approved' ? 'capture' : 'release', idempotencyKey: `approval:${row.id}:hold`,
+              approvalAuthorized: true }, database);
+          }
+          executedRiskCase = await resolveRiskCase({ organizationId: input.organizationId, actor: input.actor,
+            caseId: row.resourceId, ...payload, idempotencyKey: `approval:${row.id}`,
+            approvalContext: { requestId: row.id, requestedBy: row.requestedBy } }, database);
+        }
+      } else {
+        const payload = reconciliationResolutionPayload(row);
+        if (!payload) throw new ApprovalError('El payload protegido de la excepción es inválido.', 500, 'approval_payload_invalid');
+        const exception = await database.prepare(
+          `SELECT status FROM reconciliation_exceptions WHERE organization_id = ? AND id = ? FOR UPDATE`,
+        ).bind(input.organizationId, row.resourceId).first<{ status: string }>();
+        if (!exception || exception.status !== 'open') {
+          failure = { message: 'La excepción ya no está abierta para resolución.', code: 'reconciliation_exception_not_open', status: 409 };
+        } else {
+          executedException = await resolveReconciliationException({ organizationId: input.organizationId, actor: input.actor,
+            exceptionId: row.resourceId, ...payload, idempotencyKey: `approval:${row.id}`,
+            approvalContext: { requestId: row.id, requestedBy: row.requestedBy } }, database);
         }
       }
       if (failure) {
@@ -395,7 +583,8 @@ export async function decideApprovalRequest(input: {
     }
     const approval = await approvalById(database, input.organizationId, row.id);
     if (!approval) throw new ApprovalError('No pudimos recuperar la decisión.', 500, 'approval_decision_failed');
-    return { approval, cycle: executedCycle, transaction: executedTransfer, failed: failure, replayed: false, expired: false };
+    return { approval, cycle: executedCycle, transaction: executedTransfer, case: executedRiskCase,
+      exception: executedException, failed: failure, replayed: false, expired: false };
   });
 }
 

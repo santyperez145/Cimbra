@@ -41,11 +41,14 @@ export type SettlementCycle = {
   status: 'ready' | 'scheduled' | 'settled'; scheduledFor: string | null; settledAt: string | null; createdAt: string; updatedAt: string;
 };
 export type ApprovalRequest = {
-  id: string; actionType: 'settlement.execute' | 'transfer.create'; resourceType: 'settlement_cycle' | 'transfer'; resourceId: string;
+  id: string; actionType: 'settlement.execute' | 'transfer.create' | 'risk.case.resolve' | 'reconciliation.exception.resolve';
+  resourceType: 'settlement_cycle' | 'transfer' | 'risk_case' | 'reconciliation_exception'; resourceId: string;
   status: 'pending' | 'executed' | 'rejected' | 'cancelled' | 'expired' | 'failed'; requestPayload: {
     name?: string; rail?: ReconciliationRun['source']; currency?: Currency; netMinor?: string; differenceMinor?: string;
     scheduledFor?: string | null; executionMode?: 'manual' | 'scheduled'; counterparty?: string; description?: string;
     amountMinor?: string; origin?: 'session' | 'api_key'; apiKeyId?: string | null; sandbox?: boolean;
+    resolution?: 'approved' | 'declined' | 'corrected' | 'accepted'; note?: string; priority?: RiskCase['priority']; score?: number;
+    externalReference?: string; runName?: string;
   };
   requestedBy: string; requestedByName: string; resolvedBy: string | null; resolvedByName: string | null;
   resolutionReason: string | null; expiresAt: string; resolvedAt: string | null; executedAt: string | null;
@@ -56,6 +59,12 @@ export type SettlementExecutionResult =
   | { ok: true; requiresApproval: true; approval: ApprovalRequest; replayed: boolean; deduplicated: boolean };
 export type TransferCreationResult =
   | { ok: true; requiresApproval: false; transaction: Transaction; replayed: boolean }
+  | { ok: true; requiresApproval: true; approval: ApprovalRequest; replayed: boolean; deduplicated: boolean };
+export type RiskCaseResolutionResult =
+  | { ok: true; requiresApproval: false; case: { id: string; status: 'resolved'; resolution: 'approved' | 'declined'; replayed: boolean }; replayed: boolean }
+  | { ok: true; requiresApproval: true; approval: ApprovalRequest; replayed: boolean; deduplicated: boolean };
+export type ReconciliationExceptionResolutionResult =
+  | { ok: true; requiresApproval: false; exception: { id: string; status: 'resolved' | 'accepted'; resolution: 'corrected' | 'accepted'; replayed: boolean }; replayed: boolean }
   | { ok: true; requiresApproval: true; approval: ApprovalRequest; replayed: boolean; deduplicated: boolean };
 export type ReconciliationException = {
   id: string; runId: string; itemId: string; kind: 'amount_mismatch' | 'missing_internal' | 'missing_external'; status: 'open' | 'resolved' | 'accepted';

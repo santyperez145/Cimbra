@@ -375,8 +375,9 @@ paths:
                 resolution: { type: string, enum: [approved, declined] }
                 note: { type: string, minLength: 3, maxLength: 500 }
       responses:
-        '200': { description: Case and hold resolved idempotently }
-        '409': { description: Case or hold already resolved differently }
+        '200': { description: Case and hold resolved idempotently when direct execution is allowed }
+        '202': { description: Dual-control policy is active and an approval request is pending }
+        '409': { description: Case or hold already resolved differently, or a conflicting approval is pending }
   /api/v1/reconciliation:
     get:
       operationId: getReconciliationState
@@ -481,8 +482,9 @@ paths:
                 resolution: { type: string, enum: [corrected, accepted] }
                 note: { type: string, minLength: 3, maxLength: 500 }
       responses:
-        '200': { description: Exception resolved with actor and audit trail }
-        '409': { description: Exception already resolved differently }
+        '200': { description: Exception resolved with actor and audit trail when direct execution is allowed }
+        '202': { description: Dual-control policy is active and an approval request is pending }
+        '409': { description: Exception already resolved differently, or a conflicting approval is pending }
   /api/v1/operations/work-items:
     get:
       operationId: listOperationalWorkItems
@@ -684,7 +686,7 @@ paths:
               type: object
               properties: { reason: { type: string, maxLength: 500 } }
       responses:
-        '200': { description: Request approved and settlement or transfer command executed in the same transaction }
+        '200': { description: Request approved and the protected settlement, transfer, risk case or reconciliation command executed in the same transaction }
         '403': { description: 'MFA, checker role or human session required' }
         '409': { description: 'Maker attempted self-approval, request expired or is no longer pending' }
         '422': { description: Transfer approval was valid but current balance or risk prevented execution; request becomes failed }
@@ -773,7 +775,7 @@ paths:
       responses:
         '200': { description: Hold captured }
         '404': { description: Hold not found }
-        '409': { description: Hold already resolved }
+        '409': { description: Hold already resolved or linked to an open risk case protected by dual approval }
   /api/v1/holds/{id}/release:
     post:
       operationId: releaseHold
@@ -788,7 +790,7 @@ paths:
       responses:
         '200': { description: Hold released }
         '404': { description: Hold not found }
-        '409': { description: Hold already resolved }
+        '409': { description: Hold already resolved or linked to an open risk case protected by dual approval }
   /api/v1/events:
     get:
       operationId: listAuditEvents
@@ -892,7 +894,7 @@ paths:
   /api/platform/approval-policy:
     get:
       operationId: getApprovalPolicies
-      summary: Read settlement and transfer dual-control policies with eligible checker count
+      summary: Read dual-control policies for money movement and sensitive operational decisions
       security: [{ session: [] }]
       responses:
         '200': { description: Effective policies for the current tenant role }
@@ -909,7 +911,7 @@ paths:
               type: object
               required: [enabled, expiresInMinutes]
               properties:
-                actionType: { type: string, enum: [settlement.execute, transfer.create], default: settlement.execute }
+                actionType: { type: string, enum: [settlement.execute, transfer.create, risk.case.resolve, reconciliation.exception.resolve], default: settlement.execute }
                 enabled: { type: boolean }
                 expiresInMinutes: { type: integer, minimum: 15, maximum: 10080 }
       responses:
@@ -1091,8 +1093,8 @@ components:
       required: [id, actionType, resourceType, resourceId, status, requestPayload, requestedBy, requestedByName, expiresAt, createdAt, updatedAt]
       properties:
         id: { type: string, format: uuid }
-        actionType: { type: string, enum: [settlement.execute, transfer.create] }
-        resourceType: { type: string, enum: [settlement_cycle, transfer] }
+        actionType: { type: string, enum: [settlement.execute, transfer.create, risk.case.resolve, reconciliation.exception.resolve] }
+        resourceType: { type: string, enum: [settlement_cycle, transfer, risk_case, reconciliation_exception] }
         resourceId: { type: string, format: uuid }
         status: { type: string, enum: [pending, executed, rejected, cancelled, expired, failed] }
         requestPayload: { type: object, additionalProperties: true }

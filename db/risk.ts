@@ -284,6 +284,7 @@ export async function getRiskCaseForResolution(organizationId: string, id: strin
 
 export async function resolveRiskCase(input: {
   organizationId: string; actor: AuthUser; caseId: string; resolution: 'approved' | 'declined'; note: string; idempotencyKey: string;
+  approvalContext?: { requestId: string; requestedBy: string };
 }, database: DatabaseClient = getDatabaseClient()) {
   return database.transaction(async (database) => {
     await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
@@ -307,7 +308,8 @@ export async function resolveRiskCase(input: {
         resolved_by = ?, resolved_at = ?, updated_at = ? WHERE id = ?`,
     ).bind(input.resolution, input.note, input.idempotencyKey, input.actor.userId, now, now, input.caseId).run();
     await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId, action: 'risk.case_resolved', resourceType: 'risk_case', resourceId: input.caseId,
-      payload: { resolution: input.resolution, note: input.note, idempotencyKey: input.idempotencyKey } });
+      payload: { resolution: input.resolution, note: input.note, idempotencyKey: input.idempotencyKey,
+        approvalRequestId: input.approvalContext?.requestId, requestedBy: input.approvalContext?.requestedBy } });
     return { id: input.caseId, status: 'resolved', resolution: input.resolution, replayed: false };
   });
 }

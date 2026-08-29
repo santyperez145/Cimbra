@@ -87,8 +87,11 @@ export default function ReconciliationPanel({ readOnly = false }: { readOnly?: b
     setBusy(true); const response = await authenticatedFetch(`/api/v1/reconciliation/exceptions/${id}/resolve`, { method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
       body: JSON.stringify({ resolution, note: `Excepción ${resolution} desde consola sandbox.` }) });
-    const result = await response.json() as { error?: { message?: string } | string };
-    setFeedback(response.ok ? 'Excepción resuelta y corrida recalculada.' : typeof result.error === 'string' ? result.error : result.error?.message ?? 'No pudimos resolver la excepción.');
+    const result = await response.json() as { error?: { message?: string } | string; requiresApproval?: boolean; approval?: { status?: string } };
+    setFeedback(response.ok ? result.requiresApproval && result.approval?.status === 'pending'
+      ? 'Solicitud enviada a doble aprobación. La diferencia sigue abierta hasta la decisión independiente.'
+      : 'Excepción resuelta y corrida recalculada.'
+      : typeof result.error === 'string' ? result.error : result.error?.message ?? 'No pudimos resolver la excepción.');
     if (response.ok) await load(); setBusy(false);
   }
 

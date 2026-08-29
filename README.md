@@ -49,7 +49,7 @@ La identidad de Cimbra usa PBKDF2-HMAC-SHA-256 con 600.000 iteraciones, sesiones
 
 El acceso de consola usa roles canónicos `owner`, `admin`, `operator` y `viewer`. Una matriz única de capacidades gobierna las rutas API, la navegación y los CTAs; cada mutación se revalida en servidor. Las invitaciones duran siete días, sólo se aceptan al ingresar con el email verificado, no permiten que un admin eleve o administre otros admins y nunca permiten modificar o eliminar al owner desde el flujo delegado. Cada alta, aceptación, revocación, cambio de rol y baja genera auditoría y webhook. Una sesión vencida vuelve a login preservando el destino; un rol insuficiente recibe `403` sin cerrar una sesión válida.
 
-Settlement y transferencias salientes admiten políticas de doble aprobación independientes. El maker crea la solicitud y nunca puede resolverla; un owner/admin distinto, con MFA, actúa como checker. Aprobar ejecuta el ciclo o vuelve a validar saldo y riesgo antes de crear la transferencia, su hold o sus postings, todo dentro de la misma transacción. Una transferencia pendiente no reserva fondos y puede finalizar `failed` si cambian el saldo o el riesgo. Rechazo, cancelación, fallo, expiración, auditoría y webhooks conservan el historial. Una API key con `transfers:write` puede originar una solicitud y con `approvals:read` consultar su estado, pero aprobar o rechazar siempre exige una sesión humana.
+Settlement, transferencias salientes, resoluciones de casos de riesgo y resoluciones de excepciones admiten políticas de doble aprobación independientes. El maker crea la solicitud y nunca puede resolverla; un owner/admin distinto, con MFA, actúa como checker. Aprobar ejecuta y revalida el recurso dentro de la misma transacción. Una transferencia pendiente no reserva fondos; un caso o una diferencia protegidos permanecen abiertos, y un hold vinculado no puede resolverse por el endpoint genérico mientras la política de riesgo esté activa. Rechazo, cancelación, fallo, expiración, auditoría y webhooks conservan el historial. Las API keys con scopes de escritura pueden originar solicitudes y con `approvals:read` consultar su estado, pero aprobar o rechazar siempre exige una sesión humana.
 
 ## Infraestructura y despliegue
 
@@ -83,7 +83,7 @@ Apple requiere un Services ID asociado a una app habilitada para Sign in with Ap
 - evaluaciones de riesgo explicables vinculadas a cada movimiento, con reglas por tenant, casos y holds sincronizados;
 - conciliación exacta de lotes contra el ledger, faltantes en ambos sentidos y excepciones resolubles con idempotencia.
 - importación CSV UTF-8 con checksum y ciclos de settlement sandbox únicos, programables, auditados y emitidos por webhook.
-- políticas maker/checker fail-closed para settlement y transferencias, con locks concurrentes, revalidación financiera y decisión/ejecución atómicas.
+- políticas maker/checker fail-closed para settlement, transferencias, casos de riesgo y excepciones de conciliación, con locks concurrentes, revalidación y decisión/ejecución atómicas.
 - work queue multitenant para casos de riesgo y excepciones, con responsable, prioridad, SLA, escalamiento, comentarios inmutables y vínculos a evidencia privada.
 
 ## Garantías de integración

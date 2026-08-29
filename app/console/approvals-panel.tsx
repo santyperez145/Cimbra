@@ -5,12 +5,14 @@ import { roleCan, type OrganizationRole } from '@/app/lib/platform/access-policy
 import { authenticatedFetch } from '@/app/lib/platform/client-http';
 
 type Role = OrganizationRole;
-type ApprovalActionType = 'settlement.execute' | 'transfer.create';
+type ApprovalActionType = 'settlement.execute' | 'transfer.create' | 'risk.case.resolve' | 'reconciliation.exception.resolve';
 type ApprovalStatus = 'pending' | 'executed' | 'rejected' | 'cancelled' | 'expired' | 'failed';
 type Approval = {
-  id: string; actionType: ApprovalActionType; resourceType: 'settlement_cycle' | 'transfer'; resourceId: string; status: ApprovalStatus;
+  id: string; actionType: ApprovalActionType;
+  resourceType: 'settlement_cycle' | 'transfer' | 'risk_case' | 'reconciliation_exception'; resourceId: string; status: ApprovalStatus;
   requestPayload: { name?: string; rail?: string; currency?: string; netMinor?: string; amountMinor?: string; differenceMinor?: string;
-    executionMode?: string; counterparty?: string; description?: string; origin?: string };
+    executionMode?: string; counterparty?: string; description?: string; origin?: string; resolution?: string; note?: string;
+    externalReference?: string; runName?: string; priority?: string; score?: number };
   requestedBy: string; requestedByName: string; resolvedBy: string | null; resolvedByName: string | null;
   resolutionReason: string | null; expiresAt: string; resolvedAt: string | null; executedAt: string | null; createdAt: string;
 };
@@ -23,10 +25,12 @@ const statusLabels: Record<ApprovalStatus, string> = {
 const policyLabels: Record<ApprovalActionType, { title: string; direct: string }> = {
   'settlement.execute': { title: 'Ejecución de settlement', direct: 'Ejecución directa sandbox' },
   'transfer.create': { title: 'Transferencias salientes', direct: 'Transferencia directa según riesgo' },
+  'risk.case.resolve': { title: 'Resolución de casos de riesgo', direct: 'Resolución directa por operador' },
+  'reconciliation.exception.resolve': { title: 'Resolución de excepciones', direct: 'Resolución directa por operador' },
 };
 
 function amountLabel(payload: Approval['requestPayload']) {
-  const storedAmount = payload.netMinor ?? payload.amountMinor;
+  const storedAmount = payload.netMinor ?? payload.amountMinor ?? payload.differenceMinor;
   if (!payload.currency || storedAmount === undefined) return 'Importe no disponible';
   const scale = payload.currency === 'CLP' ? 0 : 2;
   try {
@@ -38,12 +42,24 @@ function amountLabel(payload: Approval['requestPayload']) {
 }
 
 function approvalTitle(item: Approval) {
-  return item.actionType === 'transfer.create' ? item.requestPayload.counterparty ?? 'Nueva transferencia' : item.requestPayload.name ?? 'Ejecución de settlement';
+  if (item.actionType === 'transfer.create') return item.requestPayload.counterparty ?? 'Nueva transferencia';
+  if (item.actionType === 'risk.case.resolve') return item.requestPayload.counterparty ?? 'Caso de riesgo';
+  if (item.actionType === 'reconciliation.exception.resolve') return item.requestPayload.externalReference ?? 'Excepción de conciliación';
+  return item.requestPayload.name ?? 'Ejecución de settlement';
 }
 
 function approvalChannel(item: Approval) {
   if (item.actionType === 'transfer.create') return `${item.requestPayload.description ?? 'Sin concepto'} · ${item.requestPayload.origin === 'api_key' ? 'API key' : 'consola'}`;
+  if (item.actionType === 'risk.case.resolve') return `${item.requestPayload.resolution === 'approved' ? 'aprobar' : 'rechazar'} · score ${item.requestPayload.score ?? '—'} · ${item.requestPayload.priority ?? 'sin prioridad'}`;
+  if (item.actionType === 'reconciliation.exception.resolve') return `${item.requestPayload.resolution === 'accepted' ? 'aceptar diferencia' : 'marcar corregida'} · ${item.requestPayload.runName ?? 'corrida'}`;
   return item.requestPayload.rail ?? 'rail';
+}
+
+function approvalIcon(item: Approval) {
+  if (item.actionType === 'transfer.create') return '↗';
+  if (item.actionType === 'risk.case.resolve') return '!';
+  if (item.actionType === 'reconciliation.exception.resolve') return '≠';
+  return '⇄';
 }
 
 function apiError(body: { error?: { message?: string } | string }) {
@@ -106,11 +122,11 @@ export default function ApprovalsPanel({ actorRole, mfaEnabled }: { actorRole: R
     <div className="approval-layout">{policies.map((policy) => <article className="integration-card" key={policy.actionType}><div className="card-head"><div><h2>{policyLabels[policy.actionType].title}</h2><p>El maker solicita; otro owner/admin con MFA decide</p></div><b>{policy.enabled ? 'ACTIVA' : 'OPT-IN'}</b></div>
       {roleCan(actorRole, 'approvals.decide') ? <div className="approval-policy-body"><div><span>Estado efectivo</span><strong>{policy.enabled ? 'Doble aprobación obligatoria' : policyLabels[policy.actionType].direct}</strong></div><div><span>Vencimiento</span><strong>{Math.round(policy.expiresInMinutes / 60)} horas</strong></div><div><span>Aprobadores elegibles</span><strong>{policy.eligibleApprovers} con MFA</strong></div>{roleCan(actorRole, 'approvals.policy.manage') ? <button disabled={busy || !mfaEnabled} onClick={() => void updatePolicy(policy, !policy.enabled)}>{!mfaEnabled ? 'Activá MFA para administrar' : policy.enabled ? 'Deshabilitar política' : 'Habilitar doble aprobación'}</button> : <small>Sólo el owner puede cambiar esta política.</small>}</div>
         : <p className="role-boundary-copy">La política es gobernada por el owner. Tu rol puede consultar la cola y originar solicitudes desde las superficies habilitadas.</p>}
-    </article>)}<article className="integration-card role-boundary-card"><div className="card-head"><div><h2>Separación efectiva</h2><p>Controles activos del workflow</p></div><b>4-EYES</b></div><div className="approval-guardrails"><span>✓ Maker y checker siempre distintos</span><span>✓ Aprobación reservada a owner/admin con MFA</span><span>✓ Decisión y operación en una sola transacción</span><span>✓ Riesgo vuelve a validar transferencias al aprobar</span><span>✓ Rechazo, cancelación, fallo y vencimiento auditados</span></div></article></div>
-    <article className="module-list approval-list"><div className="card-head"><div><h2>Historial de solicitudes</h2><p>Estados persistidos y contexto de la operación</p></div><b>{approvals.length}</b></div>{approvals.length === 0 ? <div><span className="movement"><i>✓</i><b>Sin solicitudes<small>Las transferencias o settlements protegidos aparecerán aquí</small></b></span><strong>Vacío</strong></div> : approvals.map((item) => {
+    </article>)}<article className="integration-card role-boundary-card"><div className="card-head"><div><h2>Separación efectiva</h2><p>Controles activos del workflow</p></div><b>4-EYES</b></div><div className="approval-guardrails"><span>✓ Maker y checker siempre distintos</span><span>✓ Aprobación reservada a owner/admin con MFA</span><span>✓ Decisión y operación en una sola transacción</span><span>✓ Transferencias, casos y diferencias se revalidan al aprobar</span><span>✓ Holds vinculados no permiten saltear la política de riesgo</span><span>✓ Rechazo, cancelación, fallo y vencimiento auditados</span></div></article></div>
+    <article className="module-list approval-list"><div className="card-head"><div><h2>Historial de solicitudes</h2><p>Estados persistidos y contexto de la operación</p></div><b>{approvals.length}</b></div>{approvals.length === 0 ? <div><span className="movement"><i>✓</i><b>Sin solicitudes<small>Las operaciones y decisiones protegidas aparecerán aquí</small></b></span><strong>Vacío</strong></div> : approvals.map((item) => {
       const canDecide = item.status === 'pending' && item.requestedBy !== currentUserId && roleCan(actorRole, 'approvals.decide') && mfaEnabled;
       const canCancel = item.status === 'pending' && item.requestedBy === currentUserId && roleCan(actorRole, 'approvals.request');
-      return <div key={item.id}><span className="movement"><i>{item.actionType === 'transfer.create' ? '↗' : '⇄'}</i><b>{approvalTitle(item)}<small>{amountLabel(item.requestPayload)} · {approvalChannel(item)} · maker {item.requestedByName} · vence {new Date(item.expiresAt).toLocaleString('es-AR')}{item.resolvedByName ? ` · decidió ${item.resolvedByName}` : ''}{item.resolutionReason ? ` · ${item.resolutionReason}` : ''}</small></b></span><span className="approval-actions"><b className={item.status}>{statusLabels[item.status]}</b>{canDecide && <><button className="reject" disabled={busy} onClick={() => void decide(item, 'reject')}>Rechazar</button><button disabled={busy} onClick={() => void decide(item, 'approve')}>Aprobar y ejecutar</button></>}{canCancel && <button className="cancel" disabled={busy} onClick={() => void cancel(item)}>Cancelar</button>}{item.status === 'pending' && item.requestedBy === currentUserId && <small>Esperando otro aprobador</small>}{item.status === 'pending' && !mfaEnabled && roleCan(actorRole, 'approvals.decide') && item.requestedBy !== currentUserId && <small>MFA requerido</small>}</span></div>;
+      return <div key={item.id}><span className="movement"><i>{approvalIcon(item)}</i><b>{approvalTitle(item)}<small>{amountLabel(item.requestPayload)} · {approvalChannel(item)} · maker {item.requestedByName} · vence {new Date(item.expiresAt).toLocaleString('es-AR')}{item.resolvedByName ? ` · decidió ${item.resolvedByName}` : ''}{item.resolutionReason ? ` · ${item.resolutionReason}` : ''}</small></b></span><span className="approval-actions"><b className={item.status}>{statusLabels[item.status]}</b>{canDecide && <><button className="reject" disabled={busy} onClick={() => void decide(item, 'reject')}>Rechazar</button><button disabled={busy} onClick={() => void decide(item, 'approve')}>Aprobar y ejecutar</button></>}{canCancel && <button className="cancel" disabled={busy} onClick={() => void cancel(item)}>Cancelar</button>}{item.status === 'pending' && item.requestedBy === currentUserId && <small>Esperando otro aprobador</small>}{item.status === 'pending' && !mfaEnabled && roleCan(actorRole, 'approvals.decide') && item.requestedBy !== currentUserId && <small>MFA requerido</small>}</span></div>;
     })}</article>
   </div>;
 }

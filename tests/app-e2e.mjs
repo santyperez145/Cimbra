@@ -635,6 +635,94 @@ try {
   }), 201);
   await json(await request(`/api/platform/api-keys/${operationsKey.key.id}`, { method: 'DELETE' }), 200);
 
+  const disabledTransferPolicy = await json(await request('/api/platform/approval-policy', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actionType: 'transfer.create', enabled: false, expiresInMinutes: 1440 }),
+  }), 200);
+  assert.equal(disabledTransferPolicy.policy.enabled, false);
+  const riskResolutionPolicy = await json(await request('/api/platform/approval-policy', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actionType: 'risk.case.resolve', enabled: true, expiresInMinutes: 60 }),
+  }), 200);
+  assert.equal(riskResolutionPolicy.policy.enabled, true);
+  const protectedRiskTransfer = await json(await request('/api/v1/transfers', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-risk-protected-transfer-${runId}` },
+    body: JSON.stringify({ counterparty: 'QA Risk Review', description: 'Protected risk resolution', amount: '2000000', currency: 'ARS' }),
+  }), 201);
+  assert.equal(protectedRiskTransfer.transaction.status, 'review');
+  const protectedRiskState = (await json(await request('/api/v1/risk'), 200)).data;
+  const protectedRiskCase = protectedRiskState.cases.find((item) => item.transactionId === protectedRiskTransfer.transaction.id);
+  assert.ok(protectedRiskCase?.holdId);
+  const holdBypass = await json(await request(`/api/v1/holds/${protectedRiskCase.holdId}/capture`, {
+    method: 'POST', headers: { 'Idempotency-Key': `qa-risk-hold-bypass-${runId}` },
+  }), 409);
+  assert.equal(holdBypass.error.code, 'risk_case_approval_required');
+  const riskResolutionKey = `qa-risk-resolution-${runId}`;
+  const protectedRiskResolution = await json(await request(`/api/v1/risk/cases/${protectedRiskCase.id}/resolve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': riskResolutionKey },
+    body: JSON.stringify({ resolution: 'approved', note: 'QA maker solicita liberar la decisión de riesgo.' }),
+  }), 202);
+  assert.equal(protectedRiskResolution.requiresApproval, true);
+  assert.equal(protectedRiskResolution.approval.actionType, 'risk.case.resolve');
+  const riskResolutionReplay = await json(await request(`/api/v1/risk/cases/${protectedRiskCase.id}/resolve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': riskResolutionKey },
+    body: JSON.stringify({ resolution: 'approved', note: 'QA maker solicita liberar la decisión de riesgo.' }),
+  }), 202);
+  assert.equal(riskResolutionReplay.replayed, true);
+  const riskResolutionConflict = await json(await request(`/api/v1/risk/cases/${protectedRiskCase.id}/resolve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-risk-resolution-conflict-${runId}` },
+    body: JSON.stringify({ resolution: 'declined', note: 'QA intenta una decisión opuesta sobre el mismo caso.' }),
+  }), 409);
+  assert.equal(riskResolutionConflict.error.code, 'approval_request_conflict');
+  await json(await request(`/api/v1/approvals/${protectedRiskResolution.approval.id}/approve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-risk-self-${runId}` },
+    body: JSON.stringify({ reason: 'self approval must fail' }),
+  }), 409);
+  cookie = checkerCookie;
+  const executedRiskResolution = await json(await request(`/api/v1/approvals/${protectedRiskResolution.approval.id}/approve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-risk-checker-${runId}` },
+    body: JSON.stringify({ reason: 'QA checker valida evidencia y contraparte.' }),
+  }), 200);
+  assert.equal(executedRiskResolution.approval.status, 'executed');
+  assert.equal(executedRiskResolution.case.status, 'resolved');
+  assert.equal(executedRiskResolution.case.resolution, 'approved');
+  cookie = ownerCookieAfterRequest;
+
+  const exceptionResolutionPolicy = await json(await request('/api/platform/approval-policy', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actionType: 'reconciliation.exception.resolve', enabled: true, expiresInMinutes: 60 }),
+  }), 200);
+  assert.equal(exceptionResolutionPolicy.policy.enabled, true);
+  const protectedReconciliation = await json(await request('/api/v1/reconciliation/runs', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-protected-reconciliation-${runId}` },
+    body: JSON.stringify({ name: 'QA protected difference', source: 'bank', currency: 'ARS',
+      periodStart: new Date(Date.now() + 4 * 24 * 60 * 60 * 1000).toISOString(),
+      periodEnd: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString(),
+      entries: [{ externalReference: `QA-PROTECTED-${runId}`, direction: 'credit', amount: '10.00' }] }),
+  }), 201);
+  const protectedReconciliationState = (await json(await request('/api/v1/reconciliation'), 200)).data;
+  const protectedException = protectedReconciliationState.exceptions.find((item) => item.runId === protectedReconciliation.run.id && item.status === 'open');
+  assert.ok(protectedException);
+  const exceptionResolutionKey = `qa-exception-resolution-${runId}`;
+  const protectedExceptionResolution = await json(await request(`/api/v1/reconciliation/exceptions/${protectedException.id}/resolve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': exceptionResolutionKey },
+    body: JSON.stringify({ resolution: 'accepted', note: 'QA maker documenta diferencia tolerada.' }),
+  }), 202);
+  assert.equal(protectedExceptionResolution.requiresApproval, true);
+  assert.equal(protectedExceptionResolution.approval.actionType, 'reconciliation.exception.resolve');
+  await json(await request(`/api/v1/approvals/${protectedExceptionResolution.approval.id}/approve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-exception-self-${runId}` },
+    body: JSON.stringify({ reason: 'self approval must fail' }),
+  }), 409);
+  cookie = checkerCookie;
+  const executedExceptionResolution = await json(await request(`/api/v1/approvals/${protectedExceptionResolution.approval.id}/approve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-exception-checker-${runId}` },
+    body: JSON.stringify({ reason: 'QA checker valida soporte de conciliación.' }),
+  }), 200);
+  assert.equal(executedExceptionResolution.approval.status, 'executed');
+  assert.equal(executedExceptionResolution.exception.status, 'accepted');
+  cookie = ownerCookieAfterRequest;
+
   const finalAccess = await json(await request('/api/platform/access'), 200);
   const checkerMember = finalAccess.data.members.find((member) => member.email === checkerEmail);
   assert.ok(checkerMember);
@@ -682,7 +770,7 @@ try {
 
   console.log(JSON.stringify({
     ok: true,
-    checks: ['auth', 'landing-session-state', 'console-session-guard', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'viewer-read-only', 'member-invitations', 'dual-control', 'maker-checker', 'transfer-approval', 'approval-replay', 'approval-fail-closed', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'reconciliation', 'operations-work-queue', 'operations-idempotency', 'operations-evidence', 'operations-rbac', 'csv-import', 'settlement', 'private-evidence', 'audit'],
+    checks: ['auth', 'landing-session-state', 'console-session-guard', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'viewer-read-only', 'member-invitations', 'dual-control', 'maker-checker', 'transfer-approval', 'approval-replay', 'approval-fail-closed', 'risk-case-approval', 'risk-hold-bypass-guard', 'reconciliation-exception-approval', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'reconciliation', 'operations-work-queue', 'operations-idempotency', 'operations-evidence', 'operations-rbac', 'csv-import', 'settlement', 'private-evidence', 'audit'],
   }));
 } finally {
   await cleanup();

@@ -29,6 +29,11 @@ const errorResponses = [
 const changelog = [
   {
     date: '29 AGO 2026',
+    title: 'Doble control para decisiones operativas',
+    detail: 'Casos de riesgo y excepciones de conciliación admiten políticas independientes, revalidación atómica y protección contra bypass de holds.',
+  },
+  {
+    date: '29 AGO 2026',
     title: 'Cola operativa con SLA y evidencia',
     detail: 'Riesgo y conciliación comparten ownership, prioridad, vencimiento, escalamiento, comentarios y documentos privados mediante API, SDK y consola.',
   },

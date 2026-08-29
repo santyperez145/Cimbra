@@ -5,7 +5,8 @@ import type {
   CreateSettlementCycleInput, CreateTransferInput, CreateWebhookInput,
   Customer, Hold, HoldResolution, LedgerBalance, LedgerJournal, ListOptions, Page, PlatformCapability,
   OperationalEvidence, OperationalNote, OperationalState, OperationalWorkItem, UpdateOperationalWorkItemInput, WorkItemType,
-  ReconciliationException, ReconciliationRun, RequestOptions, RiskCase, RiskEvaluation, RiskRule, SettlementCycle, SettlementExecutionResult,
+  ReconciliationException, ReconciliationExceptionResolutionResult, ReconciliationRun, RequestOptions, RiskCase,
+  RiskCaseResolutionResult, RiskEvaluation, RiskRule, SettlementCycle, SettlementExecutionResult,
   Transaction, TransferCreationResult, WebhookOperationalState,
 } from './types.ts';
 
@@ -113,7 +114,7 @@ export class Cimbra {
     disableRule: (id: string, options?: RequestOptions) =>
       this.request<{ ok: true }>('DELETE', `/api/v1/risk/rules/${encodeURIComponent(id)}`, undefined, options),
     resolveCase: (id: string, input: { resolution: 'approved' | 'declined'; note: string }, options?: RequestOptions) =>
-      this.post<{ ok: true; case: { id: string; status: 'resolved'; resolution: 'approved' | 'declined'; replayed: boolean } }>(`/api/v1/risk/cases/${encodeURIComponent(id)}/resolve`, input, options, true),
+      this.post<RiskCaseResolutionResult>(`/api/v1/risk/cases/${encodeURIComponent(id)}/resolve`, input, options, true),
   };
 
   readonly reconciliation = {
@@ -131,7 +132,7 @@ export class Cimbra {
     retrieveRun: (id: string, options?: RequestOptions) =>
       this.request<ReconciliationRun & { items: Array<Record<string, unknown>> }>('GET', `/api/v1/reconciliation/runs/${encodeURIComponent(id)}`, undefined, options),
     resolveException: (id: string, input: { resolution: 'corrected' | 'accepted'; note: string }, options?: RequestOptions) =>
-      this.post<{ ok: true; exception: { id: string; status: 'resolved' | 'accepted'; resolution: 'corrected' | 'accepted'; replayed: boolean } }>(`/api/v1/reconciliation/exceptions/${encodeURIComponent(id)}/resolve`, input, options, true),
+      this.post<ReconciliationExceptionResolutionResult>(`/api/v1/reconciliation/exceptions/${encodeURIComponent(id)}/resolve`, input, options, true),
   };
 
   readonly operations = {
