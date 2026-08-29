@@ -48,10 +48,10 @@ export const PLATFORM_CAPABILITIES: readonly PlatformCapability[] = [
     interfaces: ['rest_api', 'webhooks', 'sdk', 'files'], regulatoryBoundary: 'El acceso a Pix, SPEI, Transferencias 3.0 y otros rieles exige membresía, certificación o sponsor local.',
   },
   {
-    id: 'card-issuing', name: 'Card Issuing', domain: 'cards', availability: 'foundation', delivery: 'cimbra_native',
-    summary: 'Programas, tarjetas físicas/virtuales, lifecycle, controles, límites y tokenización.',
-    features: ['debit/credit/prepaid', 'virtual/physical', 'card lifecycle', 'spend controls', 'network tokens'],
-    interfaces: ['rest_api', 'webhooks', 'sdk', 'console'], regulatoryBoundary: 'Emisión real requiere BIN sponsor o membresía de esquema, personalización certificada y cumplimiento PCI DSS.',
+    id: 'card-issuing', name: 'Card Issuing', domain: 'cards', availability: 'sandbox', delivery: 'cimbra_native',
+    summary: 'Programas tenant, instrumentos físicos/virtuales, lifecycle terminal y controles versionados sin datos PCI.',
+    features: ['debit/credit/prepaid', 'virtual/physical', 'explicit card lifecycle', 'versioned spend controls', 'channel and MCC policy'],
+    interfaces: ['rest_api', 'webhooks', 'sdk', 'console'], regulatoryBoundary: 'El sandbox no genera PAN/CVV ni aplica controles en una red. Emisión real y tokenización requieren BIN sponsor o membresía, HSM, personalización certificada, PCI DSS y homologación de esquema.',
   },
   {
     id: 'card-processing', name: 'Card Processing & Authorization', domain: 'cards', availability: 'roadmap', delivery: 'cimbra_native',

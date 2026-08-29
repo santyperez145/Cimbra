@@ -15,7 +15,7 @@ La independencia tecnológica no elimina la realidad de los rieles. Para mover f
 | Financial Core | cuentas, ledger, holds, límites, fees, reversas | API, webhooks, SDK, consola | Sandbox operativo |
 | Payment Orchestration | intents, cash-in/out, transfers, routing, estados y doble aprobación | API, webhooks, SDK, consola | Sandbox operativo |
 | Instant Payments | transferencias, alias, QR, request-to-pay, returns | API, webhooks, archivos | Roadmap |
-| Card Issuing | programas, lifecycle, controles, tokenización | API, webhooks, SDK, consola | Base técnica |
+| Card Issuing | programas, lifecycle, límites y controles por canal/MCC; tokenización futura | API, webhooks, SDK, consola | Sandbox operativo sin PAN/CVV ni red |
 | Card Processing | autorización, stand-in, clearing, disputes, 3DS | API, ISO 8583, eventos, archivos | Roadmap |
 | Acquiring | checkout, links, QR, POS, Tap to Phone, split | API, webhooks, SDK, ISO 8583 | Roadmap |
 | Bill Payments | catálogo, deuda, pago, recargas, suscripciones | API, webhooks, SDK, archivos | Roadmap |

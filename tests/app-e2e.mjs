@@ -387,15 +387,83 @@ try {
   assert.equal(cashOut.payment.amountMinor, '-10000');
   const retrievedPayment = await json(await request(`/api/v1/payments/${cashOut.payment.id}`), 200);
   assert.equal(retrievedPayment.id, cashOut.payment.id);
+  const programKey = `qa-card-program-${runId}`;
+  const programPayload = { name: `QA Physical ARS ${runId.slice(0, 8)}`, product: 'debit', formats: ['virtual', 'physical'], defaultCurrency: 'ARS' };
+  const program = await json(await request('/api/v1/card-programs', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': programKey }, body: JSON.stringify(programPayload),
+  }), 201);
+  assert.equal(program.program.product, 'debit');
+  const programReplay = await json(await request('/api/v1/card-programs', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': programKey }, body: JSON.stringify(programPayload),
+  }), 200);
+  assert.equal(programReplay.replayed, true); assert.equal(programReplay.program.id, program.program.id);
+  const retrievedProgram = await json(await request(`/api/v1/card-programs/${program.program.id}`), 200);
+  assert.equal(retrievedProgram.name, programPayload.name);
+  assert.ok((await json(await request('/api/v1/card-programs'), 200)).data.some((item) => item.id === program.program.id));
+
   const cardKey = `qa-card-${runId}`;
-  const cardPayload = { accountId: account.id, product: 'debit', format: 'virtual' };
+  const cardPayload = { accountId: account.id, programId: program.program.id, format: 'physical' };
   const card = (await json(await request('/api/v1/cards', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': cardKey }, body: JSON.stringify(cardPayload),
   }), 201)).card;
+  assert.equal(card.status, 'created'); assert.equal(card.programId, program.program.id); assert.equal(card.programName, programPayload.name);
+  assert.equal('pan' in card, false); assert.equal('cvv' in card, false); assert.equal('networkToken' in card, false);
   const cardReplay = await json(await request('/api/v1/cards', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': cardKey }, body: JSON.stringify(cardPayload),
   }), 200);
   assert.equal(cardReplay.card.id, card.id);
+  const initialLifecycle = (await json(await request(`/api/v1/cards/${card.id}/lifecycle`), 200)).data;
+  assert.equal(initialLifecycle.length, 1); assert.equal(initialLifecycle[0].toStatus, 'created'); assert.equal(initialLifecycle[0].reason, 'issued');
+  const initialControls = (await json(await request(`/api/v1/cards/${card.id}/controls`), 200)).controls;
+  assert.equal(initialControls.version, 1); assert.deepEqual(initialControls.allowedChannels.sort(), ['atm', 'chip', 'contactless', 'ecommerce', 'magstripe']);
+  const controlsKey = `qa-card-controls-${runId}`;
+  const controlsPayload = { currency: 'ARS', perTransactionLimit: '2500.50', dailyLimit: '5000.00', monthlyLimit: '30000.00',
+    allowedChannels: ['chip', 'contactless', 'ecommerce'], allowedMccs: [], blockedMccs: ['7995'], status: 'active' };
+  const updatedControls = await json(await request(`/api/v1/cards/${card.id}/controls`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': controlsKey }, body: JSON.stringify(controlsPayload),
+  }), 200);
+  assert.equal(updatedControls.controls.version, 2); assert.equal(updatedControls.controls.perTransactionLimitMinor, '250050');
+  const controlsReplay = await json(await request(`/api/v1/cards/${card.id}/controls`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': controlsKey }, body: JSON.stringify(controlsPayload),
+  }), 200);
+  assert.equal(controlsReplay.replayed, true); assert.equal(controlsReplay.controls.id, updatedControls.controls.id);
+  await json(await request(`/api/v1/cards/${card.id}/controls`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': controlsKey },
+    body: JSON.stringify({ ...controlsPayload, dailyLimit: '6000.00' }),
+  }), 409);
+
+  const cardTransition = async (suffix, status, reason) => json(await request(`/api/v1/cards/${card.id}/lifecycle`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-card-${suffix}-${runId}` },
+    body: JSON.stringify({ status, reason }),
+  }), 200);
+  const activated = await cardTransition('activate', 'active', 'activation');
+  assert.equal(activated.event.fromStatus, 'created'); assert.equal(activated.event.toStatus, 'active');
+  const activationReplay = await json(await request(`/api/v1/cards/${card.id}/lifecycle`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-card-activate-${runId}` },
+    body: JSON.stringify({ status: 'active', reason: 'activation' }),
+  }), 200);
+  assert.equal(activationReplay.replayed, true); assert.equal('requestFingerprint' in activationReplay.event, false);
+  await cardTransition('freeze', 'frozen', 'suspected_fraud');
+  await cardTransition('unfreeze', 'active', 'review_cleared');
+  await cardTransition('terminate', 'terminated', 'customer_request');
+  const invalidReactivation = await json(await request(`/api/v1/cards/${card.id}/lifecycle`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-card-invalid-${runId}` },
+    body: JSON.stringify({ status: 'active', reason: 'review_cleared' }),
+  }), 409);
+  assert.equal(invalidReactivation.error.code, 'invalid_card_transition');
+  const controlsAfterTermination = await json(await request(`/api/v1/cards/${card.id}/controls`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-card-controls-terminated-${runId}` },
+    body: JSON.stringify(controlsPayload),
+  }), 409);
+  assert.equal(controlsAfterTermination.error.code, 'card_terminated');
+  const finalCard = await json(await request(`/api/v1/cards/${card.id}`), 200);
+  assert.equal(finalCard.status, 'terminated'); assert.equal(finalCard.statusReason, 'customer_request');
+  const finalLifecycle = (await json(await request(`/api/v1/cards/${card.id}/lifecycle`), 200)).data;
+  assert.equal(finalLifecycle.length, 5); assert.equal(finalLifecycle[0].toStatus, 'terminated');
+  const cardAuditEvents = (await json(await request('/api/v1/events'), 200)).data;
+  assert.ok(cardAuditEvents.some((event) => event.action === 'card.program_created'));
+  assert.ok(cardAuditEvents.some((event) => event.action === 'card.controls_updated'));
+  assert.ok(cardAuditEvents.some((event) => event.action === 'card.terminated'));
 
   const championPayload = { name: 'QA policy family', kind: 'counterparty_match', operationType: 'transfer', scoreDelta: 0,
     action: 'decline', priority: 50, configuration: { pattern: 'qa policy baseline never matches' } };
@@ -895,6 +963,7 @@ try {
   cookie = checkerCookie;
   await json(await request('/api/v1/ledger'), 200);
   await json(await request('/api/v1/operations/work-items'), 200);
+  await json(await request(`/api/v1/cards/${card.id}/lifecycle`), 200);
   assert.equal((await request('/console')).status, 200);
   const viewerWriteDenied = await json(await request('/api/v1/transfers', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-viewer-denied-${runId}` },
@@ -905,6 +974,11 @@ try {
     method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-viewer-work-${runId}` }, body: JSON.stringify({ priority: 'low' }),
   }), 403);
   assert.equal(viewerOperationsDenied.error.code, 'insufficient_role');
+  const viewerProgramDenied = await json(await request('/api/v1/card-programs', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-viewer-card-program-${runId}` },
+    body: JSON.stringify({ name: 'Viewer denied', product: 'debit', formats: ['virtual'], defaultCurrency: 'ARS' }),
+  }), 403);
+  assert.equal(viewerProgramDenied.error.code, 'insufficient_role');
   const viewerCredentialsDenied = await json(await request('/api/platform/api-keys'), 403);
   assert.equal(viewerCredentialsDenied.code, 'insufficient_role');
   cookie = ownerCookieAfterRequest;
@@ -933,7 +1007,7 @@ try {
 
   console.log(JSON.stringify({
     ok: true,
-    checks: ['auth', 'landing-session-state', 'console-session-guard', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'viewer-read-only', 'member-invitations', 'dual-control', 'maker-checker', 'transfer-approval', 'approval-replay', 'approval-fail-closed', 'risk-case-approval', 'risk-hold-bypass-guard', 'reconciliation-exception-approval', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'risk-signals-privacy', 'risk-decision-lists', 'risk-confirmed-outcomes', 'risk-supervised-metrics', 'risk-outcome-revisions', 'reconciliation', 'operations-work-queue', 'operations-idempotency', 'operations-evidence', 'operations-rbac', 'csv-import', 'settlement', 'private-evidence', 'audit'],
+    checks: ['auth', 'landing-session-state', 'console-session-guard', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'viewer-read-only', 'member-invitations', 'dual-control', 'maker-checker', 'transfer-approval', 'approval-replay', 'approval-fail-closed', 'risk-case-approval', 'risk-hold-bypass-guard', 'reconciliation-exception-approval', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'card-programs', 'card-lifecycle', 'card-controls', 'card-terminal-state', 'card-rbac', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'risk-signals-privacy', 'risk-decision-lists', 'risk-confirmed-outcomes', 'risk-supervised-metrics', 'risk-outcome-revisions', 'reconciliation', 'operations-work-queue', 'operations-idempotency', 'operations-evidence', 'operations-rbac', 'csv-import', 'settlement', 'private-evidence', 'audit'],
   }));
 } finally {
   await cleanup();

@@ -1,10 +1,12 @@
 import { CimbraApiError, CimbraConnectionError, CimbraTimeoutError } from './errors.ts';
 import type {
-  Account, ApprovalRequest, AuditEvent, Card, CimbraResult, CreateAccountInput, CreateCardInput, CreateCustomerInput, CreatePaymentInput,
+  Account, ApprovalRequest, AuditEvent, Card, CardControls, CardLifecycleEvent, CardProgram, CimbraResult, CreateAccountInput,
+  CreateCardInput, CreateCardProgramInput, CreateCustomerInput, CreatePaymentInput,
   CreateReconciliationCsvImportInput, CreateReconciliationRunInput, CreateRiskEvaluationInput, CreateRiskListEntryInput, CreateRiskRuleInput, CreateRiskSimulationInput,
   CreateSettlementCycleInput, CreateTransferInput, CreateWebhookInput,
   Customer, Hold, HoldResolution, LedgerBalance, LedgerJournal, ListOptions, Page, PlatformCapability,
-  OperationalEvidence, OperationalNote, OperationalState, OperationalWorkItem, UpdateOperationalWorkItemInput, WorkItemType,
+  OperationalEvidence, OperationalNote, OperationalState, OperationalWorkItem, TransitionCardInput, UpdateCardControlsInput,
+  UpdateOperationalWorkItemInput, WorkItemType,
   ReconciliationException, ReconciliationExceptionResolutionResult, ReconciliationRun, RequestOptions, RiskCase,
   ReportRiskOutcomeInput, RiskCaseResolutionResult, RiskEvaluation, RiskListEntry, RiskMetrics, RiskOutcome, RiskRule, RiskSimulation, SettlementCycle, SettlementExecutionResult,
   Transaction, TransferCreationResult, WebhookOperationalState,
@@ -75,6 +77,24 @@ export class Cimbra {
     retrieve: (id: string, options?: RequestOptions) => this.request<Card>('GET', `/api/v1/cards/${encodeURIComponent(id)}`, undefined, options),
     create: (input: CreateCardInput, options?: RequestOptions) =>
       this.post<{ ok: true; card: Card; replayed: boolean }>('/api/v1/cards', input, options, true),
+    lifecycle: (id: string, options?: RequestOptions) =>
+      this.request<{ data: CardLifecycleEvent[] }>('GET', `/api/v1/cards/${encodeURIComponent(id)}/lifecycle`, undefined, options),
+    transition: (id: string, input: TransitionCardInput, options?: RequestOptions) =>
+      this.post<{ ok: true; event: CardLifecycleEvent; replayed: boolean }>(
+        `/api/v1/cards/${encodeURIComponent(id)}/lifecycle`, input, options, true),
+    controls: (id: string, options?: RequestOptions) =>
+      this.request<{ controls: CardControls | null }>('GET', `/api/v1/cards/${encodeURIComponent(id)}/controls`, undefined, options),
+    updateControls: (id: string, input: UpdateCardControlsInput, options?: RequestOptions) =>
+      this.patch<{ ok: true; controls: CardControls; replayed: boolean }>(
+        `/api/v1/cards/${encodeURIComponent(id)}/controls`, input, options),
+  };
+
+  readonly cardPrograms = {
+    list: (options?: RequestOptions) => this.request<{ data: CardProgram[] }>('GET', '/api/v1/card-programs', undefined, options),
+    retrieve: (id: string, options?: RequestOptions) =>
+      this.request<CardProgram>('GET', `/api/v1/card-programs/${encodeURIComponent(id)}`, undefined, options),
+    create: (input: CreateCardProgramInput, options?: RequestOptions) =>
+      this.post<{ ok: true; program: CardProgram; replayed: boolean }>('/api/v1/card-programs', input, options, true),
   };
 
   readonly transfers = {

@@ -13,6 +13,7 @@ import { approvalActionType, approvalExpiryMinutes, approvalReason, canDecideApp
 import { normalizeEvidenceLink, normalizeOperationalNote, normalizeWorkItemUpdate } from '../app/lib/platform/operations-input.ts';
 import { normalizeRiskRuleInput, normalizeRiskSimulationSamples } from '../app/lib/platform/risk-input.ts';
 import { normalizeRawRiskSignals, parseProtectedRiskSignals, protectRiskSignals, publicRiskSignals, riskSubjectHash, riskSubjectPreview } from '../app/lib/platform/risk-signals.ts';
+import { initialCardStatus, normalizeCardControlsInput, normalizeCardProgramInput, normalizeCardTransition } from '../app/lib/platform/card-issuing.ts';
 
 process.env.CIMBRA_ENCRYPTION_KEY = '3ea72fc13c567057870342c6ebd34d88f58f6d80b1dba61c4be4e1c2f1406afb';
 
@@ -106,12 +107,14 @@ test('la jerarquía RBAC protege owner, admins y emails de invitación', () => {
 test('una matriz canónica gobierna capacidades de API y consola', () => {
   assert.deepEqual(rolesFor('console.read'), ['owner', 'admin', 'operator', 'viewer']);
   assert.deepEqual(rolesFor('finance.write'), ['owner', 'admin', 'operator']);
+  assert.deepEqual(rolesFor('cards.program.manage'), ['owner', 'admin']);
   assert.deepEqual(rolesFor('credentials.manage'), ['owner', 'admin']);
   assert.deepEqual(rolesFor('approvals.policy.manage'), ['owner']);
   assert.equal(roleCan('owner', 'approvals.policy.manage'), true);
   assert.equal(roleCan('admin', 'approvals.policy.manage'), false);
   assert.equal(roleCan('admin', 'credentials.manage'), true);
   assert.equal(roleCan('operator', 'finance.write'), true);
+  assert.equal(roleCan('operator', 'cards.program.manage'), false);
   assert.equal(roleCan('operator', 'credentials.manage'), false);
   assert.equal(roleCan('viewer', 'console.read'), true);
   for (const capability of Object.keys(ACCESS_POLICY) as Array<keyof typeof ACCESS_POLICY>) {
@@ -186,6 +189,32 @@ test('normaliza políticas versionables y acota las muestras de simulación', ()
   assert.equal(samples?.[1].amountMinor, 10n);
   assert.equal(normalizeRiskSimulationSamples([]), null);
   assert.equal(normalizeRiskSimulationSamples(Array.from({ length: 51 }, () => ({ operationType: 'transfer', amount: '1', currency: 'ARS', counterparty: 'QA' }))), null);
+});
+
+test('card issuing valida programas y un lifecycle explícito con estado terminal', () => {
+  assert.deepEqual(normalizeCardProgramInput({ name: '  Débito Regional  ', product: 'debit',
+    formats: ['physical', 'virtual'], defaultCurrency: 'ars' }), {
+    name: 'Débito Regional', product: 'debit', formats: ['physical', 'virtual'], defaultCurrency: 'ARS',
+  });
+  assert.equal(normalizeCardProgramInput({ name: 'X', product: 'debit', formats: [], defaultCurrency: 'ARS' }), null);
+  assert.equal(initialCardStatus('physical'), 'created');
+  assert.equal(initialCardStatus('virtual'), 'active');
+  assert.deepEqual(normalizeCardTransition({ status: 'active', reason: 'activation' }, 'created'), { status: 'active', reason: 'activation' });
+  assert.deepEqual(normalizeCardTransition({ status: 'frozen', reason: 'suspected_fraud' }, 'active'), { status: 'frozen', reason: 'suspected_fraud' });
+  assert.equal(normalizeCardTransition({ status: 'active', reason: 'activation' }, 'terminated'), null);
+  assert.equal(normalizeCardTransition({ status: 'terminated', reason: 'review_cleared' }, 'active'), null);
+});
+
+test('card controls convierte montos a minor units y rechaza jerarquías o MCC ambiguos', () => {
+  assert.deepEqual(normalizeCardControlsInput({ currency: 'ARS', perTransactionLimit: '2500.50', dailyLimit: '5000',
+    monthlyLimit: '30000', allowedChannels: ['chip', 'ecommerce'], allowedMccs: ['5411'], blockedMccs: ['7995'], status: 'active' }), {
+    currency: 'ARS', perTransactionLimitMinor: '250050', dailyLimitMinor: '500000', monthlyLimitMinor: '3000000',
+    allowedChannels: ['chip', 'ecommerce'], allowedMccs: ['5411'], blockedMccs: ['7995'], status: 'active',
+  });
+  assert.equal(normalizeCardControlsInput({ currency: 'ARS', perTransactionLimit: '6000', dailyLimit: '5000', monthlyLimit: '30000',
+    allowedChannels: ['chip'], allowedMccs: [], blockedMccs: [], status: 'active' }), null);
+  assert.equal(normalizeCardControlsInput({ currency: 'ARS', perTransactionLimit: null, dailyLimit: null, monthlyLimit: null,
+    allowedChannels: ['chip'], allowedMccs: ['7995'], blockedMccs: ['7995'], status: 'active' }), null);
 });
 
 test('la conciliación detecta matches, diferencias y faltantes en ambos lados', () => {

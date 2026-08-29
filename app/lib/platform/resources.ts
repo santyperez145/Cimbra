@@ -23,8 +23,12 @@ const resources: Record<ResourceName, { scope: ApiScope; query: string }> = {
   },
   card: {
     scope: 'cards:read',
-    query: `SELECT id, account_id AS "accountId", customer_id AS "customerId", product, format, last4, status, created_at AS "createdAt"
-      FROM cards WHERE id = ? AND organization_id = ? LIMIT 1`,
+    query: `SELECT c.id, c.program_id AS "programId", p.name AS "programName", c.account_id AS "accountId",
+      c.customer_id AS "customerId", c.product, c.format, c.last4, c.status, c.status_reason AS "statusReason",
+      c.activated_at AS "activatedAt", c.terminated_at AS "terminatedAt", c.created_at AS "createdAt",
+      COALESCE(c.updated_at, c.created_at) AS "updatedAt"
+      FROM cards c LEFT JOIN card_programs p ON p.id = c.program_id
+      WHERE c.id = ? AND c.organization_id = ? LIMIT 1`,
   },
   transfer: {
     scope: 'transfers:read',

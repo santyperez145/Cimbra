@@ -4,6 +4,7 @@ export type AssignableRole = Exclude<OrganizationRole, 'owner'>;
 export const ACCESS_POLICY = {
   'console.read': ['owner', 'admin', 'operator', 'viewer'],
   'finance.write': ['owner', 'admin', 'operator'],
+  'cards.program.manage': ['owner', 'admin'],
   'compliance.write': ['owner', 'admin', 'operator'],
   'risk.cases.resolve': ['owner', 'admin', 'operator'],
   'risk.rules.manage': ['owner', 'admin'],

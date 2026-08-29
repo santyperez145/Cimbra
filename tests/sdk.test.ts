@@ -276,3 +276,25 @@ test('el SDK verifica firma, timestamp, cuerpo crudo y antigüedad del webhook',
     CimbraWebhookSignatureError,
   );
 });
+
+test('el SDK cablea programas, emisión, lifecycle y controles de tarjetas con idempotencia', async () => {
+  const calls: Array<{ url: string; method: string; idempotencyKey: string | null }> = [];
+  const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async (input, init) => {
+    const url = String(input); const method = init?.method ?? 'GET';
+    calls.push({ url, method, idempotencyKey: new Headers(init?.headers).get('idempotency-key') });
+    if (url.endsWith('/card-programs')) return Response.json({ ok: true, replayed: false, program: { id: 'program_1', name: 'Débito ARS' } }, { status: 201 });
+    if (url.endsWith('/cards')) return Response.json({ ok: true, replayed: false, card: { id: 'card_1', status: 'created' } }, { status: 201 });
+    if (url.endsWith('/lifecycle')) return Response.json({ ok: true, replayed: false, event: { id: 'event_1', toStatus: 'active' } });
+    return Response.json({ ok: true, replayed: false, controls: { id: 'controls_2', version: 2 } });
+  } });
+  const program = await client.cardPrograms.create({ name: 'Débito ARS', product: 'debit', formats: ['physical'], defaultCurrency: 'ARS' });
+  const card = await client.cards.create({ accountId: 'account_1', programId: program.data.program.id, format: 'physical' });
+  await client.cards.transition(card.data.card.id, { status: 'active', reason: 'activation' });
+  await client.cards.updateControls(card.data.card.id, { currency: 'ARS', perTransactionLimit: '1000', dailyLimit: '5000',
+    monthlyLimit: '30000', allowedChannels: ['chip', 'contactless'], allowedMccs: [], blockedMccs: ['7995'], status: 'active' });
+  assert.deepEqual(calls.map(({ method, url }) => `${method} ${url}`), [
+    'POST https://api.test/api/v1/card-programs', 'POST https://api.test/api/v1/cards',
+    'POST https://api.test/api/v1/cards/card_1/lifecycle', 'PATCH https://api.test/api/v1/cards/card_1/controls',
+  ]);
+  for (const call of calls) assert.match(call.idempotencyKey ?? '', /^idem_[a-f0-9]{32}$/);
+});

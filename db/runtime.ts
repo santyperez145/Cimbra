@@ -2,6 +2,7 @@ import type { AuthUser } from '@/app/lib/auth/types';
 import type { Currency } from '@/app/lib/ledger/money';
 import { minorToMajorNumber } from '@/app/lib/ledger/money';
 import type { OrganizationRole } from '@/app/lib/platform/access-policy';
+import type { CardFormat, CardProduct, CardStatus } from '@/app/lib/platform/card-issuing';
 import { getDatabaseClient } from './client';
 import { getLedgerBalances, listActiveHolds, seedOrganizationLedger, serializeTransaction, type ActiveHold, type LedgerBalance } from './ledger';
 import { enqueueWebhookEvent } from './platform';
@@ -34,11 +35,19 @@ export type DashboardData = {
   journalCount: number;
   cards: Array<{
     id: string;
-    product: string;
-    format: string;
+    programId: string | null;
+    programName: string | null;
+    accountId: string;
+    customerId: string;
+    product: CardProduct;
+    format: CardFormat;
     last4: string;
-    status: string;
+    status: CardStatus;
+    statusReason: string | null;
+    activatedAt: string | null;
+    terminatedAt: string | null;
     createdAt: string;
+    updatedAt: string;
   }>;
   accounts: Array<{
     id: string; customerId: string; currency: Currency; country: string; accountReference: string;
@@ -139,10 +148,16 @@ export async function getDashboardData(user: AuthUser): Promise<DashboardData> {
       balanceMinor: string; status: string; createdAt: string;
     }>(),
     database.prepare(
-      `SELECT id, product, format, last4, status, created_at AS "createdAt"
-       FROM cards WHERE organization_id = ? ORDER BY created_at DESC LIMIT 25`,
+      `SELECT c.id, c.program_id AS "programId", p.name AS "programName", c.account_id AS "accountId",
+        c.customer_id AS "customerId", c.product, c.format, c.last4, c.status, c.status_reason AS "statusReason",
+        c.activated_at AS "activatedAt", c.terminated_at AS "terminatedAt", c.created_at AS "createdAt",
+        COALESCE(c.updated_at, c.created_at) AS "updatedAt"
+       FROM cards c LEFT JOIN card_programs p ON p.id = c.program_id
+       WHERE c.organization_id = ? ORDER BY c.created_at DESC LIMIT 100`,
     ).bind(organizationId).all<{
-      id: string; product: string; format: string; last4: string; status: string; createdAt: string;
+      id: string; programId: string | null; programName: string | null; accountId: string; customerId: string;
+      product: CardProduct; format: CardFormat; last4: string; status: CardStatus; statusReason: string | null;
+      activatedAt: string | null; terminatedAt: string | null; createdAt: string; updatedAt: string;
     }>(),
     database.prepare(
       `SELECT id, file_name AS "fileName", content_type AS "contentType", size, status, created_at AS "createdAt"

@@ -140,7 +140,7 @@ function operationGroup(path: string) {
   if (path.startsWith('/api/auth/') || path === '/api/health' || path.endsWith('/capabilities')) return 'Identidad y estado';
   if (path.includes('/customers')) return 'Customers';
   if (path.includes('/accounts')) return 'Accounts';
-  if (path.includes('/cards')) return 'Cards';
+  if (path.includes('/cards') || path.includes('/card-programs')) return 'Cards';
   if (path.includes('/payments') || path.includes('/transfers')) return 'Payments y transfers';
   if (path.includes('/ledger') || path.includes('/holds')) return 'Ledger y holds';
   if (path.includes('/risk')) return 'Risk';
@@ -156,7 +156,7 @@ function operationScope(path: string, method: string) {
   if (!path.startsWith('/api/v1/')) return null;
   if (path.includes('/customers')) return `customers:${access}`;
   if (path.includes('/accounts')) return `accounts:${access}`;
-  if (path.includes('/cards')) return `cards:${access}`;
+  if (path.includes('/cards') || path.includes('/card-programs')) return `cards:${access}`;
   if (path.includes('/payments')) return `payments:${access}`;
   if (path.includes('/transfers')) return `transfers:${access}`;
   if (path.includes('/holds')) return 'transfers:write';

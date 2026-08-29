@@ -190,15 +190,71 @@ export const accounts = pgTable('accounts', {
   uniqueIndex('idx_accounts_org_idempotency').on(table.organizationId, table.idempotencyKey),
 ]);
 
+export const cardPrograms = pgTable('card_programs', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  idempotencyKey: text('idempotency_key').notNull(), requestFingerprint: text('request_fingerprint').notNull(),
+  name: text('name').notNull(), product: text('product').notNull(), formats: text('formats').notNull(),
+  defaultCurrency: text('default_currency').notNull(), status: text('status').notNull().default('active'),
+  createdBy: text('created_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_card_programs_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  uniqueIndex('idx_card_programs_org_name').on(table.organizationId, table.name),
+  index('idx_card_programs_org_created').on(table.organizationId, table.createdAt),
+  check('card_programs_product', sql`${table.product} IN ('debit', 'credit', 'prepaid')`),
+  check('card_programs_status', sql`${table.status} IN ('active', 'inactive')`),
+  check('card_programs_currency', sql`${table.defaultCurrency} IN ('ARS', 'USD', 'MXN', 'COP', 'BRL', 'CLP', 'PEN')`),
+]);
+
 export const cards = pgTable('cards', {
   id: text('id').primaryKey(), organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
   idempotencyKey: text('idempotency_key'),
+  programId: text('program_id').references(() => cardPrograms.id, { onDelete: 'restrict' }),
   accountId: text('account_id').notNull().references(() => accounts.id, { onDelete: 'restrict' }),
   customerId: text('customer_id').notNull().references(() => customers.id, { onDelete: 'restrict' }), product: text('product').notNull(), format: text('format').notNull(),
-  last4: text('last4').notNull(), status: text('status').notNull().default('active'), createdAt: text('created_at').notNull(),
+  last4: text('last4').notNull(), status: text('status').notNull().default('active'), statusReason: text('status_reason'),
+  activatedAt: text('activated_at'), terminatedAt: text('terminated_at'), createdAt: text('created_at').notNull(), updatedAt: text('updated_at'),
 }, (table) => [
-  index('idx_cards_org_created').on(table.organizationId, table.createdAt), index('idx_cards_account').on(table.accountId),
+  index('idx_cards_org_created').on(table.organizationId, table.createdAt), index('idx_cards_account').on(table.accountId), index('idx_cards_program').on(table.programId),
   uniqueIndex('idx_cards_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  check('cards_status', sql`${table.status} IN ('created', 'active', 'frozen', 'terminated')`),
+  check('cards_format', sql`${table.format} IN ('virtual', 'physical')`),
+  check('cards_product', sql`${table.product} IN ('debit', 'credit', 'prepaid')`),
+]);
+
+export const cardLifecycleEvents = pgTable('card_lifecycle_events', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  cardId: text('card_id').notNull().references(() => cards.id, { onDelete: 'cascade' }),
+  idempotencyKey: text('idempotency_key').notNull(), requestFingerprint: text('request_fingerprint').notNull(),
+  fromStatus: text('from_status'), toStatus: text('to_status').notNull(), reason: text('reason').notNull(),
+  actorId: text('actor_id').notNull().references(() => users.id, { onDelete: 'restrict' }), createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_card_lifecycle_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  index('idx_card_lifecycle_card_created').on(table.cardId, table.createdAt),
+  check('card_lifecycle_from_status', sql`${table.fromStatus} IS NULL OR ${table.fromStatus} IN ('created', 'active', 'frozen', 'terminated')`),
+  check('card_lifecycle_to_status', sql`${table.toStatus} IN ('created', 'active', 'frozen', 'terminated')`),
+]);
+
+export const cardControls = pgTable('card_controls', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  cardId: text('card_id').notNull().references(() => cards.id, { onDelete: 'cascade' }),
+  idempotencyKey: text('idempotency_key').notNull(), requestFingerprint: text('request_fingerprint').notNull(), version: integer('version').notNull(),
+  currency: text('currency').notNull(), perTransactionLimitMinor: bigint('per_transaction_limit_minor', { mode: 'bigint' }),
+  dailyLimitMinor: bigint('daily_limit_minor', { mode: 'bigint' }), monthlyLimitMinor: bigint('monthly_limit_minor', { mode: 'bigint' }),
+  allowedChannels: text('allowed_channels').notNull(), allowedMccs: text('allowed_mccs').notNull().default('[]'),
+  blockedMccs: text('blocked_mccs').notNull().default('[]'), status: text('status').notNull().default('active'),
+  createdBy: text('created_by').notNull().references(() => users.id, { onDelete: 'restrict' }), createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_card_controls_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  uniqueIndex('idx_card_controls_card_version').on(table.cardId, table.version),
+  index('idx_card_controls_org_created').on(table.organizationId, table.createdAt),
+  check('card_controls_version', sql`${table.version} > 0`),
+  check('card_controls_status', sql`${table.status} IN ('active', 'inactive')`),
+  check('card_controls_currency', sql`${table.currency} IN ('ARS', 'USD', 'MXN', 'COP', 'BRL', 'CLP', 'PEN')`),
+  check('card_controls_limits_positive', sql`(${table.perTransactionLimitMinor} IS NULL OR ${table.perTransactionLimitMinor} > 0) AND (${table.dailyLimitMinor} IS NULL OR ${table.dailyLimitMinor} > 0) AND (${table.monthlyLimitMinor} IS NULL OR ${table.monthlyLimitMinor} > 0)`),
 ]);
 
 export const complianceDocuments = pgTable('compliance_documents', {

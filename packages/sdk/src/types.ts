@@ -7,7 +7,30 @@ export type CimbraResult<T> = { data: T; requestId: string };
 
 export type Customer = { id: string; type: 'individual' | 'business'; name: string; country: string; taxIdLast4: string; status: string; createdAt: string };
 export type Account = { id: string; customerId: string; currency: Currency; country: string; accountReference: string; balance?: number; balanceMinor?: string; status: string; createdAt: string };
-export type Card = { id: string; accountId: string; customerId: string; product: 'debit' | 'credit' | 'prepaid'; format: 'virtual' | 'physical'; last4: string; status: string; createdAt: string };
+export type CardStatus = 'created' | 'active' | 'frozen' | 'terminated';
+export type CardProduct = 'debit' | 'credit' | 'prepaid';
+export type CardFormat = 'virtual' | 'physical';
+export type CardControlChannel = 'ecommerce' | 'contactless' | 'chip' | 'magstripe' | 'atm';
+export type Card = {
+  id: string; programId: string | null; programName: string | null; accountId: string; customerId: string;
+  product: CardProduct; format: CardFormat; last4: string; status: CardStatus; statusReason: string | null;
+  activatedAt: string | null; terminatedAt: string | null; createdAt: string; updatedAt: string;
+};
+export type CardProgram = {
+  id: string; name: string; product: CardProduct; formats: CardFormat[]; defaultCurrency: Currency;
+  status: 'active' | 'inactive'; createdAt: string;
+};
+export type CardLifecycleEvent = {
+  id: string; cardId: string; fromStatus: CardStatus | null; toStatus: CardStatus; reason: string;
+  actorId: string; actorName: string; createdAt: string;
+};
+export type CardControls = {
+  id: string; cardId: string; version: number; currency: Currency;
+  perTransactionLimitMinor: string | null; perTransactionLimit: string | null;
+  dailyLimitMinor: string | null; dailyLimit: string | null; monthlyLimitMinor: string | null; monthlyLimit: string | null;
+  allowedChannels: CardControlChannel[]; allowedMccs: string[]; blockedMccs: string[];
+  status: 'active' | 'inactive'; createdBy: string; createdByName: string; createdAt: string;
+};
 export type Transaction = { id: string; counterparty: string; description: string; amount: number; amountMinor: string; currency: Currency; status: string; riskScore: number; reversalOf: string | null; createdAt: string };
 export type PlatformCapability = {
   id: string; name: string; domain: 'core' | 'payments' | 'cards' | 'commerce' | 'credit' | 'risk' | 'operations' | 'platform';
@@ -144,7 +167,13 @@ export type CreateResult<T> = { ok: true; replayed: boolean; customer?: T; accou
 
 export type CreateCustomerInput = { type?: 'individual' | 'business'; name: string; country: string; taxId: string };
 export type CreateAccountInput = { customerId: string; currency: Currency; country: string };
-export type CreateCardInput = { accountId: string; product?: Card['product']; format?: Card['format'] };
+export type CreateCardInput = { accountId: string; programId?: string; product?: CardProduct; format?: CardFormat };
+export type CreateCardProgramInput = { name: string; product: CardProduct; formats: CardFormat[]; defaultCurrency: Currency };
+export type TransitionCardInput = { status: Exclude<CardStatus, 'created'>; reason: string };
+export type UpdateCardControlsInput = {
+  currency: Currency; perTransactionLimit: string | null; dailyLimit: string | null; monthlyLimit: string | null;
+  allowedChannels: CardControlChannel[]; allowedMccs: string[]; blockedMccs: string[]; status: 'active' | 'inactive';
+};
 export type CreateTransferInput = { counterparty: string; description: string; amount: string; currency?: Currency; signals?: RiskSignalsInput };
 export type CreatePaymentInput = { accountId: string; direction: 'cash_in' | 'cash_out'; counterparty: string; description: string; amount: string; currency: Currency; signals?: RiskSignalsInput };
 export type CreateRiskEvaluationInput = { operationType: 'transfer' | 'cash_in' | 'cash_out'; amount: string; currency: Currency; counterparty: string; signals?: RiskSignalsInput };

@@ -134,6 +134,13 @@
       "when": 1788016747268,
       "tag": "0018_outgoing_swarm",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1788024620017,
+      "tag": "0019_bouncy_doctor_spectrum",
+      "breakpoints": true
     }
   ]
 }

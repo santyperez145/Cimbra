@@ -58,6 +58,12 @@ Ninguno de estos gaps autoriza conectar Cimbra con un competidor. Las únicas de
 
 Pismo documenta roles predefinidos por función, permission groups, acceso por organización, SSO y perfiles separados de operador, viewer, auditor y approver. Pomelo permite crear operadores, asignar roles y limitar pantallas y acciones, con alta por email y 2FA. Cimbra adopta ahora el núcleo propio necesario: invitaciones verificadas y vencibles, owner protegido, administración delegada sin escalamiento, operator mutante, viewer de lectura y eventos auditables. Owner/admin pueden actuar como checker bajo una política específica; roles personalizados, SSO empresarial y un perfil approver dedicado permanecen como evolución posterior y no se presentan como terminados.
 
+## Benchmark aplicado — card issuing (29/08/2026)
+
+[Pismo documenta](https://developers.pismo.io/pismo-docs/docs/card-lifecycle-and-statuses) un ciclo de vida explícito con estados iniciales distintos para instrumentos físicos y virtuales, bloqueos temporales y estados terminales; sus [Flex Controls](https://developers.pismo.io/pismo-docs/docs/flex-controls) modelan límites y restricciones por cuenta, cliente o tarjeta y publican cambios asíncronos. [Pomelo](https://developers.pomelo.la/api-reference/cards/issuing/create-card) exige idempotencia al crear, expone activación y actualización de estado por API, mantiene paridad operativa con su dashboard y publica [eventos de tarjetas](https://developers.pomelo.la/api-reference/cards/issuing/card-events). Su operación PCI separa además la recuperación de datos sensibles del recurso ordinario.
+
+Cimbra adopta el patrón competitivo como contrato propio: programas tenant-scoped; instrumentos debit/credit/prepaid físicos o virtuales; lifecycle append-only con transición, razón y actor; `terminated` irreversible; controles completos versionados con límites en unidades mínimas, canales y MCC; locks, idempotencia, RBAC, scopes, auditoría, webhooks, SDK y consola. No replica contratos ni se conecta con esas plataformas. La decisión deliberada es más restrictiva en esta etapa: el sandbox nunca genera ni retorna PAN/CVV y los controles no se presentan como aplicados en red. Tokenización, HSM, ISO 8583, personalización, autorización y clearing pasan al gate PCI/esquema/sponsor, no a una simulación decorativa.
+
 ## Benchmark aplicado — doble aprobación (29/08/2026)
 
 Pismo publica un patrón maker/checker en el que una persona solicita, otra con rol autorizado decide y la operación no cambia el recurso hasta la aprobación; también documenta estados pendientes y terminales, expiración, historial y notificaciones para operaciones sensibles. BIND/bindX documenta OAuth 2.0 y permisos robustos para transferencias automatizadas, pero su material público consultado no alcanza para atribuirle un contrato maker/checker equivalente. No se encontraron contratos públicos suficientemente precisos de Dock, tapi, Pomelo o Wibond para afirmar paridad de doble aprobación endpoint por endpoint.
@@ -80,7 +86,7 @@ La decisión propia es no fingir clientes, volumen, uptime, tiempos de integraci
 
 Pismo reúne guías, referencia REST, esquemas de eventos, changelog, consola interactiva y colección Postman; además documenta autenticación S2S y verificación de webhooks como contratos separados. Pomelo hace explícitos OAuth 2.0, scopes, montos decimales, idempotencia y firma HMAC de webhooks. BIND PSP publica URLs distintas para staging y producción, autenticación, scopes, ejemplos curl, códigos de error y política de reintentos de webhooks. Esos patrones reducen el tiempo hasta el primer request y, sobre todo, evitan que el integrador tenga que adivinar límites operativos.
 
-Cimbra adopta el estándar de claridad como propiedad propia: `/developers` publica la única base URL activa, diferencia sandbox de producción no habilitada, genera la referencia de 71 operaciones desde OpenAPI, consume scopes y eventos canónicos, ofrece quickstarts exactos, errores estructurados, rate limits, paginación, modelo monetario, contrato de firma y calendario de reintentos. El SDK TypeScript se distribuye como artefacto real con checksum mientras no exista publicación npm. Postman y SDKs adicionales se muestran explícitamente como backlog; no se ofrecen botones ni instalaciones ficticias. La consola interactiva contra endpoints mutantes se posterga hasta poder aislar credenciales y datos de forma segura. Dock, tapi y Wibond continúan como benchmarks de producto; no se atribuyen contratos técnicos específicos cuando la documentación pública consultada no alcanza para verificarlos.
+Cimbra adopta el estándar de claridad como propiedad propia: `/developers` publica la única base URL activa, diferencia sandbox de producción no habilitada, genera la referencia de 78 operaciones desde OpenAPI, consume scopes y eventos canónicos, ofrece quickstarts exactos, errores estructurados, rate limits, paginación, modelo monetario, contrato de firma y calendario de reintentos. El SDK TypeScript se distribuye como artefacto real con checksum mientras no exista publicación npm. Postman y SDKs adicionales se muestran explícitamente como backlog; no se ofrecen botones ni instalaciones ficticias. La consola interactiva contra endpoints mutantes se posterga hasta poder aislar credenciales y datos de forma segura. Dock, tapi y Wibond continúan como benchmarks de producto; no se atribuyen contratos técnicos específicos cuando la documentación pública consultada no alcanza para verificarlos.
 
 ## Wedge recomendado
 
@@ -150,6 +156,9 @@ Una ronda pre-seed debe financiar 18 meses para cerrar el producto inicial, cont
 - https://developers.pismo.io/pismo-docs/docs/dual-approval
 - https://developers.pismo.io/pismo-docs/docs/account-actions
 - https://developers.pismo.io/pismo-docs/docs/control-center-navigation
+- https://developers.pismo.io/pismo-docs/docs/card-lifecycle-and-statuses
+- https://developers.pismo.io/pismo-docs/docs/flex-controls
+- https://developers.pismo.io/pismo-docs/reference/post-v1-accounts-flex-controls
 - https://developers.pomelo.la/api-reference/fraud/remedies/tx-remedy
 - https://developers.pomelo.la/api-reference/fraud/transactional-block/get-block-status
 - https://developers.pomelo.la/en/api-reference/fraud-prevention/chargebacks
@@ -166,6 +175,11 @@ Una ronda pre-seed debe financiar 18 meses para cerrar el producto inicial, cont
 - https://developers.pomelo.la/api-reference/fraud/remedies/tx-remedy
 - https://developers.pomelo.la/en/api-reference/fraud-prevention/chargebacks
 - https://developers.pomelo.la/guides/dashboard/company/administration
+- https://developers.pomelo.la/api-reference/cards/issuing/create-card
+- https://developers.pomelo.la/api-reference/cards/issuing/update-card
+- https://developers.pomelo.la/api-reference/cards/issuing/card-events
+- https://developers.pomelo.la/guides/dashboard/cards/cards
+- https://developers.pomelo.la/api-reference/cards/issuing/get-card
 - https://www.wibond.co/
 
 La información pública cambia; validar métricas, cobertura, licencias y precios directamente en diligence antes de usarla en un pitch.

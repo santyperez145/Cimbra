@@ -50,6 +50,37 @@ Cada recurso puede recuperarse directamente por su identificador:
 const customer = await cimbra.customers.retrieve('00000000-0000-4000-8000-000000000001');
 ```
 
+## Programas y controles de tarjetas
+
+```ts
+const program = await cimbra.cardPrograms.create({
+  name: 'Débito regional ARS',
+  product: 'debit',
+  formats: ['virtual', 'physical'],
+  defaultCurrency: 'ARS',
+});
+
+const issued = await cimbra.cards.create({
+  programId: program.data.program.id,
+  accountId: '00000000-0000-4000-8000-000000000001',
+  format: 'physical',
+});
+
+await cimbra.cards.transition(issued.data.card.id, { status: 'active', reason: 'activation' });
+await cimbra.cards.updateControls(issued.data.card.id, {
+  currency: 'ARS',
+  perTransactionLimit: '250000.00',
+  dailyLimit: '500000.00',
+  monthlyLimit: '3000000.00',
+  allowedChannels: ['ecommerce', 'contactless', 'chip'],
+  allowedMccs: [],
+  blockedMccs: ['7995'],
+  status: 'active',
+});
+```
+
+Los cambios de estado validan una máquina de transiciones explícita; `terminated` es terminal. Cada ajuste de controles crea una versión inmutable y emite eventos. Este contrato es un sandbox propio de Cimbra: nunca devuelve PAN/CVV ni implica emisión o autorización en redes reales.
+
 ## Cash-in y cash-out
 
 ```ts

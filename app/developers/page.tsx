@@ -29,6 +29,11 @@ const errorResponses = [
 const changelog = [
   {
     date: '29 AGO 2026',
+    title: 'Issuing nativo: programas, lifecycle y controles',
+    detail: 'Programas tenant, estados terminales, controles append-only por límites/canales/MCC, seis eventos, SDK y consola por rol; el sandbox no expone datos PCI ni afirma conexión a redes.',
+  },
+  {
+    date: '29 AGO 2026',
     title: 'Doble control para decisiones operativas',
     detail: 'Casos de riesgo y excepciones de conciliación admiten políticas independientes, revalidación atómica y protección contra bypass de holds.',
   },
@@ -184,7 +189,7 @@ return new Response(null, { status: 204 });`;
           <article><strong>{API_SCOPES.length}</strong><span>Scopes S2S canónicos</span></article>
           <article><strong>{WEBHOOK_EVENT_TYPES.length}</strong><span>Tipos de evento emitidos</span></article>
         </div>
-        <div className="docs-callout"><i>i</i><div><strong>Sandbox persistente, no dinero real</strong><p>Customers, cuentas, tarjetas, movimientos, ledger, riesgo, conciliación, aprobaciones y webhooks se persisten. No existen rieles bancarios o de tarjetas homologados y no se emiten instrumentos en redes de pago.</p></div></div>
+        <div className="docs-callout"><i>i</i><div><strong>Sandbox persistente, no dinero real</strong><p>Customers, cuentas, programas y lifecycle de tarjetas, controles, movimientos, ledger, riesgo, conciliación, aprobaciones y webhooks se persisten. No existen rieles bancarios o de tarjetas homologados, PAN/CVV ni instrumentos emitidos en redes de pago.</p></div></div>
       </section>
 
       <section id="environments" className="docs-section">
