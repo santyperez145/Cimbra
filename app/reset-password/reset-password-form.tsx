@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { FormEvent, useEffect, useState } from 'react';
+import { jsonFetch } from '@/app/lib/platform/client-http';
 
 export default function ResetPasswordForm({ token }: { token: string }) {
   const [busy, setBusy] = useState(false);
@@ -18,7 +19,7 @@ export default function ResetPasswordForm({ token }: { token: string }) {
     const password = String(form.get('password') ?? '');
     if (password !== String(form.get('confirmation') ?? '')) { setError('Las contraseñas no coinciden.'); setBusy(false); return; }
     try {
-      const response = await fetch('/api/auth/password/reset', {
+      const response = await jsonFetch('/api/auth/password/reset', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, password }),
       });
       const result = await response.json() as { error?: string };

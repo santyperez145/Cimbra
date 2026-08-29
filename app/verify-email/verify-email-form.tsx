@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import { jsonFetch } from '@/app/lib/platform/client-http';
 
 export default function VerifyEmailForm({ token, sent, returnTo }: { token: string; sent: boolean; returnTo: string }) {
   const [status, setStatus] = useState<'idle' | 'busy' | 'done' | 'error'>(token ? 'busy' : 'idle');
@@ -10,7 +11,7 @@ export default function VerifyEmailForm({ token, sent, returnTo }: { token: stri
   useEffect(() => {
     if (!token) return;
     window.history.replaceState(null, '', '/verify-email');
-    fetch('/api/auth/email/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }) })
+    jsonFetch('/api/auth/email/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }) })
       .then(async (response) => ({ response, result: await response.json() as { error?: string } }))
       .then(({ response, result }) => { if (response.ok) { setStatus('done'); setMessage('Tu email quedó verificado correctamente.'); } else { setStatus('error'); setMessage(result.error ?? 'No pudimos verificar el email.'); } })
       .catch(() => { setStatus('error'); setMessage('No pudimos conectarnos. Intentá nuevamente.'); });
@@ -18,7 +19,7 @@ export default function VerifyEmailForm({ token, sent, returnTo }: { token: stri
 
   async function resend() {
     setStatus('busy');
-    const response = await fetch('/api/auth/email/resend', { method: 'POST' });
+    const response = await jsonFetch('/api/auth/email/resend', { method: 'POST' });
     const result = await response.json() as { error?: string };
     setStatus(response.ok ? 'idle' : 'error');
     setMessage(response.ok ? 'Enviamos un nuevo enlace. El anterior quedó invalidado.' : result.error ?? 'No pudimos enviar el email.');

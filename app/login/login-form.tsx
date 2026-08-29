@@ -3,6 +3,7 @@
 import { FormEvent, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { jsonFetch } from '@/app/lib/platform/client-http';
 
 type Props = {
   availability: { google: boolean; apple: boolean };
@@ -27,7 +28,7 @@ export default function LoginForm({ availability, returnTo, initialError, initia
       ? { identifier: form.get('identifier'), password: form.get('password') }
       : { displayName: form.get('displayName'), username: form.get('username'), email: form.get('email'), password: form.get('password') };
     try {
-      const response = await fetch(`/api/auth/${mode}`, {
+      const response = await jsonFetch(`/api/auth/${mode}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -49,7 +50,7 @@ export default function LoginForm({ availability, returnTo, initialError, initia
     setBusy(true); setError('');
     const form = new FormData(event.currentTarget);
     try {
-      const response = await fetch('/api/auth/mfa/challenge', {
+      const response = await jsonFetch('/api/auth/mfa/challenge', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ challengeToken: challengeToken === 'cookie' ? undefined : challengeToken, code: form.get('code') }),
       });

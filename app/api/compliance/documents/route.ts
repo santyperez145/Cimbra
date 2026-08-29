@@ -50,7 +50,11 @@ export async function POST(request: Request) {
       await recordAuditEvent({ organizationId, actorId: user.userId, action: 'compliance.document_uploaded', resourceType: 'document', resourceId: id }, transaction);
     });
   } catch (error) {
-    await deleteComplianceObject(storedObject).catch(() => undefined);
+    try {
+      await deleteComplianceObject(storedObject);
+    } catch (cleanupError) {
+      console.error('Compliance upload rollback failed', cleanupError instanceof Error ? cleanupError.message : String(cleanupError));
+    }
     throw error;
   }
   scheduleWebhookDispatch(organizationId);

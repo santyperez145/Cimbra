@@ -27,9 +27,12 @@ export type DashboardData = {
   environment: string;
   role: OrganizationRole;
   balance: number;
-  processedThisMonth: number;
-  approvalRate: number;
-  transactionCount: number;
+  periodAsOf: string;
+  periodSummaries: Record<'7d' | '30d', {
+    processedArs: number;
+    approvalRate: number;
+    transactionCount: number;
+  }>;
   activeAccounts: number;
   riskAlerts: number;
   journalCount: number;
@@ -120,16 +123,27 @@ export async function getDashboardData(user: AuthUser): Promise<DashboardData> {
     id: string; counterparty: string; description: string; amountMinor: string; currency: Currency;
     status: string; riskScore: number; reversalOf: string | null; createdAt: string;
   }>();
-  const monthStart = new Date();
-  monthStart.setUTCDate(1);
-  monthStart.setUTCHours(0, 0, 0, 0);
+  const now = Date.now();
+  const sevenDayStart = new Date(now - 7 * 24 * 60 * 60 * 1_000).toISOString();
+  const thirtyDayStart = new Date(now - 30 * 24 * 60 * 60 * 1_000).toISOString();
   const summary = await database.prepare(
-    `SELECT
-      COALESCE(SUM(CASE WHEN currency = 'ARS' AND status IN ('settled', 'reversed') THEN ABS(amount_minor) ELSE 0 END), 0)::text AS processedMinor,
-      COALESCE(AVG(CASE WHEN status IN ('settled', 'authorized', 'reversed') THEN 100.0 ELSE 0 END), 0) AS approval,
-      COUNT(*)::int AS transactionCount
-     FROM transactions WHERE organization_id = ? AND created_at >= ?`,
-  ).bind(organizationId, monthStart.toISOString()).first<{ processedMinor: string; approval: number; transactionCount: number }>();
+    `WITH scoped AS (
+       SELECT amount_minor, currency, status, created_at FROM transactions WHERE organization_id = ?
+     ), periods AS (
+       SELECT CAST(? AS text) AS seven_start, CAST(? AS text) AS thirty_start
+     )
+     SELECT
+       COALESCE(SUM(CASE WHEN created_at >= seven_start AND currency = 'ARS' AND status IN ('settled', 'reversed') THEN ABS(amount_minor) ELSE 0 END), 0)::text AS "processed7Minor",
+       COALESCE(AVG(CASE WHEN created_at >= seven_start THEN CASE WHEN status IN ('settled', 'authorized', 'reversed') THEN 100.0 ELSE 0 END END), 0) AS "approval7",
+       COUNT(*) FILTER (WHERE created_at >= seven_start)::int AS "transactionCount7",
+       COALESCE(SUM(CASE WHEN created_at >= thirty_start AND currency = 'ARS' AND status IN ('settled', 'reversed') THEN ABS(amount_minor) ELSE 0 END), 0)::text AS "processed30Minor",
+       COALESCE(AVG(CASE WHEN created_at >= thirty_start THEN CASE WHEN status IN ('settled', 'authorized', 'reversed') THEN 100.0 ELSE 0 END END), 0) AS "approval30",
+       COUNT(*) FILTER (WHERE created_at >= thirty_start)::int AS "transactionCount30"
+     FROM scoped CROSS JOIN periods`,
+  ).bind(organizationId, sevenDayStart, thirtyDayStart).first<{
+    processed7Minor: string; approval7: number; transactionCount7: number;
+    processed30Minor: string; approval30: number; transactionCount30: number;
+  }>();
   const accountCount = await database.prepare(
     "SELECT COUNT(*)::int AS count FROM accounts WHERE organization_id = ? AND status = 'active'",
   ).bind(organizationId).first<{ count: number }>();
@@ -176,9 +190,19 @@ export async function getDashboardData(user: AuthUser): Promise<DashboardData> {
     environment: organization?.status ?? 'sandbox',
     role,
     balance: primaryBalance?.available ?? 0,
-    processedThisMonth: minorToMajorNumber(summary?.processedMinor ?? '0', 'ARS'),
-    approvalRate: Number(summary?.approval ?? 0),
-    transactionCount: Number(summary?.transactionCount ?? 0),
+    periodAsOf: new Date(now).toISOString(),
+    periodSummaries: {
+      '7d': {
+        processedArs: minorToMajorNumber(summary?.processed7Minor ?? '0', 'ARS'),
+        approvalRate: Number(summary?.approval7 ?? 0),
+        transactionCount: Number(summary?.transactionCount7 ?? 0),
+      },
+      '30d': {
+        processedArs: minorToMajorNumber(summary?.processed30Minor ?? '0', 'ARS'),
+        approvalRate: Number(summary?.approval30 ?? 0),
+        transactionCount: Number(summary?.transactionCount30 ?? 0),
+      },
+    },
     activeAccounts: Number(accountCount?.count ?? 0),
     riskAlerts: holds.length,
     journalCount: Number(journalSummary?.count ?? 0),

@@ -115,7 +115,7 @@ npm run sdk:artifact
 
 ## Infraestructura propia
 
-El `Dockerfile` produce una imagen standalone sin proceso root. [`infra/README.md`](infra/README.md) y `infra/terraform/aws` definen el piloto sobre ECS/Fargate, PostgreSQL Multi-AZ con PITR, KMS/Secrets Manager, WAF, autoscaling, observabilidad y el recovery dispatcher del outbox. Terraform sólo debe aplicarse después de revisar plan, costo y cuenta de destino.
+El `Dockerfile` produce una imagen standalone sin proceso root. El build genera siempre ese mismo runtime, incluso si el entorno local fue descargado desde Vercel, y falla si faltan `server.js` o los assets estáticos requeridos por `npm start` y la imagen OCI. [`infra/README.md`](infra/README.md) y `infra/terraform/aws` definen el piloto sobre ECS/Fargate, PostgreSQL Multi-AZ con PITR, KMS/Secrets Manager, WAF, autoscaling, observabilidad y el recovery dispatcher del outbox. Terraform sólo debe aplicarse después de revisar plan, costo y cuenta de destino.
 
 ## Documentos de dirección
 

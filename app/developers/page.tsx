@@ -29,6 +29,11 @@ const errorResponses = [
 const changelog = [
   {
     date: '29 AGO 2026',
+    title: 'Runtime verificable y métricas por período',
+    detail: 'El build valida el servidor standalone usado por OCI y el overview calcula ventanas reales de 7/30 días; los fallos de red o respuestas inválidas ya no dejan acciones bloqueadas.',
+  },
+  {
+    date: '29 AGO 2026',
     title: 'Issuing nativo: programas, lifecycle y controles',
     detail: 'Programas tenant, estados terminales, controles append-only por límites/canales/MCC, seis eventos, SDK y consola por rol; el sandbox no expone datos PCI ni afirma conexión a redes.',
   },

@@ -177,7 +177,11 @@ async function deliver(claim: ClaimedDelivery) {
       body: delivery.payload,
     });
     const excerpt = `${response.status} ${response.statusText}`.trim();
-    await response.body?.cancel().catch(() => undefined);
+    try {
+      await response.body?.cancel();
+    } catch (error) {
+      console.warn('Webhook response cleanup failed', error instanceof Error ? error.message : String(error));
+    }
     const status = await completeDelivery(delivery, { delivered: response.status >= 200 && response.status < 300, responseStatus: response.status, responseExcerpt: excerpt, error: response.status >= 200 && response.status < 300 ? undefined : 'El endpoint no respondió con 2xx.' });
     return { id: delivery.id, status };
   } catch (error) {

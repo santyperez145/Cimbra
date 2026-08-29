@@ -14,6 +14,7 @@ import { normalizeEvidenceLink, normalizeOperationalNote, normalizeWorkItemUpdat
 import { normalizeRiskRuleInput, normalizeRiskSimulationSamples } from '../app/lib/platform/risk-input.ts';
 import { normalizeRawRiskSignals, parseProtectedRiskSignals, protectRiskSignals, publicRiskSignals, riskSubjectHash, riskSubjectPreview } from '../app/lib/platform/risk-signals.ts';
 import { initialCardStatus, normalizeCardControlsInput, normalizeCardProgramInput, normalizeCardTransition } from '../app/lib/platform/card-issuing.ts';
+import { authenticatedFetch } from '../app/lib/platform/client-http.ts';
 
 process.env.CIMBRA_ENCRYPTION_KEY = '3ea72fc13c567057870342c6ebd34d88f58f6d80b1dba61c4be4e1c2f1406afb';
 
@@ -189,6 +190,29 @@ test('normaliza políticas versionables y acota las muestras de simulación', ()
   assert.equal(samples?.[1].amountMinor, 10n);
   assert.equal(normalizeRiskSimulationSamples([]), null);
   assert.equal(normalizeRiskSimulationSamples(Array.from({ length: 51 }, () => ({ operationType: 'transfer', amount: '1', currency: 'ARS', counterparty: 'QA' }))), null);
+});
+
+test('la consola normaliza fallos de red y respuestas no JSON sin dejar acciones colgadas', async () => {
+  const originalFetch = global.fetch;
+  const originalConsoleError = console.error;
+  console.error = () => undefined;
+  try {
+    global.fetch = (async () => { throw new TypeError('fetch failed'); }) as typeof fetch;
+    const networkFailure = await authenticatedFetch('/api/v1/test');
+    assert.equal(networkFailure.status, 503);
+    assert.equal(networkFailure.headers.get('cimbra-should-retry'), 'true');
+    assert.deepEqual(await networkFailure.json(), { error: 'No pudimos conectar con Cimbra. Reintentá en unos segundos.' });
+
+    global.fetch = (async () => new Response('<html>upstream failure</html>', {
+      status: 502, headers: { 'Content-Type': 'text/html' },
+    })) as typeof fetch;
+    const invalidResponse = await authenticatedFetch('/api/v1/test');
+    assert.equal(invalidResponse.status, 502);
+    assert.deepEqual(await invalidResponse.json(), { error: 'No pudimos conectar con Cimbra. Reintentá en unos segundos.' });
+  } finally {
+    global.fetch = originalFetch;
+    console.error = originalConsoleError;
+  }
 });
 
 test('card issuing valida programas y un lifecycle explícito con estado terminal', () => {

@@ -19,6 +19,8 @@ El alta de colaboradores usa invitaciones tenant-scoped con vencimiento, email n
 
 La autorización humana se declara una sola vez como capacidades de negocio (`console.read`, `finance.write`, `risk.rules.manage`, `approvals.decide`, `credentials.manage`, entre otras). Las rutas API resuelven esas capacidades a roles y la consola reutiliza la misma matriz para navegación y acciones; el servidor siempre vuelve a validar. Las API keys permanecen gobernadas por scopes, no por roles humanos. Una sesión inexistente o vencida responde `401` y la consola vuelve a `/login` conservando `return_to`; una sesión válida sin capacidad responde `403 insufficient_role`, permanece autenticada y muestra el límite real en vez de confundirlo con un fallo del sistema.
 
+El overview no presenta controles decorativos: sus ventanas de 7 y 30 días se agregan en PostgreSQL con un mismo instante de corte enviado a la consola. Volumen, tasa de aprobación, cantidad y actividad visible cambian juntos al seleccionar el período.
+
 Cada request operativo:
 
 1. resuelve la identidad autenticada;

@@ -16,7 +16,8 @@
 - migraciones, lint, tipos y build automatizables.
 - API pública v1 con request IDs, errores normalizados, rate-limit headers e idempotencia de altas;
 - SDK TypeScript empaquetable y descargable con SHA-256, reintentos seguros y verificación de webhooks;
-- imagen OCI standalone e infraestructura AWS reproducible y validada estáticamente.
+- imagen OCI standalone e infraestructura AWS reproducible y validada estáticamente; el build verifica el artefacto ejecutable que comparten `npm start` y la imagen.
+- métricas de overview calculadas en PostgreSQL para ventanas reales de 7 y 30 días, con selector funcional y actividad consistente con el período.
 - migraciones versionadas como gate previo al build productivo de Vercel y como task separada antes del rollout de ECS.
 - verificación de email, recuperación de contraseña con revocación de sesiones y MFA TOTP con recovery codes de un solo uso.
 - miembros e invitaciones verificadas con roles owner/admin/operator/viewer, jerarquía, auditoría, webhooks y consola adaptada al permiso efectivo.

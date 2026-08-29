@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { FormEvent, useState } from 'react';
+import { jsonFetch } from '@/app/lib/platform/client-http';
 
 export default function ForgotPasswordForm() {
   const [busy, setBusy] = useState(false);
@@ -11,7 +12,7 @@ export default function ForgotPasswordForm() {
     event.preventDefault(); setBusy(true); setFeedback('');
     const form = new FormData(event.currentTarget);
     try {
-      const response = await fetch('/api/auth/password/forgot', {
+      const response = await jsonFetch('/api/auth/password/forgot', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: form.get('email') }),
       });
       const result = await response.json() as { error?: string; message?: string };

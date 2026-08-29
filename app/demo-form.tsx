@@ -1,6 +1,7 @@
 'use client';
 
 import { FormEvent, useState } from 'react';
+import { jsonFetch } from '@/app/lib/platform/client-http';
 
 export default function DemoForm() {
   const [state, setState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
@@ -11,7 +12,7 @@ export default function DemoForm() {
     setState('sending'); setMessage('');
     const form = event.currentTarget;
     const fields = Object.fromEntries(new FormData(form).entries());
-    const response = await fetch('/api/demo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fields) });
+    const response = await jsonFetch('/api/demo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fields) });
     const result = await response.json() as { message?: string; error?: string };
     if (!response.ok) { setState('error'); setMessage(result.error ?? 'No pudimos enviar la solicitud.'); return; }
     setState('sent'); setMessage(result.message ?? 'Solicitud recibida.'); form.reset();
