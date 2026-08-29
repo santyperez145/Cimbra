@@ -29,6 +29,11 @@ const errorResponses = [
 const changelog = [
   {
     date: '29 AGO 2026',
+    title: 'Disputas y chargebacks nativos',
+    detail: 'Disputas parciales con lifecycle explícito, créditos provisionales o definitivos en doble partida, compensaciones, evidencia, cola operativa, maker/checker, API, SDK y permisos por rol. network_ready no implica conexión a una red real.',
+  },
+  {
+    date: '29 AGO 2026',
     title: 'Runtime verificable y métricas por período',
     detail: 'El build valida el servidor standalone usado por OCI y el overview calcula ventanas reales de 7/30 días; los fallos de red o respuestas inválidas ya no dejan acciones bloqueadas.',
   },
@@ -40,12 +45,12 @@ const changelog = [
   {
     date: '29 AGO 2026',
     title: 'Doble control para decisiones operativas',
-    detail: 'Casos de riesgo y excepciones de conciliación admiten políticas independientes, revalidación atómica y protección contra bypass de holds.',
+    detail: 'Casos de riesgo, excepciones de conciliación y disputas admiten políticas independientes, revalidación atómica y protección contra bypass de holds o créditos.',
   },
   {
     date: '29 AGO 2026',
     title: 'Cola operativa con SLA y evidencia',
-    detail: 'Riesgo y conciliación comparten ownership, prioridad, vencimiento, escalamiento, comentarios y documentos privados mediante API, SDK y consola.',
+    detail: 'Riesgo, conciliación y disputas comparten ownership, prioridad, vencimiento, escalamiento, comentarios y documentos privados mediante API, SDK y consola.',
   },
   {
     date: '29 AGO 2026',
@@ -194,7 +199,7 @@ return new Response(null, { status: 204 });`;
           <article><strong>{API_SCOPES.length}</strong><span>Scopes S2S canónicos</span></article>
           <article><strong>{WEBHOOK_EVENT_TYPES.length}</strong><span>Tipos de evento emitidos</span></article>
         </div>
-        <div className="docs-callout"><i>i</i><div><strong>Sandbox persistente, no dinero real</strong><p>Customers, cuentas, programas y lifecycle de tarjetas, controles, movimientos, ledger, riesgo, conciliación, aprobaciones y webhooks se persisten. No existen rieles bancarios o de tarjetas homologados, PAN/CVV ni instrumentos emitidos en redes de pago.</p></div></div>
+        <div className="docs-callout"><i>i</i><div><strong>Sandbox persistente, no dinero real</strong><p>Customers, cuentas, programas y lifecycle de tarjetas, controles, movimientos, ledger, riesgo, conciliación, disputas, expedientes operativos, aprobaciones y webhooks se persisten. No existen rieles bancarios o de tarjetas homologados, PAN/CVV ni instrumentos emitidos en redes de pago.</p></div></div>
       </section>
 
       <section id="environments" className="docs-section">
