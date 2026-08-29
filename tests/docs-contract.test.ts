@@ -101,6 +101,13 @@ test('consola y docs consumen scopes y eventos desde fuentes canónicas', () => 
   assert.match(page, /WEBHOOK_EVENT_TYPES\.map/);
 });
 
+test('el sistema de diseño declara el token navy usado por formularios y autenticación', () => {
+  const styles = readFileSync(join(root, 'app', 'globals.css'), 'utf8');
+  assert.match(styles, /:root\s*\{[^}]*--navy:\s*#101b2f;/s);
+  assert.match(styles, /\.integration-form>button\{[^}]*background:var\(--navy\)/);
+  assert.match(styles, /\.auth-submit\{[^}]*background:var\(--navy\)/);
+});
+
 test('el tipo del SDK refleja el payload snake_case emitido por el outbox', () => {
   const types = readFileSync(join(root, 'packages', 'sdk', 'src', 'types.ts'), 'utf8');
   const outbox = readFileSync(join(root, 'db', 'platform.ts'), 'utf8');
