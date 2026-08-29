@@ -10,11 +10,17 @@ test('el build siempre produce el runtime standalone usado por start y la imagen
     scripts: Record<string, string>;
   };
   const nextConfig = readFileSync(join(root, 'next.config.ts'), 'utf8');
+  const buildScript = readFileSync(join(root, 'scripts', 'build-next.mjs'), 'utf8');
+  const vercelBuild = readFileSync(join(root, 'scripts', 'vercel-build.mjs'), 'utf8');
   const dockerfile = readFileSync(join(root, 'Dockerfile'), 'utf8');
 
   assert.match(nextConfig, /output:\s*['"]standalone['"]/);
   assert.doesNotMatch(nextConfig, /process\.env\.VERCEL[^\n]+output/);
-  assert.match(packageJson.scripts.build, /verify-standalone\.mjs/);
+  assert.match(nextConfig, /CIMBRA_STANDALONE === '1'/);
+  assert.match(packageJson.scripts.build, /build-next\.mjs/);
+  assert.match(buildScript, /CIMBRA_STANDALONE: '1'/);
+  assert.match(buildScript, /verify-standalone\.mjs/);
+  assert.doesNotMatch(vercelBuild, /CIMBRA_STANDALONE/);
   assert.match(packageJson.scripts.start, /\.next\/standalone\/server\.js/);
   assert.match(dockerfile, /\/app\/\.next\/standalone/);
 });

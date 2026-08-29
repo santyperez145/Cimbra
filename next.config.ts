@@ -18,10 +18,9 @@ const contentSecurityPolicy = [
 
 const nextConfig: NextConfig = {
   agentRules: false,
-  // The same build artifact powers local/ECS verification and Vercel. Keeping
-  // this unconditional prevents a pulled VERCEL=1 environment from silently
-  // producing a build that `npm start` and the OCI image cannot run.
-  output: 'standalone',
+  // `npm run build` opts into the OCI/local standalone artifact explicitly.
+  // Vercel's adapter needs its native output and invokes next build directly.
+  ...(process.env.CIMBRA_STANDALONE === '1' ? { output: 'standalone' as const } : {}),
   poweredByHeader: false,
   experimental: {
     serverActions: {

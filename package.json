@@ -10,7 +10,7 @@
   },
   "scripts": {
     "dev": "next dev",
-    "build": "next build && node scripts/verify-standalone.mjs",
+    "build": "node scripts/build-next.mjs",
     "start": "node --env-file-if-exists=.env.local .next/standalone/server.js",
     "deploy": "npx vercel@latest --prod",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
