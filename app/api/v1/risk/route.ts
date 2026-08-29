@@ -5,7 +5,7 @@ import { listRiskState } from '@/db/risk';
 
 async function getRiskState(request: Request) {
   try {
-    const principal = await authorizeApiRequest(request, { scope: 'risk:read' });
+    const principal = await authorizeApiRequest(request, { scope: 'risk:read', capability: 'console.read' });
     return NextResponse.json({ data: await listRiskState(principal.organizationId) }, { headers: { 'Cache-Control': 'no-store', ...rateLimitHeaders(principal) } });
   } catch (error) {
     const response = authorizationErrorResponse(error);

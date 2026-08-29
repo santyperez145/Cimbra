@@ -9,7 +9,7 @@ import { createReconciliationRun, ReconciliationError, type ReconciliationSource
 
 async function createRun(request: Request) {
   try {
-    const principal = await authorizeApiRequest(request, { scope: 'reconciliation:write', roles: ['owner', 'admin', 'operator'], mutation: true });
+    const principal = await authorizeApiRequest(request, { scope: 'reconciliation:write', capability: 'reconciliation.write', mutation: true });
     const idempotencyKey = requestIdempotencyKey(request, principal)!;
     const body = await request.json().catch(() => null) as Record<string, unknown> | null;
     const name = typeof body?.name === 'string' ? body.name.trim().slice(0, 100) : '';

@@ -5,7 +5,7 @@ import { retrieveSettlementCycle } from '@/db/settlements';
 
 async function retrieve(request: Request, id: string) {
   try {
-    const principal = await authorizeApiRequest(request, { scope: 'settlements:read' });
+    const principal = await authorizeApiRequest(request, { scope: 'settlements:read', capability: 'console.read' });
     const cycle = await retrieveSettlementCycle(principal.organizationId, id);
     if (!cycle) return NextResponse.json({ error: 'Ciclo de settlement no encontrado.', code: 'settlement_cycle_not_found' }, { status: 404 });
     return NextResponse.json(cycle, { headers: { 'Cache-Control': 'no-store', ...rateLimitHeaders(principal) } });

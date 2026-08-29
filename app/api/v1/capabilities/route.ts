@@ -5,7 +5,7 @@ import { versionedApi } from '@/app/lib/platform/versioned-api';
 
 async function listCapabilities(request: Request) {
   try {
-    const principal = await authorizeApiRequest(request, { scope: 'platform:read' });
+    const principal = await authorizeApiRequest(request, { scope: 'platform:read', capability: 'console.read' });
     return NextResponse.json({ data: PLATFORM_CAPABILITIES, meta: PLATFORM_SUMMARY }, {
       headers: { 'Cache-Control': 'private, max-age=300', ...rateLimitHeaders(principal) },
     });

@@ -9,7 +9,7 @@ import { ensureDatabase, getDatabase, OrganizationAccessError } from '@/db/runti
 
 export async function GET(request: Request) {
   try {
-    const principal = await authorizeApiRequest(request, { scope: 'transfers:read', roles: ['owner', 'admin', 'operator', 'viewer'] });
+    const principal = await authorizeApiRequest(request, { scope: 'transfers:read', capability: 'console.read' });
     const url = new URL(request.url);
     const limit = pageLimit(url.searchParams.get('limit'));
     const cursor = decodePageCursor(url.searchParams.get('cursor'));
@@ -33,7 +33,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const principal = await authorizeApiRequest(request, { scope: 'transfers:write', roles: ['owner', 'admin', 'operator'], mutation: true });
+    const principal = await authorizeApiRequest(request, { scope: 'transfers:write', capability: 'finance.write', mutation: true });
     const { user, organizationId } = principal;
     const body = await request.json().catch(() => null) as Record<string, unknown> | null;
     const counterparty = typeof body?.counterparty === 'string' ? body.counterparty.trim().slice(0, 120) : '';

@@ -6,7 +6,7 @@ import { disableRiskRule } from '@/db/risk';
 
 async function disableRule(request: Request, id: string) {
   try {
-    const principal = await authorizeApiRequest(request, { scope: 'risk:write', roles: ['owner', 'admin'], mutation: true });
+    const principal = await authorizeApiRequest(request, { scope: 'risk:write', capability: 'risk.rules.manage', mutation: true });
     const disabled = await disableRiskRule(principal.organizationId, principal.user, id);
     if (!disabled) return NextResponse.json({ error: 'Regla no encontrada o ya deshabilitada.', code: 'risk_rule_not_found' }, { status: 404 });
     scheduleWebhookDispatch(principal.organizationId);

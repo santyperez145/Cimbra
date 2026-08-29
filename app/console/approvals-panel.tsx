@@ -1,8 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { roleCan, type OrganizationRole } from '@/app/lib/platform/access-policy';
+import { authenticatedFetch } from '@/app/lib/platform/client-http';
 
-type Role = 'owner' | 'admin' | 'operator' | 'viewer';
+type Role = OrganizationRole;
 type ApprovalActionType = 'settlement.execute' | 'transfer.create';
 type ApprovalStatus = 'pending' | 'executed' | 'rejected' | 'cancelled' | 'expired' | 'failed';
 type Approval = {
@@ -54,11 +56,11 @@ export default function ApprovalsPanel({ actorRole, mfaEnabled }: { actorRole: R
   const pending = useMemo(() => approvals.filter((item) => item.status === 'pending'), [approvals]);
 
   const load = useCallback(async () => {
-    const approvalResponse = await fetch('/api/v1/approvals', { cache: 'no-store' });
+    const approvalResponse = await authenticatedFetch('/api/v1/approvals', { cache: 'no-store' });
     const approvalResult = await approvalResponse.json() as { data?: Approval[]; meta?: { currentUserId: string }; error?: { message?: string } | string };
     if (!approvalResponse.ok) return setFeedback(apiError(approvalResult));
     setApprovals(approvalResult.data ?? []); setCurrentUserId(approvalResult.meta?.currentUserId ?? '');
-    const policyResponse = await fetch('/api/platform/approval-policy', { cache: 'no-store' });
+    const policyResponse = await authenticatedFetch('/api/platform/approval-policy', { cache: 'no-store' });
     const policyResult = await policyResponse.json() as { data?: Policy; policies?: Policy[]; error?: string };
     if (!policyResponse.ok) return setFeedback(policyResult.error ?? 'No pudimos cargar la política.');
     setPolicies(policyResult.policies ?? (policyResult.data ? [policyResult.data] : []));
@@ -69,7 +71,7 @@ export default function ApprovalsPanel({ actorRole, mfaEnabled }: { actorRole: R
   async function updatePolicy(policy: Policy, enabled: boolean) {
     if (!window.confirm(`${enabled ? 'Habilitar' : 'Deshabilitar'} doble aprobación para ${policyLabels[policy.actionType].title.toLowerCase()}?`)) return;
     setBusy(true); setFeedback('');
-    const response = await fetch('/api/platform/approval-policy', { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    const response = await authenticatedFetch('/api/platform/approval-policy', { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ actionType: policy.actionType, enabled, expiresInMinutes: policy.expiresInMinutes }) });
     const result = await response.json() as { error?: string };
     setFeedback(response.ok ? `Doble aprobación ${enabled ? 'habilitada' : 'deshabilitada'} para ${policyLabels[policy.actionType].title.toLowerCase()}.` : result.error ?? 'No pudimos actualizar la política.');
@@ -80,7 +82,7 @@ export default function ApprovalsPanel({ actorRole, mfaEnabled }: { actorRole: R
     const reason = decision === 'reject' ? window.prompt('Motivo del rechazo (obligatorio):') : 'Revisión de doble control completada.';
     if (reason === null || decision === 'reject' && reason.trim().length < 3) return;
     setBusy(true); setFeedback('');
-    const response = await fetch(`/api/v1/approvals/${item.id}/${decision}`, { method: 'POST',
+    const response = await authenticatedFetch(`/api/v1/approvals/${item.id}/${decision}`, { method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify({ reason }) });
     const result = await response.json() as { error?: { message?: string } | string };
     setFeedback(response.ok ? decision === 'approve' ? 'Solicitud aprobada y operación ejecutada atómicamente.' : 'Solicitud rechazada.' : apiError(result));
@@ -90,7 +92,7 @@ export default function ApprovalsPanel({ actorRole, mfaEnabled }: { actorRole: R
   async function cancel(item: Approval) {
     if (!window.confirm('¿Cancelar esta solicitud pendiente? El historial se conserva.')) return;
     setBusy(true); setFeedback('');
-    const response = await fetch(`/api/v1/approvals/${item.id}/cancel`, { method: 'POST',
+    const response = await authenticatedFetch(`/api/v1/approvals/${item.id}/cancel`, { method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify({ reason: 'Cancelada por el maker.' }) });
     const result = await response.json() as { error?: { message?: string } | string };
     setFeedback(response.ok ? 'Solicitud cancelada; la operación no se ejecutó.' : apiError(result));
@@ -102,13 +104,13 @@ export default function ApprovalsPanel({ actorRole, mfaEnabled }: { actorRole: R
     {feedback && <div className="form-feedback ledger-feedback" role="status">{feedback}</div>}
     <div className="module-metrics"><article><strong>{pending.length}</strong><span>pendientes</span></article><article><strong>{approvals.filter((item) => item.status === 'executed').length}</strong><span>ejecutadas</span></article><article><strong>{approvals.filter((item) => item.status === 'rejected').length}</strong><span>rechazadas</span></article></div>
     <div className="approval-layout">{policies.map((policy) => <article className="integration-card" key={policy.actionType}><div className="card-head"><div><h2>{policyLabels[policy.actionType].title}</h2><p>El maker solicita; otro owner/admin con MFA decide</p></div><b>{policy.enabled ? 'ACTIVA' : 'OPT-IN'}</b></div>
-      {actorRole === 'owner' || actorRole === 'admin' ? <div className="approval-policy-body"><div><span>Estado efectivo</span><strong>{policy.enabled ? 'Doble aprobación obligatoria' : policyLabels[policy.actionType].direct}</strong></div><div><span>Vencimiento</span><strong>{Math.round(policy.expiresInMinutes / 60)} horas</strong></div><div><span>Aprobadores elegibles</span><strong>{policy.eligibleApprovers} con MFA</strong></div>{actorRole === 'owner' ? <button disabled={busy || !mfaEnabled} onClick={() => void updatePolicy(policy, !policy.enabled)}>{!mfaEnabled ? 'Activá MFA para administrar' : policy.enabled ? 'Deshabilitar política' : 'Habilitar doble aprobación'}</button> : <small>Sólo el owner puede cambiar esta política.</small>}</div>
+      {roleCan(actorRole, 'approvals.decide') ? <div className="approval-policy-body"><div><span>Estado efectivo</span><strong>{policy.enabled ? 'Doble aprobación obligatoria' : policyLabels[policy.actionType].direct}</strong></div><div><span>Vencimiento</span><strong>{Math.round(policy.expiresInMinutes / 60)} horas</strong></div><div><span>Aprobadores elegibles</span><strong>{policy.eligibleApprovers} con MFA</strong></div>{roleCan(actorRole, 'approvals.policy.manage') ? <button disabled={busy || !mfaEnabled} onClick={() => void updatePolicy(policy, !policy.enabled)}>{!mfaEnabled ? 'Activá MFA para administrar' : policy.enabled ? 'Deshabilitar política' : 'Habilitar doble aprobación'}</button> : <small>Sólo el owner puede cambiar esta política.</small>}</div>
         : <p className="role-boundary-copy">La política es gobernada por el owner. Tu rol puede consultar la cola y originar solicitudes desde las superficies habilitadas.</p>}
     </article>)}<article className="integration-card role-boundary-card"><div className="card-head"><div><h2>Separación efectiva</h2><p>Controles activos del workflow</p></div><b>4-EYES</b></div><div className="approval-guardrails"><span>✓ Maker y checker siempre distintos</span><span>✓ Aprobación reservada a owner/admin con MFA</span><span>✓ Decisión y operación en una sola transacción</span><span>✓ Riesgo vuelve a validar transferencias al aprobar</span><span>✓ Rechazo, cancelación, fallo y vencimiento auditados</span></div></article></div>
     <article className="module-list approval-list"><div className="card-head"><div><h2>Historial de solicitudes</h2><p>Estados persistidos y contexto de la operación</p></div><b>{approvals.length}</b></div>{approvals.length === 0 ? <div><span className="movement"><i>✓</i><b>Sin solicitudes<small>Las transferencias o settlements protegidos aparecerán aquí</small></b></span><strong>Vacío</strong></div> : approvals.map((item) => {
-      const canDecide = item.status === 'pending' && item.requestedBy !== currentUserId && (actorRole === 'owner' || actorRole === 'admin') && mfaEnabled;
-      const canCancel = item.status === 'pending' && item.requestedBy === currentUserId && actorRole !== 'viewer';
-      return <div key={item.id}><span className="movement"><i>{item.actionType === 'transfer.create' ? '↗' : '⇄'}</i><b>{approvalTitle(item)}<small>{amountLabel(item.requestPayload)} · {approvalChannel(item)} · maker {item.requestedByName} · vence {new Date(item.expiresAt).toLocaleString('es-AR')}{item.resolvedByName ? ` · decidió ${item.resolvedByName}` : ''}{item.resolutionReason ? ` · ${item.resolutionReason}` : ''}</small></b></span><span className="approval-actions"><b className={item.status}>{statusLabels[item.status]}</b>{canDecide && <><button className="reject" disabled={busy} onClick={() => void decide(item, 'reject')}>Rechazar</button><button disabled={busy} onClick={() => void decide(item, 'approve')}>Aprobar y ejecutar</button></>}{canCancel && <button className="cancel" disabled={busy} onClick={() => void cancel(item)}>Cancelar</button>}{item.status === 'pending' && item.requestedBy === currentUserId && <small>Esperando otro aprobador</small>}{item.status === 'pending' && !mfaEnabled && (actorRole === 'owner' || actorRole === 'admin') && item.requestedBy !== currentUserId && <small>MFA requerido</small>}</span></div>;
+      const canDecide = item.status === 'pending' && item.requestedBy !== currentUserId && roleCan(actorRole, 'approvals.decide') && mfaEnabled;
+      const canCancel = item.status === 'pending' && item.requestedBy === currentUserId && roleCan(actorRole, 'approvals.request');
+      return <div key={item.id}><span className="movement"><i>{item.actionType === 'transfer.create' ? '↗' : '⇄'}</i><b>{approvalTitle(item)}<small>{amountLabel(item.requestPayload)} · {approvalChannel(item)} · maker {item.requestedByName} · vence {new Date(item.expiresAt).toLocaleString('es-AR')}{item.resolvedByName ? ` · decidió ${item.resolvedByName}` : ''}{item.resolutionReason ? ` · ${item.resolutionReason}` : ''}</small></b></span><span className="approval-actions"><b className={item.status}>{statusLabels[item.status]}</b>{canDecide && <><button className="reject" disabled={busy} onClick={() => void decide(item, 'reject')}>Rechazar</button><button disabled={busy} onClick={() => void decide(item, 'approve')}>Aprobar y ejecutar</button></>}{canCancel && <button className="cancel" disabled={busy} onClick={() => void cancel(item)}>Cancelar</button>}{item.status === 'pending' && item.requestedBy === currentUserId && <small>Esperando otro aprobador</small>}{item.status === 'pending' && !mfaEnabled && roleCan(actorRole, 'approvals.decide') && item.requestedBy !== currentUserId && <small>MFA requerido</small>}</span></div>;
     })}</article>
   </div>;
 }

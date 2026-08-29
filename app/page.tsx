@@ -1,4 +1,8 @@
 import DemoForm from './demo-form';
+import { getCurrentUser } from './lib/auth/session';
+import { ROLE_PROFILES, type OrganizationRole } from './lib/platform/access-policy';
+
+export const dynamic = 'force-dynamic';
 
 const transactions = [
   { name: 'Mercado Uno', kind: 'QR interoperable', amount: '+ $ 82.450', status: 'Liquidado' },
@@ -6,7 +10,18 @@ const transactions = [
   { name: 'Cloud Services', kind: 'Tarjeta corporativa', amount: '- USD 480', status: 'Autorizado' },
 ];
 
-export default function Home() {
+const roleCapabilities: Array<{ role: OrganizationRole; capabilities: string }> = [
+  { role: 'owner', capabilities: 'Gobierno · políticas · credenciales · operación' },
+  { role: 'admin', capabilities: 'Configuración delegada · equipo · operación' },
+  { role: 'operator', capabilities: 'Movimientos · riesgo · conciliación · casos' },
+  { role: 'viewer', capabilities: 'Lectura · evidencia · auditoría · exportación' },
+];
+
+export default async function Home() {
+  const user = await getCurrentUser();
+  const firstName = user?.displayName.trim().split(/\s+/)[0] ?? '';
+  const primaryHref = user ? '/console' : '#demo';
+  const primaryLabel = user ? 'Abrir mi consola' : 'Diseñemos tu lanzamiento';
   return (
     <main>
       <section className="hero-shell">
@@ -21,24 +36,24 @@ export default function Home() {
             <a href="#developers">Developers</a>
             <a href="#empresa">Empresa</a>
           </nav>
-          <div className="nav-actions"><a className="nav-login" href="/login">Ingresar</a><a className="nav-cta" href="#demo">Hablemos <span aria-hidden="true">↗</span></a></div>
+          <div className="nav-actions">{user ? <span className="session-chip"><i /> Sesión activa · {firstName}</span> : <a className="nav-login" href="/login?return_to=%2Fconsole">Ingresar</a>}<a className="nav-cta" href={user ? '/console' : '#demo'}>{user ? 'Abrir consola' : 'Hablemos'} <span aria-hidden="true">↗</span></a></div>
         </header>
 
         <div id="inicio" className="hero-grid">
           <div className="hero-copy">
             <p className="eyebrow"><span /> Infraestructura financiera para Latinoamérica</p>
-            <h1>Tu producto financiero,<br /><em>sin construir el banco.</em></h1>
+            <h1>Infraestructura propia<br /><em>para operar finanzas.</em></h1>
             <p className="hero-lede">
-              Identidad propia, cuentas sandbox, tarjetas de prueba, transferencias y un ledger de doble partida en una plataforma API-first construida para evolucionar por módulos.
+              Core transaccional, payments sandbox, riesgo, conciliación, SDK y APIs versionadas en una sola capa operable. Construida para evolucionar hacia rieles directos sin depender de otra fintech.
             </p>
             <div className="hero-actions">
-              <a className="button button-primary" href="#demo">Diseñemos tu lanzamiento <span>↗</span></a>
+              <a className="button button-primary" href={primaryHref}>{primaryLabel} <span>↗</span></a>
               <a className="button button-secondary" href="#developers"><span className="code-icon">{'{ }'}</span> Ver documentación</a>
             </div>
             <div className="trust-row" aria-label="Características de confianza">
-              <span><b>●</b> API OpenAPI</span>
-              <span><b>●</b> Ledger persistente</span>
-              <span><b>●</b> Monedas segregadas</span>
+              <span><b>●</b> Sandbox verificable</span>
+              <span><b>●</b> Ledger de doble partida</span>
+              <span><b>●</b> Aislamiento por tenant</span>
             </div>
           </div>
 
@@ -87,8 +102,16 @@ export default function Home() {
           </div>
         </div>
 
+        <div className="proof-strip" aria-label="Controles comprobables del sandbox">
+          <div className="proof-intro"><span><i /> SANDBOX OPERATIVO</span><strong>La base técnica ya se puede probar.</strong></div>
+          <article><small>01 · CONTRATO</small><b>API v1 + OpenAPI</b><span>SDK TypeScript generado y scopes por recurso.</span></article>
+          <article><small>02 · DINERO</small><b>Ledger inmutable</b><span>Partida doble, holds, reversas y monedas segregadas.</span></article>
+          <article><small>03 · CONTROL</small><b>RBAC + 4-eyes</b><span>Permisos por rol y maker/checker para acciones sensibles.</span></article>
+          <article><small>04 · EVENTOS</small><b>Webhooks firmados</b><span>Outbox durable, HMAC, reintentos y replay auditado.</span></article>
+        </div>
+
         <div className="hero-foot">
-          <p>Una base propia. Integración modular.<br />Roadmap regional transparente.</p>
+          <p>Producto propio. Integración modular.<br />Disponibilidad y límites publicados sin ambigüedad.</p>
           <div className="country-list"><span>AR</span><span>MX</span><span>CO</span><span>BR</span><span>CL</span><span>PE</span></div>
         </div>
       </section>
@@ -109,12 +132,26 @@ export default function Home() {
         </div>
       </section>
 
-      <section id="soluciones" className="orchestration-section">
+      <section id="soluciones" className="buyer-section">
+        <div className="buyer-heading">
+          <p className="eyebrow"><span /> INFRAESTRUCTURA PARA QUIENES CONSTRUYEN</p>
+          <h2>Una plataforma.<br />Cuatro modelos de negocio.</h2>
+          <p>Cimbra desacopla producto, operación y rieles para que cada equipo active sólo los dominios que necesita y conserve una fuente de verdad común.</p>
+        </div>
+        <div className="buyer-grid">
+          <article><span>01</span><h3>Fintechs y wallets</h3><p>Cuentas, transferencias, tarjetas sandbox y controles operativos sobre un ledger propio.</p><b>CORE · PAYMENTS · CARDS</b></article>
+          <article><span>02</span><h3>Marketplaces</h3><p>Saldos segregados, payouts, conciliación y doble aprobación para tesorería de plataforma.</p><b>LEDGER · RISK · PAYOUTS</b></article>
+          <article><span>03</span><h3>SaaS vertical</h3><p>Capacidades financieras embebidas mediante API, SDK y eventos sin reconstruir el backoffice.</p><b>API · SDK · WEBHOOKS</b></article>
+          <article><span>04</span><h3>Operaciones enterprise</h3><p>Gobierno por rol, evidencia, casos, conciliación y trazabilidad de cada decisión sensible.</p><b>RBAC · 4-EYES · AUDIT</b></article>
+        </div>
+      </section>
+
+      <section id="arquitectura" className="orchestration-section">
         <div className="orchestration-copy">
           <p className="eyebrow"><span /> ORQUESTACIÓN REGIONAL</p>
           <h2>Una integración.<br />Múltiples rieles.<br /><em>Cero callejones.</em></h2>
-          <p>La arquitectura objetivo desacopla el dominio financiero de bancos, procesadores y proveedores locales. Hoy el ledger y la idempotencia ya son propios; los adaptadores de rieles son la siguiente etapa.</p>
-          <div className="check-list"><span><b>✓</b> Idempotencia financiera implementada</span><span><b>✓</b> Ledger neutral respecto del proveedor</span><span><b>→</b> Routing y failover en roadmap</span></div>
+          <p>La arquitectura desacopla el dominio financiero de bancos, cámaras, esquemas y sponsors regulados. Cimbra es la capa de producto y operación; cada conexión real será directa, certificada y reemplazable.</p>
+          <div className="check-list"><span><b>✓</b> Dominio, ledger e idempotencia propios</span><span><b>✓</b> Contratos canónicos sin dependencia de competidores</span><span><b>→</b> Adaptadores directos, routing y failover por homologar</span></div>
           <a className="text-link" href="#demo">Diseñar mi arquitectura →</a>
         </div>
         <div className="rail-map" aria-label="Arquitectura modular Cimbra">
@@ -123,7 +160,7 @@ export default function Home() {
           <div className="rail-core"><span className="brand-mark"><i /><i /><i /></span><strong>CIMBRA</strong><small>ORCHESTRATION LAYER</small><div><b>Identity</b><b>Ledger</b><b>Risk</b><b>Routing</b></div></div>
           <div className="rail-lines right" aria-hidden="true"><i /><i /><i /><i /></div>
           <div className="rail-column destinations"><small>RIELES</small><span>BANK</span><span>CARD</span><span>QR</span><span>BILL</span></div>
-          <div className="rail-status"><i /> Arquitectura objetivo <b>PARTNER-FIRST</b></div>
+          <div className="rail-status"><i /> Perímetro preparado <b>DIRECT-RAIL READY</b></div>
         </div>
       </section>
 
@@ -131,9 +168,9 @@ export default function Home() {
         <div className="code-window">
           <div className="code-top"><span><i /><i /><i /></span><b>create-transfer.ts</b><small>Node.js</small></div>
           <pre><code><span className="code-muted">{'// SDK tipado. Idempotencia y request ID incluidos.'}</span>{'\n'}<span className="code-pink">const</span> cimbra = <span className="code-pink">new</span> Cimbra({'{'} <span className="code-blue">apiKey</span>: process.env.CIMBRA_API_KEY {'}'});{'\n'}<span className="code-pink">const</span> transfer = <span className="code-pink">await</span> cimbra.transfers.create({'{'}{'\n'}  <span className="code-blue">amount</span>: <span className="code-yellow">&quot;250000.00&quot;</span>,{'\n'}  <span className="code-blue">currency</span>: <span className="code-yellow">&quot;ARS&quot;</span>,{'\n'}  <span className="code-blue">counterparty</span>: <span className="code-yellow">&quot;Proveedor Andino&quot;</span>,{'\n'}  <span className="code-blue">description</span>: <span className="code-yellow">&quot;Pago de servicios&quot;</span>{'\n'}{'}'});</code></pre>
-          <div className="code-response"><span>201 CREATED</span><code>{'{ "ok": true, "transaction": { "id": "<uuid>", "status": "settled" }, "replayed": false }'}</code></div>
+          <div className="code-response"><span>201 / 202</span><code>{'{ "transaction": { "id": "<uuid>" }, "requiresApproval": true, "replayed": false }'}</code></div>
         </div>
-        <div className="developer-copy"><p className="eyebrow"><span /> DEVELOPER FIRST, DE VERDAD</p><h2>Una API verificable desde el primer request.</h2><p>Contrato OpenAPI, recursos persistentes, aislamiento por organización e idempotencia obligatoria en movimientos financieros.</p><div className="developer-stats"><div><strong>OpenAPI</strong><span>contrato público</span></div><div><strong>PostgreSQL</strong><span>fuente de verdad</span></div><div><strong>Reversas</strong><span>sin mutar postings</span></div></div><a className="button button-coral" href="/developers">Abrir documentación <span>↗</span></a></div>
+        <div className="developer-copy"><p className="eyebrow"><span /> DEVELOPER FIRST, DE VERDAD</p><h2>Una API verificable desde el primer request.</h2><p>Contrato OpenAPI, SDK tipado, recursos persistentes, scopes por credencial, request IDs e idempotencia obligatoria en movimientos financieros.</p><div className="developer-stats"><div><strong>OpenAPI</strong><span>contrato público</span></div><div><strong>PostgreSQL</strong><span>fuente de verdad</span></div><div><strong>Reversas</strong><span>sin mutar postings</span></div></div><a className="button button-coral" href="/developers">Abrir documentación <span>↗</span></a></div>
       </section>
 
       <section id="empresa" className="principles-section">
@@ -141,9 +178,26 @@ export default function Home() {
         <div className="principles-grid"><article><span>01</span><h3>Seguridad por diseño</h3><p>Sesiones opacas, API keys hasheadas, scopes, secretos cifrados y auditoría persistida desde el primer release.</p></article><article><span>02</span><h3>Control sin lock-in</h3><p>PostgreSQL estándar, modelos portables y dominio desacoplado para que el cliente conserve el control.</p></article><article><span>03</span><h3>Operación verificable</h3><p>Healthcheck real, outbox transaccional, webhooks firmados y estados explícitos desde el request hasta el journal.</p></article><article><span>04</span><h3>Compliance progresivo</h3><p>Evidencia privada y trazabilidad hoy; screening, case management y controles jurisdiccionales en roadmap.</p></article></div>
       </section>
 
+      <section className="access-story-section">
+        <div className="access-story-heading">
+          <div><p className="eyebrow"><span /> CONTROL DE ACCESO REAL</p><h2>Cada persona ve y ejecuta sólo lo que le corresponde.</h2></div>
+          <p>Una política canónica gobierna API y consola. Las acciones no autorizadas no se decoran ni se simulan: se ocultan cuando no aplican y el servidor las vuelve a validar.</p>
+        </div>
+        <div className="role-story-grid">
+          {roleCapabilities.map(({ role, capabilities }) => <article key={role}><div><span>{ROLE_PROFILES[role].label}</span><b>{ROLE_PROFILES[role].posture}</b></div><p>{ROLE_PROFILES[role].description}</p><small>{capabilities}</small></article>)}
+        </div>
+        <div className="auth-boundary">
+          <div><span>01</span><b>Sin sesión</b><p>Landing, documentación y acceso. La consola redirige a login conservando el destino.</p></div>
+          <i aria-hidden="true">→</i>
+          <div><span>02</span><b>Sesión válida</b><p>Tenant y rol efectivos resueltos en el servidor antes de cargar datos privados.</p></div>
+          <i aria-hidden="true">→</i>
+          <div><span>03</span><b>Capacidad autorizada</b><p>RBAC para humanos, scopes para API keys y MFA en decisiones privilegiadas.</p></div>
+        </div>
+      </section>
+
       <section className="launch-section">
         <div className="launch-heading"><p className="eyebrow"><span /> DEL DISEÑO A PRODUCCIÓN</p><h2>Lanzá por etapas.<br />Escalá sin rehacer.</h2></div>
-        <ol className="launch-steps"><li><span>01</span><div><small>SEMANA 1</small><h3>Descubrimiento</h3><p>Producto, jurisdicción, riesgos, unit economics y mapa de proveedores.</p></div></li><li><span>02</span><div><small>SEMANA 2–4</small><h3>Sandbox</h3><p>APIs, journeys, eventos, reglas y validación técnica con tu equipo.</p></div></li><li><span>03</span><div><small>SEMANA 5–8</small><h3>Homologación</h3><p>Integraciones, seguridad, compliance, conciliación y pruebas de carga.</p></div></li><li><span>04</span><div><small>GO LIVE</small><h3>Producción</h3><p>Rollout controlado, observabilidad, soporte y mejora continua.</p></div></li></ol>
+        <ol className="launch-steps"><li><span>01</span><div><small>GATE 0 · FIT</small><h3>Descubrimiento</h3><p>Producto, jurisdicción, riesgos, unit economics y mapa de rieles directos.</p></div></li><li><span>02</span><div><small>GATE 1 · BUILD</small><h3>Sandbox</h3><p>APIs, journeys, eventos, reglas y validación técnica con tu equipo.</p></div></li><li><span>03</span><div><small>GATE 2 · PROVE</small><h3>Homologación</h3><p>Licencias, sponsors, seguridad, conciliación, resiliencia y pruebas de carga.</p></div></li><li><span>04</span><div><small>GATE 3 · OPERATE</small><h3>Producción</h3><p>Go-live sólo con riel, contrato, certificación, SLO y runbooks comprobados.</p></div></li></ol>
       </section>
 
       <section id="demo" className="demo-section">

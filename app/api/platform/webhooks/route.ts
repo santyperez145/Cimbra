@@ -6,7 +6,7 @@ import { WebhookDestinationError } from '@/app/lib/platform/webhook-url';
 
 export async function GET(request: Request) {
   try {
-    const principal = await authorizeApiRequest(request, { scope: 'webhooks:manage', roles: ['owner', 'admin'] });
+    const principal = await authorizeApiRequest(request, { scope: 'webhooks:manage', capability: 'credentials.manage' });
     return NextResponse.json({ data: await listOrganizationWebhooks(principal.organizationId) }, {
       headers: { 'Cache-Control': 'no-store', ...rateLimitHeaders(principal) },
     });
@@ -19,7 +19,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const principal = await authorizeApiRequest(request, { scope: 'webhooks:manage', roles: ['owner', 'admin'], mutation: true });
+    const principal = await authorizeApiRequest(request, { scope: 'webhooks:manage', capability: 'credentials.manage', mutation: true });
     const body = await request.json().catch(() => null) as Record<string, unknown> | null;
     const name = typeof body?.name === 'string' ? body.name.trim().slice(0, 80) : '';
     const eventTypes = normalizeWebhookEventTypes(body?.eventTypes);

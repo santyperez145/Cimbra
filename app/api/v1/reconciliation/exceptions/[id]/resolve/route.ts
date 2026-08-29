@@ -7,7 +7,7 @@ import { ReconciliationError, resolveReconciliationException } from '@/db/reconc
 
 async function resolveException(request: Request, id: string) {
   try {
-    const principal = await authorizeApiRequest(request, { scope: 'reconciliation:write', roles: ['owner', 'admin', 'operator'], mutation: true });
+    const principal = await authorizeApiRequest(request, { scope: 'reconciliation:write', capability: 'reconciliation.write', mutation: true });
     const idempotencyKey = requestIdempotencyKey(request, principal)!;
     const body = await request.json().catch(() => null) as Record<string, unknown> | null;
     const resolution = body?.resolution === 'corrected' || body?.resolution === 'accepted' ? body.resolution : null;

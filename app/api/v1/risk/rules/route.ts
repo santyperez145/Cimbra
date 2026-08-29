@@ -28,7 +28,7 @@ function normalizeConfiguration(kind: RiskRuleKind, value: unknown) {
 
 async function createRule(request: Request) {
   try {
-    const principal = await authorizeApiRequest(request, { scope: 'risk:write', roles: ['owner', 'admin'], mutation: true });
+    const principal = await authorizeApiRequest(request, { scope: 'risk:write', capability: 'risk.rules.manage', mutation: true });
     const idempotencyKey = requestIdempotencyKey(request, principal)!;
     const body = await request.json().catch(() => null) as Record<string, unknown> | null;
     const name = typeof body?.name === 'string' ? body.name.trim().slice(0, 80) : '';

@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { authenticatedFetch } from '@/app/lib/platform/client-http';
 
 const scopes = ['customers:read', 'customers:write', 'accounts:read', 'accounts:write', 'cards:read', 'cards:write', 'transfers:read', 'transfers:write', 'payments:read', 'payments:write', 'risk:read', 'risk:write', 'reconciliation:read', 'reconciliation:write', 'settlements:read', 'settlements:write', 'approvals:read', 'platform:read', 'ledger:read', 'events:read', 'compliance:write', 'webhooks:manage'];
 const eventTypes = ['customer.created', 'account.created', 'card.created', 'transfer.created', 'transfer.reversed', 'hold.captured', 'hold.released', 'payment.created', 'risk.rule_created', 'risk.rule_disabled', 'risk.case_created', 'risk.case_resolved', 'reconciliation.run_created', 'reconciliation.exception_resolved', 'settlement.cycle_created', 'settlement.cycle_settled', 'approval.policy_updated', 'approval.request_created', 'approval.request_executed', 'approval.request_rejected', 'approval.request_cancelled', 'approval.request_expired', 'approval.request_failed', 'organization.invitation_created', 'organization.invitation_accepted', 'organization.invitation_revoked', 'organization.member_role_updated', 'organization.member_removed', 'compliance.document_uploaded'];
@@ -20,8 +21,8 @@ export default function DevelopersPanel({ journalCount }: { journalCount: number
 
   async function load() {
     const [keyResponse, webhookResponse] = await Promise.all([
-      fetch('/api/platform/api-keys', { cache: 'no-store' }),
-      fetch('/api/platform/webhooks', { cache: 'no-store' }),
+      authenticatedFetch('/api/platform/api-keys', { cache: 'no-store' }),
+      authenticatedFetch('/api/platform/webhooks', { cache: 'no-store' }),
     ]);
     if (keyResponse.ok) setApiKeys(((await keyResponse.json()) as { data: ApiKey[] }).data);
     if (webhookResponse.ok) {
@@ -39,7 +40,7 @@ export default function DevelopersPanel({ journalCount }: { journalCount: number
     event.preventDefault(); setBusy(true); setFeedback('');
     const form = new FormData(event.currentTarget);
     const selectedScopes = scopes.filter((scope) => form.getAll('scopes').includes(scope));
-    const response = await fetch('/api/platform/api-keys', {
+    const response = await authenticatedFetch('/api/platform/api-keys', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: form.get('name'), scopes: selectedScopes, expiresInDays: Number(form.get('expiresInDays')) }),
     });
@@ -54,7 +55,7 @@ export default function DevelopersPanel({ journalCount }: { journalCount: number
   async function keyAction(id: string, action: 'revoke' | 'rotate') {
     if (action === 'revoke' && !window.confirm('¿Revocar esta API key ahora? La acción es inmediata.')) return;
     setBusy(true); setFeedback('');
-    const response = await fetch(`/api/platform/api-keys/${id}${action === 'rotate' ? '/rotate' : ''}`, { method: action === 'rotate' ? 'POST' : 'DELETE' });
+    const response = await authenticatedFetch(`/api/platform/api-keys/${id}${action === 'rotate' ? '/rotate' : ''}`, { method: action === 'rotate' ? 'POST' : 'DELETE' });
     const result = await response.json() as { error?: string; secret?: string };
     if (response.ok) {
       if (result.secret) setSecret({ title: 'API key rotada', value: result.secret });
@@ -67,7 +68,7 @@ export default function DevelopersPanel({ journalCount }: { journalCount: number
     event.preventDefault(); setBusy(true); setFeedback('');
     const form = new FormData(event.currentTarget);
     const selectedEvents = eventTypes.filter((type) => form.getAll('eventTypes').includes(type));
-    const response = await fetch('/api/platform/webhooks', {
+    const response = await authenticatedFetch('/api/platform/webhooks', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: form.get('name'), url: form.get('url'), eventTypes: selectedEvents }),
     });
@@ -82,7 +83,7 @@ export default function DevelopersPanel({ journalCount }: { journalCount: number
   async function webhookAction(id: string, action: 'disable' | 'rotate') {
     if (action === 'disable' && !window.confirm('¿Deshabilitar este endpoint y cancelar sus entregas pendientes?')) return;
     setBusy(true); setFeedback('');
-    const response = await fetch(`/api/platform/webhooks/${id}${action === 'rotate' ? '/rotate' : ''}`, { method: action === 'rotate' ? 'POST' : 'DELETE' });
+    const response = await authenticatedFetch(`/api/platform/webhooks/${id}${action === 'rotate' ? '/rotate' : ''}`, { method: action === 'rotate' ? 'POST' : 'DELETE' });
     const result = await response.json() as { error?: string; secret?: string };
     if (response.ok) {
       if (result.secret) setSecret({ title: 'Signing secret rotado', value: result.secret });
@@ -93,7 +94,7 @@ export default function DevelopersPanel({ journalCount }: { journalCount: number
 
   async function replay(id: string) {
     setBusy(true); setFeedback('');
-    const response = await fetch(`/api/platform/webhooks/deliveries/${id}/replay`, { method: 'POST' });
+    const response = await authenticatedFetch(`/api/platform/webhooks/deliveries/${id}/replay`, { method: 'POST' });
     const result = await response.json() as { error?: string };
     setFeedback(response.ok ? 'Entrega reencolada; el intento se ejecuta en segundo plano.' : result.error ?? 'No se pudo reintentar.');
     await load(); setBusy(false);

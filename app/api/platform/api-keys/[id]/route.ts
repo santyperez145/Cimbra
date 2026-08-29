@@ -5,7 +5,7 @@ import { scheduleWebhookDispatch } from '@/app/lib/platform/dispatch';
 
 export async function DELETE(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
-    const principal = await authorizeApiRequest(request, { roles: ['owner', 'admin'], mutation: true, sessionOnly: true });
+    const principal = await authorizeApiRequest(request, { capability: 'credentials.manage', mutation: true, sessionOnly: true });
     const { id } = await context.params;
     if (!(await revokeOrganizationApiKey(principal.organizationId, principal.user, id))) {
       return NextResponse.json({ error: 'API key activa no encontrada.' }, { status: 404 });

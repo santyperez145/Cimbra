@@ -5,7 +5,7 @@ import { listReconciliationState } from '@/db/reconciliation';
 
 async function getState(request: Request) {
   try {
-    const principal = await authorizeApiRequest(request, { scope: 'reconciliation:read' });
+    const principal = await authorizeApiRequest(request, { scope: 'reconciliation:read', capability: 'console.read' });
     return NextResponse.json({ data: await listReconciliationState(principal.organizationId) }, { headers: { 'Cache-Control': 'no-store', ...rateLimitHeaders(principal) } });
   } catch (error) {
     const response = authorizationErrorResponse(error);

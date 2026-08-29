@@ -3,6 +3,7 @@
 import { FormEvent, useState } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
+import { authenticatedFetch } from '@/app/lib/platform/client-http';
 
 type SecurityUser = { email: string; emailVerified: boolean; mfaEnabled: boolean; recoveryCodeCount: number };
 type Setup = { secret: string; provisioningUri: string; qrDataUrl: string };
@@ -19,7 +20,7 @@ export default function SecurityPanel({ user }: { user: SecurityUser }) {
 
   async function resendVerification() {
     setBusy(true); setFeedback('');
-    const response = await fetch('/api/auth/email/resend', { method: 'POST' });
+    const response = await authenticatedFetch('/api/auth/email/resend', { method: 'POST' });
     const result = await response.json() as { error?: string };
     setFeedback(response.ok ? 'Enviamos un nuevo enlace de verificación.' : result.error ?? 'No pudimos enviar la verificación.');
     setBusy(false);
@@ -28,7 +29,7 @@ export default function SecurityPanel({ user }: { user: SecurityUser }) {
   async function startSetup(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setFeedback('');
     const form = new FormData(event.currentTarget);
-    const response = await fetch('/api/auth/mfa/setup', {
+    const response = await authenticatedFetch('/api/auth/mfa/setup', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ currentPassword: form.get('currentPassword') }),
     });
     const result = await response.json() as Setup & { error?: string };
@@ -39,7 +40,7 @@ export default function SecurityPanel({ user }: { user: SecurityUser }) {
   async function confirmSetup(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setFeedback('');
     const form = new FormData(event.currentTarget);
-    const response = await fetch('/api/auth/mfa/enable', {
+    const response = await authenticatedFetch('/api/auth/mfa/enable', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: form.get('code') }),
     });
     const result = await response.json() as { error?: string; recoveryCodes?: string[] };
@@ -53,7 +54,7 @@ export default function SecurityPanel({ user }: { user: SecurityUser }) {
   async function disable(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setFeedback('');
     const form = new FormData(event.currentTarget);
-    const response = await fetch('/api/auth/mfa/disable', {
+    const response = await authenticatedFetch('/api/auth/mfa/disable', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ currentPassword: form.get('currentPassword'), code: form.get('code') }),
     });

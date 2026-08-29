@@ -6,7 +6,7 @@ import type { OrganizationRole } from '@/db/runtime';
 
 export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const principal = await authorizeApiRequest(request, { roles: ['owner', 'admin'], mutation: true, sessionOnly: true });
+    const principal = await authorizeApiRequest(request, { capability: 'organization.manage', mutation: true, sessionOnly: true });
     const invitation = await revokeOrganizationInvitation({ organizationId: principal.organizationId, actor: principal.user,
       actorRole: principal.role as Extract<OrganizationRole, 'owner' | 'admin'>, invitationId: (await params).id });
     if (!invitation.replayed) scheduleWebhookDispatch(principal.organizationId);

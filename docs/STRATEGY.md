@@ -64,6 +64,12 @@ Pismo publica un patrón maker/checker en el que una persona solicita, otra con 
 
 Cimbra implementa el patrón como propiedad propia para settlement y transferencias salientes sandbox: políticas independientes por tenant, maker y checker distintos, owner/admin con MFA para decidir, idempotencia, locks compartidos/exclusivos, expiración, rechazo, cancelación, fallo, auditoría, webhooks y ejecución atómica. El scheduler atraviesa el mismo control. Una transferencia pendiente no reserva fondos; al aprobar se recalculan saldo y riesgo y sólo entonces se crean ledger, hold o caso. Las integraciones S2S pueden originar una transferencia protegida y leer el historial con los scopes correspondientes, pero no aprobar ni rechazar. A diferencia del fallback documentado por Pismo ante ciertos fallos de su workflow, Cimbra falla cerrado y nunca ejecuta fuera de la política. Pismo mantiene hoy mayor cobertura —fondos retenidos, límites, tarjetas, credenciales, configuración y lending—; esas acciones, notificaciones específicas y un rol approver dedicado permanecen en el roadmap propio de Cimbra.
 
+## Benchmark aplicado — narrativa comercial y acceso developer (29/08/2026)
+
+Las superficies públicas de Pismo y Dock priorizan una promesa modular, una integración y amplitud de plataforma; tapi conecta esa promesa con casos de uso, sandbox y portal developer; Pomelo separa con claridad issuing, processing, sponsorship y requisitos de certificación; BIND PSP distingue staging/producción, OAuth 2.0 y permisos por scope. Cimbra adopta esos patrones de comprensión, no sus marcas ni contratos: hero orientado al resultado, catálogo modular con estado verificable, casos de uso por comprador, arquitectura de una integración, prueba técnica, documentación y CTA contextual.
+
+La decisión propia es no fingir clientes, volumen, uptime, tiempos de integración ni conectividad. La landing usa evidencia que existe en el repositorio —API v1, OpenAPI, SDK, ledger, RBAC, maker/checker y webhooks— y etiqueta sandbox, foundation y roadmap. Los plazos comerciales se expresan como gates de fit, build, homologación y operación; producción sólo se presenta después de riel, contrato, licencia o sponsor, certificación, SLO y runbooks. El estado de sesión también es real: una persona autenticada abre su consola y una anónima ingresa o solicita una sesión de diseño.
+
 ## Wedge recomendado
 
 Primer segmento: marketplaces, SaaS vertical y plataformas de workforce con volumen mensual entre USD 1M y USD 20M que necesitan cuentas virtuales, payouts, conciliación y tarjetas corporativas en Argentina y México.
@@ -107,13 +113,18 @@ Una ronda pre-seed debe financiar 18 meses para cerrar el producto inicial, cont
 ## Fuentes competitivas consultadas
 
 - https://www.bindx.com/
+- https://psp.bind.com.ar/developers
+- https://psp.bind.com.ar/developers/general
 - https://developers.bindx.com/transferencias-online-bind
 - https://developers.bindx.com/consulta-de-cuentas-bind
 - https://dock.tech/es/
+- https://www.dock.tech/en/dock-one/
 - https://dock.tech/es/solucao/fraud-prevention/
 - https://tapi.la/
 - https://www.tapila.dev/docs
 - https://developers.pismo.io/pismo-docs/docs/welcome
+- https://www.pismo.io/homepage/
+- https://developers.pismo.io/pismo-docs/docs/main-solutions
 - https://developers.pismo.io/pismo-docs/docs/anti-fraud-integration
 - https://developers.pismo.io/pismo-docs/docs/security-guide-for-apis
 - https://developers.pismo.io/pismo-docs/docs/get-started-with-sso-for-control-center
@@ -123,6 +134,7 @@ Una ronda pre-seed debe financiar 18 meses para cerrar el producto inicial, cont
 - https://developers.pismo.io/pismo-docs/changelog/6-march-2026
 - https://developers.pismo.io/pismo-docs/docs/file-based-check-processing-and-bulk-settlement
 - https://developers.pomelo.la/api-reference/processing/transactions
+- https://www.pomelo.la/es/
 - https://docs.pomelo.la/en/docs/cards/processing/reports/download-report
 - https://developers.pomelo.la/guides/solutions/processing/reports
 - https://developers.pomelo.la/api-reference/fraud/remedies/tx-remedy

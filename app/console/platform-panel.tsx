@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { authenticatedFetch } from '@/app/lib/platform/client-http';
 
 type Capability = {
   id: string; name: string; domain: string; summary: string; features: string[]; interfaces: string[];
@@ -21,7 +22,7 @@ export default function PlatformPanel() {
 
   useEffect(() => {
     const task = setTimeout(async () => {
-      const response = await fetch('/api/v1/capabilities', { cache: 'no-store' });
+      const response = await authenticatedFetch('/api/v1/capabilities', { cache: 'no-store' });
       const result = await response.json() as { data?: Capability[]; error?: { message?: string } | string };
       if (!response.ok) {
         setFeedback(typeof result.error === 'string' ? result.error : result.error?.message ?? 'No pudimos cargar la plataforma.');

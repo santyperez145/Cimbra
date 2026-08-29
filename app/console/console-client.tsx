@@ -4,6 +4,8 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { FormEvent, useMemo, useState, useSyncExternalStore } from 'react';
 import type { DashboardData } from '@/db/runtime';
+import { ROLE_PROFILES, roleCan, type AccessCapability, type OrganizationRole } from '@/app/lib/platform/access-policy';
+import { authenticatedFetch } from '@/app/lib/platform/client-http';
 import AccessPanel from './access-panel';
 import ApprovalsPanel from './approvals-panel';
 import DevelopersPanel from './developers-panel';
@@ -12,12 +14,12 @@ import ReconciliationPanel from './reconciliation-panel';
 import RiskPanel from './risk-panel';
 import SecurityPanel from './security-panel';
 
-type Role = 'owner' | 'admin' | 'operator' | 'viewer';
-const nav: Array<{ icon: string; label: string; roles?: Role[] }> = [
+type Role = OrganizationRole;
+const nav: Array<{ icon: string; label: string; capability?: AccessCapability }> = [
   { icon: '▦', label: 'Vista general' }, { icon: '↔', label: 'Movimientos' }, { icon: '⇄', label: 'Payments' },
   { icon: '◉', label: 'Cuentas' }, { icon: '▰', label: 'Tarjetas' }, { icon: '◇', label: 'Riesgo' },
   { icon: '≋', label: 'Conciliación' }, { icon: '⚖', label: 'Aprobaciones' }, { icon: '✓', label: 'Compliance' }, { icon: '⌘', label: 'Plataforma' },
-  { icon: '⌁', label: 'Developers', roles: ['owner', 'admin'] }, { icon: '♙', label: 'Accesos', roles: ['owner', 'admin'] },
+  { icon: '⌁', label: 'Developers', capability: 'credentials.manage' }, { icon: '♙', label: 'Accesos', capability: 'organization.manage' },
   { icon: '⌾', label: 'Seguridad' },
 ];
 
@@ -43,8 +45,9 @@ export default function ConsoleClient({ data, user }: {
   const [feedback, setFeedback] = useState('');
   const [transferCurrency, setTransferCurrency] = useState('ARS');
   const [paymentDirection, setPaymentDirection] = useState<'cash_in' | 'cash_out'>('cash_in');
-  const canOperate = user.role !== 'viewer';
-  const visibleNav = nav.filter((item) => !item.roles || item.roles.includes(user.role));
+  const canOperate = roleCan(user.role, 'finance.write');
+  const canManageOrganization = roleCan(user.role, 'organization.manage');
+  const visibleNav = nav.filter((item) => !item.capability || roleCan(user.role, item.capability));
   const primaryBalance = data.balances.find((balance) => balance.currency === 'ARS') ?? data.balances[0];
 
   if (!mounted) return <main className="app-shell" aria-busy="true" aria-label="Cargando consola" />;
@@ -58,7 +61,7 @@ export default function ConsoleClient({ data, user }: {
   async function createTransfer(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setFeedback('');
     const form = new FormData(event.currentTarget);
-    const response = await fetch('/api/v1/transfers', {
+    const response = await authenticatedFetch('/api/v1/transfers', {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
       body: JSON.stringify({ counterparty: form.get('counterparty'), description: form.get('description'), amount: form.get('amount'), currency: form.get('currency') }),
     });
@@ -74,7 +77,7 @@ export default function ConsoleClient({ data, user }: {
     event.preventDefault(); setBusy(true); setFeedback('');
     const form = new FormData(event.currentTarget);
     const account = data.accounts.find((item) => item.id === form.get('accountId'));
-    const response = await fetch('/api/v1/payments', {
+    const response = await authenticatedFetch('/api/v1/payments', {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
       body: JSON.stringify({ accountId: account?.id, direction: paymentDirection, counterparty: form.get('counterparty'),
         description: form.get('description'), amount: form.get('amount'), currency: account?.currency }),
@@ -88,7 +91,7 @@ export default function ConsoleClient({ data, user }: {
 
   async function reverseTransaction(transactionId: string) {
     setBusy(true); setFeedback('');
-    const response = await fetch(`/api/v1/transfers/${transactionId}/reverse`, {
+    const response = await authenticatedFetch(`/api/v1/transfers/${transactionId}/reverse`, {
       method: 'POST', headers: { 'Idempotency-Key': `reverse-${transactionId}` },
     });
     const result = await response.json() as { error?: string };
@@ -98,7 +101,7 @@ export default function ConsoleClient({ data, user }: {
 
   async function resolveReview(holdId: string, action: 'capture' | 'release') {
     setBusy(true); setFeedback('');
-    const response = await fetch(`/api/v1/holds/${holdId}/${action}`, {
+    const response = await authenticatedFetch(`/api/v1/holds/${holdId}/${action}`, {
       method: 'POST', headers: { 'Idempotency-Key': `hold-${action}-${holdId}` },
     });
     const result = await response.json() as { error?: string };
@@ -115,11 +118,11 @@ export default function ConsoleClient({ data, user }: {
           {visibleNav.map(({ icon, label }) => <button key={label} className={active === label ? 'active' : ''} onClick={() => setActive(label)}><i>{icon}</i>{label}</button>)}
         </nav>
         <div className="app-help"><strong>Centro de ayuda</strong><span>Estamos para acompañarte</span></div>
-        <button className="app-user" onClick={signOut} title="Cerrar sesión"><b>{user.displayName.slice(0, 2).toUpperCase()}</b><span><strong>{user.displayName}</strong><small>{user.email} · {user.role}</small></span><i>↗</i></button>
+        <button className="app-user" onClick={signOut} title="Cerrar sesión"><b>{user.displayName.slice(0, 2).toUpperCase()}</b><span><strong>{user.displayName}</strong><small>{user.email} · {ROLE_PROFILES[user.role].label}</small></span><i>↗</i></button>
       </aside>
 
       <section className="app-main">
-        <header className="app-topbar"><div><small>CONSOLA /</small><strong>{active}</strong></div><div className="app-top-actions"><span className="live-pill"><i /> Base y ledger operativos</span>{canOperate && <button className="app-primary" onClick={() => setTransferOpen(true)}>+ Nueva transferencia</button>}</div></header>
+        <header className="app-topbar"><div><small>CONSOLA /</small><strong>{active}</strong><span className={`role-posture role-${user.role}`}>{ROLE_PROFILES[user.role].posture}</span></div><div className="app-top-actions"><span className="live-pill"><i /> Base y ledger operativos</span>{canOperate && <button className="app-primary" onClick={() => setTransferOpen(true)}>+ Nueva transferencia</button>}</div></header>
         <div className="app-content">
           {active === 'Vista general' ? <>
           <div className="app-welcome"><div><p suppressHydrationWarning>{new Date().toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'America/Argentina/Buenos_Aires' }).toUpperCase()}</p><h1>Todo en orden, {user.displayName.split(' ')[0]}.</h1><span>Tu operación está funcionando con normalidad.</span></div><select aria-label="Período"><option>Últimos 30 días</option><option>Últimos 7 días</option></select></div>
@@ -137,7 +140,7 @@ export default function ConsoleClient({ data, user }: {
             </article>
             <aside className="risk-card"><div className="card-head"><div><h2>Control de riesgo</h2><p>Reservas persistidas del sandbox</p></div><span className="risk-live">● ACTIVO</span></div><div className="risk-score"><div><strong>{data.riskAlerts}</strong><span>reservas abiertas</span></div><div><strong>{data.journalCount}</strong><span>journals posteados</span></div></div>{data.holds.slice(0,1).map((hold)=><div className="risk-item" key={hold.id}><i className="coral-dot">!</i><span><strong>Fondos reservados</strong><small>{hold.counterparty} · {money(hold.amount,hold.currency)}</small></span><b>Revisar</b></div>)}<div className="risk-item"><i>✓</i><span><strong>Integridad del ledger</strong><small>Débitos y créditos validados en PostgreSQL</small></span><b className="normal">Activo</b></div><button className="risk-button" onClick={() => setActive('Riesgo')}>Abrir centro de riesgo →</button></aside>
           </div>
-          </> : active === 'Seguridad' ? <SecurityPanel user={user} /> : active === 'Aprobaciones' ? <ApprovalsPanel actorRole={user.role} mfaEnabled={user.mfaEnabled} /> : active === 'Accesos' && (user.role === 'owner' || user.role === 'admin') ? <AccessPanel actorRole={user.role} /> : <SecondaryConsoleView active={active} data={data} role={user.role} busy={busy} feedback={feedback} onTransfer={() => setTransferOpen(true)} onPayment={() => setPaymentOpen(true)} onReverse={reverseTransaction} onHold={resolveReview} />}
+          </> : active === 'Seguridad' ? <SecurityPanel user={user} /> : active === 'Aprobaciones' ? <ApprovalsPanel actorRole={user.role} mfaEnabled={user.mfaEnabled} /> : active === 'Accesos' && canManageOrganization ? <AccessPanel actorRole={user.role as Extract<Role, 'owner' | 'admin'>} /> : <SecondaryConsoleView active={active} data={data} role={user.role} busy={busy} feedback={feedback} onTransfer={() => setTransferOpen(true)} onPayment={() => setPaymentOpen(true)} onReverse={reverseTransaction} onHold={resolveReview} />}
         </div>
       </section>
 
@@ -156,7 +159,7 @@ function SecondaryConsoleView({ active, data, role, busy, feedback, onTransfer, 
   const [uploading, setUploading] = useState(false);
   const [movementQuery, setMovementQuery] = useState('');
   const [movementFilter, setMovementFilter] = useState<'all' | 'in' | 'out'>('all');
-  const canOperate = role !== 'viewer';
+  const canOperate = roleCan(role, 'finance.write');
   const filteredTransactions = useMemo(() => data.transactions.filter((transaction) => {
     const directionMatches = movementFilter === 'all' || (movementFilter === 'in' ? transaction.amount > 0 : transaction.amount < 0);
     const query = movementQuery.trim().toLowerCase();
@@ -173,7 +176,7 @@ function SecondaryConsoleView({ active, data, role, busy, feedback, onTransfer, 
 
   async function uploadDocument(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setUploading(true); setUploadState('');
-    const response = await fetch('/api/compliance/documents', { method: 'POST', body: new FormData(event.currentTarget) });
+    const response = await authenticatedFetch('/api/compliance/documents', { method: 'POST', body: new FormData(event.currentTarget) });
     const result = await response.json() as { error?: string; document?: { fileName: string } };
     setUploadState(response.ok ? `${result.document?.fileName ?? 'Documento'} recibido y listo para revisión.` : result.error ?? 'No pudimos subir el documento.');
     if (response.ok) event.currentTarget.reset();
@@ -186,7 +189,7 @@ function SecondaryConsoleView({ active, data, role, busy, feedback, onTransfer, 
 
   if (active === 'Cuentas') return <div className="module-view"><div className="module-view-head"><div><p>CORE & LEDGER</p><h1>Balances por moneda</h1><span>Saldo contable menos reservas activas. Ninguna moneda se mezcla con otra.</span></div><span className="module-health"><i /> Balanceado</span></div><div className="module-metrics ledger-balances">{data.balances.map((balance)=><article key={balance.currency}><small>{balance.currency}</small><strong>{money(balance.available,balance.currency)}</strong><span>Contable {money(balance.current,balance.currency)} · Reservado {money(balance.held,balance.currency)}</span></article>)}</div><article className="module-list"><div className="card-head"><div><h2>Reglas del núcleo</h2><p>Garantías activas en PostgreSQL</p></div><b>DOUBLE ENTRY</b></div><div><span className="movement"><i>＝</i><b>Partida doble<small>Cada journal exige débitos iguales a créditos</small></b></span><strong>Obligatorio</strong></div><div><span className="movement"><i>⌁</i><b>Inmutabilidad<small>Las correcciones se realizan mediante reversas</small></b></span><strong>Activo</strong></div><div><span className="movement"><i>¤</i><b>Unidades mínimas<small>BIGINT por moneda, sin punto flotante</small></b></span><strong>Activo</strong></div></article></div>;
 
-  if (active === 'Riesgo') return <RiskPanel holds={data.holds} busy={busy} canManageRules={role === 'owner' || role === 'admin'} canResolve={canOperate} onHold={onHold} />;
+  if (active === 'Riesgo') return <RiskPanel holds={data.holds} busy={busy} canManageRules={roleCan(role, 'risk.rules.manage')} canResolve={roleCan(role, 'risk.cases.resolve')} onHold={onHold} />;
 
   if (active === 'Conciliación') return <ReconciliationPanel readOnly={!canOperate} />;
 

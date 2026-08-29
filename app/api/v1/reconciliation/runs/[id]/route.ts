@@ -5,7 +5,7 @@ import { retrieveReconciliationRun } from '@/db/reconciliation';
 
 async function retrieveRun(request: Request, id: string) {
   try {
-    const principal = await authorizeApiRequest(request, { scope: 'reconciliation:read' });
+    const principal = await authorizeApiRequest(request, { scope: 'reconciliation:read', capability: 'console.read' });
     const run = await retrieveReconciliationRun(principal.organizationId, id);
     if (!run) return NextResponse.json({ error: 'Conciliación no encontrada.', code: 'reconciliation_run_not_found' }, { status: 404 });
     return NextResponse.json(run, { headers: { 'Cache-Control': 'no-store', ...rateLimitHeaders(principal) } });

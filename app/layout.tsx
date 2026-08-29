@@ -17,10 +17,10 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     metadataBase: new URL(publicUrl),
     title: 'Cimbra — Infraestructura financiera para Latinoamérica',
-    description: 'Cuentas, pagos, tarjetas, crédito y compliance en una plataforma API-first para lanzar y escalar productos financieros.',
+    description: 'Core transaccional, payments sandbox, riesgo, conciliación, SDK y APIs para construir infraestructura financiera en Latinoamérica.',
     openGraph: {
       title: 'Cimbra — Infraestructura financiera para Latinoamérica',
-      description: 'Cuentas, pagos, tarjetas, crédito y compliance en una plataforma API-first para lanzar y escalar productos financieros.',
+      description: 'Core transaccional, payments sandbox, riesgo, conciliación, SDK y APIs para construir infraestructura financiera en Latinoamérica.',
       url: publicUrl,
       siteName: 'Cimbra',
       locale: 'es_419',
@@ -30,7 +30,7 @@ export async function generateMetadata(): Promise<Metadata> {
     twitter: {
       card: 'summary_large_image',
       title: 'Cimbra — Infraestructura financiera para Latinoamérica',
-      description: 'Cuentas, pagos, tarjetas, crédito y compliance en una plataforma API-first.',
+      description: 'Core transaccional, payments sandbox, riesgo, conciliación, SDK y APIs para infraestructura financiera.',
       images: ['/og.png'],
     },
   };

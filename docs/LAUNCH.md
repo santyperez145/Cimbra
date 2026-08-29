@@ -2,8 +2,8 @@
 
 ## Gate 0 — ya implementado
 
-- marca y narrativa inicial;
-- sitio responsive y captación persistente;
+- marca y narrativa comercial orientada a compradores, con capacidades y límites verificables;
+- sitio responsive, sesión contextual y captación persistente;
 - documentación conectada a endpoints existentes;
 - identidad y consola multi-tenant básica;
 - registro e inicio de sesión propio, sesiones revocables y OAuth Google/Apple;
@@ -20,6 +20,7 @@
 - migraciones versionadas como gate previo al build productivo de Vercel y como task separada antes del rollout de ECS.
 - verificación de email, recuperación de contraseña con revocación de sesiones y MFA TOTP con recovery codes de un solo uso.
 - miembros e invitaciones verificadas con roles owner/admin/operator/viewer, jerarquía, auditoría, webhooks y consola adaptada al permiso efectivo.
+- matriz canónica de capacidades compartida por API y consola, redirección por sesión vencida y denegaciones de rol normalizadas como `403 insufficient_role`.
 - motor de riesgo propio con políticas regionales, reglas por tenant, velocity, evaluaciones, casos y resolución sincronizada con holds.
 - conciliación propia de lotes contra el ledger con matches, diferencias, faltantes, cola de excepciones y resolución idempotente.
 - importación CSV canónica y ciclos de settlement sandbox programables, únicos por conciliación y entregados por webhooks.

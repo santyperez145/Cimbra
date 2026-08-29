@@ -8,7 +8,7 @@ import { ApprovalError, cancelApprovalRequest } from '@/db/approvals';
 
 async function cancel(request: Request, id: string) {
   try {
-    const principal = await authorizeApiRequest(request, { roles: ['owner', 'admin', 'operator'], mutation: true, sessionOnly: true });
+    const principal = await authorizeApiRequest(request, { capability: 'approvals.request', mutation: true, sessionOnly: true });
     const idempotencyKey = requestIdempotencyKey(request, principal)!;
     const body = await request.json().catch(() => null) as Record<string, unknown> | null;
     const reason = approvalReason(body?.reason);

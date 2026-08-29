@@ -6,7 +6,7 @@ import { OrganizationAccessError } from '@/db/runtime';
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
-  const principal = await authorizeApiRequest(request, { scope: 'transfers:write', roles: ['owner', 'admin', 'operator'], mutation: true });
+  const principal = await authorizeApiRequest(request, { scope: 'transfers:write', capability: 'finance.write', mutation: true });
   const { user, organizationId } = principal;
   const idempotencyKey = request.headers.get('idempotency-key')?.trim().slice(0, 100);
   if (!idempotencyKey || idempotencyKey.length < 8) {

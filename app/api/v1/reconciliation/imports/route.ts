@@ -13,7 +13,7 @@ const allowedTypes = new Set(['text/csv', 'application/csv', 'application/vnd.ms
 
 async function importCsv(request: Request) {
   try {
-    const principal = await authorizeApiRequest(request, { scope: 'reconciliation:write', roles: ['owner', 'admin', 'operator'], mutation: true });
+    const principal = await authorizeApiRequest(request, { scope: 'reconciliation:write', capability: 'reconciliation.write', mutation: true });
     const idempotencyKey = requestIdempotencyKey(request, principal)!;
     const form = await request.formData();
     const file = form.get('file');

@@ -1,6 +1,7 @@
 'use client';
 
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { authenticatedFetch } from '@/app/lib/platform/client-http';
 
 type Run = { id: string; name: string; source: string; currency: string; status: string; ingestionMode: 'api' | 'csv'; fileName: string | null; expected: number; actual: number; difference: number; matchedCount: number; exceptionCount: number; createdAt: string };
 type Exception = { id: string; runId: string; kind: string; status: string; externalReference: string; transactionId: string | null; expected: number; actual: number; difference: number; currency: string; reason: string };
@@ -19,7 +20,7 @@ export default function ReconciliationPanel({ readOnly = false }: { readOnly?: b
 
   async function load() {
     const [response, settlementResponse] = await Promise.all([
-      fetch('/api/v1/reconciliation', { cache: 'no-store' }), fetch('/api/v1/settlements', { cache: 'no-store' }),
+      authenticatedFetch('/api/v1/reconciliation', { cache: 'no-store' }), authenticatedFetch('/api/v1/settlements', { cache: 'no-store' }),
     ]);
     const result = await response.json() as { data?: { runs: Run[]; exceptions: Exception[] }; error?: { message?: string } | string };
     const settlementResult = await settlementResponse.json() as { data?: Settlement[]; error?: { message?: string } | string };
@@ -42,7 +43,7 @@ export default function ReconciliationPanel({ readOnly = false }: { readOnly?: b
     let response: Response;
     if (ingestionMode === 'csv') {
       form.set('periodStart', periodStart.toISOString()); form.set('periodEnd', periodEnd.toISOString());
-      response = await fetch('/api/v1/reconciliation/imports', { method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() }, body: form });
+      response = await authenticatedFetch('/api/v1/reconciliation/imports', { method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() }, body: form });
     } else {
       const rows = String(form.get('entries') ?? '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
       if (rows[0]?.toLowerCase().includes('transactionid') && rows[0]?.toLowerCase().includes('direction')) rows.shift();
@@ -50,7 +51,7 @@ export default function ReconciliationPanel({ readOnly = false }: { readOnly?: b
         const [externalReference, transactionId, direction, amount] = line.split(',').map((part) => part.trim());
         return { externalReference, transactionId: transactionId || undefined, direction, amount };
       });
-      response = await fetch('/api/v1/reconciliation/runs', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
+      response = await authenticatedFetch('/api/v1/reconciliation/runs', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
         body: JSON.stringify({ name: form.get('name'), source: form.get('source'), currency: form.get('currency'),
           periodStart: periodStart.toISOString(), periodEnd: periodEnd.toISOString(), entries }) });
     }
@@ -65,7 +66,7 @@ export default function ReconciliationPanel({ readOnly = false }: { readOnly?: b
     const rawSchedule = String(form.get('scheduledFor') ?? '');
     const scheduledFor = rawSchedule ? new Date(rawSchedule) : null;
     if (scheduledFor && !Number.isFinite(scheduledFor.getTime())) { setFeedback('La fecha programada es inválida.'); setBusy(false); return; }
-    const response = await fetch('/api/v1/settlements', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
+    const response = await authenticatedFetch('/api/v1/settlements', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
       body: JSON.stringify({ reconciliationRunId: form.get('reconciliationRunId'), name: form.get('name'), scheduledFor: scheduledFor?.toISOString() }) });
     const result = await response.json() as { error?: { message?: string } | string; cycle?: Settlement };
     setFeedback(response.ok ? `Ciclo ${result.cycle?.status === 'scheduled' ? 'programado' : 'listo'}; no mueve fondos reales.`
@@ -74,7 +75,7 @@ export default function ReconciliationPanel({ readOnly = false }: { readOnly?: b
   }
 
   async function executeSettlement(id: string) {
-    setBusy(true); setFeedback(''); const response = await fetch(`/api/v1/settlements/${id}/execute`, { method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() } });
+    setBusy(true); setFeedback(''); const response = await authenticatedFetch(`/api/v1/settlements/${id}/execute`, { method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() } });
     const result = await response.json() as { error?: { message?: string } | string; requiresApproval?: boolean; approval?: { status?: string } };
     setFeedback(response.ok ? result.requiresApproval && result.approval?.status === 'pending'
       ? 'Solicitud enviada a doble aprobación. Otro owner/admin con MFA debe decidirla.'
@@ -83,7 +84,7 @@ export default function ReconciliationPanel({ readOnly = false }: { readOnly?: b
   }
 
   async function resolveException(id: string, resolution: 'corrected' | 'accepted') {
-    setBusy(true); const response = await fetch(`/api/v1/reconciliation/exceptions/${id}/resolve`, { method: 'POST',
+    setBusy(true); const response = await authenticatedFetch(`/api/v1/reconciliation/exceptions/${id}/resolve`, { method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
       body: JSON.stringify({ resolution, note: `Excepción ${resolution} desde consola sandbox.` }) });
     const result = await response.json() as { error?: { message?: string } | string };

@@ -8,7 +8,7 @@ La aplicación es un MVP lanzable para venta, discovery e integración en sandbo
 
 Superficies disponibles:
 
-- `/` — propuesta comercial y captación persistente de leads.
+- `/` — propuesta comercial profesional, estado de sesión contextual, prueba técnica, casos de uso, modelo de acceso y captación persistente de leads.
 - `/developers` — quickstart y referencia de los endpoints implementados.
 - `/login` — registro e inicio de sesión propio con usuario/email y contraseña; OAuth Google y Apple se activa al configurar sus credenciales.
 - `/forgot-password`, `/reset-password` y `/verify-email` — ciclo de vida de cuenta con tokens opacos, expiración, uso único y respuestas anti-enumeración.
@@ -46,13 +46,13 @@ npm run build
 
 La identidad de Cimbra usa PBKDF2-HMAC-SHA-256 con 600.000 iteraciones, sesiones opacas revocables en PostgreSQL, cookies `HttpOnly`, protección de origen y límites de intentos. Incluye verificación de email, recuperación con cierre global de sesiones y MFA TOTP interoperable con bloqueo de replay; los ocho recovery codes de 80 bits se muestran una vez y sólo se persisten como hash. Las API keys sólo se almacenan como hash. Los secretos TOTP y de firma usan AES-256-GCM en reposo y los webhooks HMAC-SHA256 en tránsito. Ningún secreto se guarda en el cliente ni en el repositorio.
 
-El acceso de consola usa roles canónicos `owner`, `admin`, `operator` y `viewer`. Las invitaciones duran siete días, sólo se aceptan al ingresar con el email verificado, no permiten que un admin eleve o administre otros admins y nunca permiten modificar o eliminar al owner desde el flujo delegado. Cada alta, aceptación, revocación, cambio de rol y baja genera auditoría y webhook.
+El acceso de consola usa roles canónicos `owner`, `admin`, `operator` y `viewer`. Una matriz única de capacidades gobierna las rutas API, la navegación y los CTAs; cada mutación se revalida en servidor. Las invitaciones duran siete días, sólo se aceptan al ingresar con el email verificado, no permiten que un admin eleve o administre otros admins y nunca permiten modificar o eliminar al owner desde el flujo delegado. Cada alta, aceptación, revocación, cambio de rol y baja genera auditoría y webhook. Una sesión vencida vuelve a login preservando el destino; un rol insuficiente recibe `403` sin cerrar una sesión válida.
 
 Settlement y transferencias salientes admiten políticas de doble aprobación independientes. El maker crea la solicitud y nunca puede resolverla; un owner/admin distinto, con MFA, actúa como checker. Aprobar ejecuta el ciclo o vuelve a validar saldo y riesgo antes de crear la transferencia, su hold o sus postings, todo dentro de la misma transacción. Una transferencia pendiente no reserva fondos y puede finalizar `failed` si cambian el saldo o el riesgo. Rechazo, cancelación, fallo, expiración, auditoría y webhooks conservan el historial. Una API key con `transfers:write` puede originar una solicitud y con `approvals:read` consultar su estado, pero aprobar o rechazar siempre exige una sesión humana.
 
 ## Infraestructura y despliegue
 
-La aplicación corre sobre Next.js en Vercel, PostgreSQL administrado y Vercel Blob privado. La capa de datos acepta una URL PostgreSQL estándar y no acopla el dominio a un proveedor concreto.
+La aplicación corre sobre Next.js en Vercel, PostgreSQL administrado y Vercel Blob privado. La capa de datos acepta una URL PostgreSQL estándar y no acopla el dominio a un proveedor concreto. `DATABASE_URL` no significa crear otra base: es el nombre estándar de la variable secreta con la que Vercel entrega a la aplicación la conexión de la base ya vinculada.
 
 1. Importá este repositorio como un proyecto de Vercel.
 2. Agregá una integración PostgreSQL desde Vercel Marketplace y verificá que exponga `DATABASE_URL`.

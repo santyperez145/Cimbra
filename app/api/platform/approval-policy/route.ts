@@ -6,7 +6,7 @@ import { ApprovalError, configureApprovalPolicy, getApprovalPolicies } from '@/d
 
 export async function GET(request: Request) {
   try {
-    const principal = await authorizeApiRequest(request, { roles: ['owner', 'admin', 'operator', 'viewer'], sessionOnly: true });
+    const principal = await authorizeApiRequest(request, { capability: 'approvals.read', sessionOnly: true });
     const policies = await getApprovalPolicies(principal.organizationId);
     return NextResponse.json({ data: policies[0], policies,
       current: { userId: principal.user.userId, role: principal.role, mfaEnabled: principal.user.mfaEnabled } },
@@ -18,7 +18,7 @@ export async function GET(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const principal = await authorizeApiRequest(request, { roles: ['owner'], mutation: true, sessionOnly: true });
+    const principal = await authorizeApiRequest(request, { capability: 'approvals.policy.manage', mutation: true, sessionOnly: true });
     const body = await request.json().catch(() => null) as Record<string, unknown> | null;
     const expiresInMinutes = approvalExpiryMinutes(body?.expiresInMinutes);
     const actionType = approvalActionType(body?.actionType ?? 'settlement.execute');

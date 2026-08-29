@@ -9,7 +9,7 @@ import { getRiskCaseForResolution, resolveRiskCase, RiskError } from '@/db/risk'
 
 async function resolveCase(request: Request, id: string) {
   try {
-    const principal = await authorizeApiRequest(request, { scope: 'risk:write', roles: ['owner', 'admin', 'operator'], mutation: true });
+    const principal = await authorizeApiRequest(request, { scope: 'risk:write', capability: 'risk.cases.resolve', mutation: true });
     const idempotencyKey = requestIdempotencyKey(request, principal)!;
     const body = await request.json().catch(() => null) as Record<string, unknown> | null;
     const resolution = body?.resolution === 'approved' || body?.resolution === 'declined' ? body.resolution : null;

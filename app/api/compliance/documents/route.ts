@@ -17,7 +17,7 @@ async function hasExpectedSignature(file: File) {
 export async function POST(request: Request) {
   let principal;
   try {
-    principal = await authorizeApiRequest(request, { scope: 'compliance:write', roles: ['owner', 'admin', 'operator'], mutation: true });
+    principal = await authorizeApiRequest(request, { scope: 'compliance:write', capability: 'compliance.write', mutation: true });
   } catch (error) {
     const response = authorizationErrorResponse(error);
     if (response) return response;

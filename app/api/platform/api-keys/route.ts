@@ -4,11 +4,9 @@ import { authorizationErrorResponse, authorizeApiRequest } from '@/app/lib/platf
 import { scheduleWebhookDispatch } from '@/app/lib/platform/dispatch';
 import { normalizeScopes } from '@/app/lib/platform/scopes';
 
-const consoleRoles = ['owner', 'admin'] as const;
-
 export async function GET(request: Request) {
   try {
-    const principal = await authorizeApiRequest(request, { roles: consoleRoles, sessionOnly: true });
+    const principal = await authorizeApiRequest(request, { capability: 'credentials.manage', sessionOnly: true });
     return NextResponse.json({ data: await listOrganizationApiKeys(principal.organizationId) }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     const response = authorizationErrorResponse(error);
@@ -19,7 +17,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const principal = await authorizeApiRequest(request, { roles: consoleRoles, mutation: true, sessionOnly: true });
+    const principal = await authorizeApiRequest(request, { capability: 'credentials.manage', mutation: true, sessionOnly: true });
     const body = await request.json().catch(() => null) as Record<string, unknown> | null;
     const name = typeof body?.name === 'string' ? body.name.trim().slice(0, 80) : '';
     const scopes = normalizeScopes(body?.scopes);

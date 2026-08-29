@@ -14,7 +14,7 @@ function scheduledDate(value: unknown) {
 
 async function listCycles(request: Request) {
   try {
-    const principal = await authorizeApiRequest(request, { scope: 'settlements:read' });
+    const principal = await authorizeApiRequest(request, { scope: 'settlements:read', capability: 'console.read' });
     return NextResponse.json({ data: await listSettlementCycles(principal.organizationId) }, {
       headers: { 'Cache-Control': 'no-store', ...rateLimitHeaders(principal) },
     });
@@ -25,7 +25,7 @@ async function listCycles(request: Request) {
 
 async function createCycle(request: Request) {
   try {
-    const principal = await authorizeApiRequest(request, { scope: 'settlements:write', roles: ['owner', 'admin', 'operator'], mutation: true });
+    const principal = await authorizeApiRequest(request, { scope: 'settlements:write', capability: 'reconciliation.write', mutation: true });
     const idempotencyKey = requestIdempotencyKey(request, principal)!;
     const body = await request.json().catch(() => null) as Record<string, unknown> | null;
     const reconciliationRunId = typeof body?.reconciliationRunId === 'string' ? body.reconciliationRunId.trim() : '';

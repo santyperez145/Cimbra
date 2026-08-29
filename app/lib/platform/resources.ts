@@ -46,7 +46,7 @@ export async function retrieveResource(request: Request, id: string, name: Resou
       return NextResponse.json({ error: 'El identificador del recurso es inválido.' }, { status: 400 });
     }
     const definition = resources[name];
-    const principal = await authorizeApiRequest(request, { scope: definition.scope, roles: ['owner', 'admin', 'operator', 'viewer'] });
+    const principal = await authorizeApiRequest(request, { scope: definition.scope, capability: 'console.read' });
     await ensureDatabase();
     const item = await getDatabase().prepare(definition.query).bind(id, principal.organizationId).first<Record<string, unknown>>();
     if (!item) return NextResponse.json({ error: 'Recurso no encontrado.' }, { status: 404, headers: rateLimitHeaders(principal) });

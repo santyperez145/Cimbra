@@ -8,7 +8,7 @@ import { CAPABILITY_AVAILABILITY, PLATFORM_CAPABILITIES, PLATFORM_SUMMARY } from
 import { matchReconciliationEntries } from '../app/lib/platform/reconciliation.ts';
 import { systemAmountRisk } from '../app/lib/platform/risk-engine.ts';
 import { csvObjects, CsvError } from '../app/lib/platform/csv.ts';
-import { assignableRole, canManageRole, normalizeAccessEmail } from '../app/lib/platform/access-policy.ts';
+import { ACCESS_POLICY, ROLE_PROFILES, assignableRole, canManageRole, normalizeAccessEmail, roleCan, rolesFor } from '../app/lib/platform/access-policy.ts';
 import { approvalActionType, approvalExpiryMinutes, approvalReason, canDecideApproval } from '../app/lib/platform/approval-policy.ts';
 
 process.env.CIMBRA_ENCRYPTION_KEY = '3ea72fc13c567057870342c6ebd34d88f58f6d80b1dba61c4be4e1c2f1406afb';
@@ -98,6 +98,23 @@ test('la jerarquía RBAC protege owner, admins y emails de invitación', () => {
   assert.equal(canManageRole('admin', 'operator', 'admin'), false);
   assert.equal(canManageRole('admin', 'operator', 'viewer'), true);
   assert.equal(canManageRole('owner', 'owner', 'admin'), false);
+});
+
+test('una matriz canónica gobierna capacidades de API y consola', () => {
+  assert.deepEqual(rolesFor('console.read'), ['owner', 'admin', 'operator', 'viewer']);
+  assert.deepEqual(rolesFor('finance.write'), ['owner', 'admin', 'operator']);
+  assert.deepEqual(rolesFor('credentials.manage'), ['owner', 'admin']);
+  assert.deepEqual(rolesFor('approvals.policy.manage'), ['owner']);
+  assert.equal(roleCan('owner', 'approvals.policy.manage'), true);
+  assert.equal(roleCan('admin', 'approvals.policy.manage'), false);
+  assert.equal(roleCan('admin', 'credentials.manage'), true);
+  assert.equal(roleCan('operator', 'finance.write'), true);
+  assert.equal(roleCan('operator', 'credentials.manage'), false);
+  assert.equal(roleCan('viewer', 'console.read'), true);
+  for (const capability of Object.keys(ACCESS_POLICY) as Array<keyof typeof ACCESS_POLICY>) {
+    if (!['console.read', 'approvals.read', 'security.manage_self'].includes(capability)) assert.equal(roleCan('viewer', capability), false, capability);
+  }
+  assert.equal(ROLE_PROFILES.viewer.posture, 'Sólo lectura');
 });
 
 test('maker/checker exige otro actor privilegiado con MFA y políticas acotadas', () => {

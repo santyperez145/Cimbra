@@ -9,7 +9,7 @@ import { ensureDatabase, OrganizationAccessError } from '@/db/runtime';
 
 async function createPayment(request: Request) {
   try {
-    const principal = await authorizeApiRequest(request, { scope: 'payments:write', roles: ['owner', 'admin', 'operator'], mutation: true });
+    const principal = await authorizeApiRequest(request, { scope: 'payments:write', capability: 'finance.write', mutation: true });
     const idempotencyKey = requestIdempotencyKey(request, principal)!;
     const body = await request.json().catch(() => null) as Record<string, unknown> | null;
     const accountId = typeof body?.accountId === 'string' ? body.accountId : '';

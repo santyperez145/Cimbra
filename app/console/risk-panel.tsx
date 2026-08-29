@@ -1,6 +1,7 @@
 'use client';
 
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { authenticatedFetch } from '@/app/lib/platform/client-http';
 
 type Rule = { id: string; name: string; kind: string; operationType: string; scoreDelta: number; action: string; configuration: Record<string, unknown>; priority: number; status: string };
 type Evaluation = { id: string; counterparty: string; amount: number; currency: string; score: number; decision: string; reasons: string[]; createdAt: string };
@@ -23,7 +24,7 @@ export default function RiskPanel({ holds, busy: externalBusy, canManageRules, c
   const unlinkedHolds = holds.filter((hold) => !linkedHolds.has(hold.id));
 
   async function load() {
-    const response = await fetch('/api/v1/risk', { cache: 'no-store' });
+    const response = await authenticatedFetch('/api/v1/risk', { cache: 'no-store' });
     const result = await response.json() as { data?: { rules: Rule[]; evaluations: Evaluation[]; cases: RiskCase[]; systemPolicies: SystemPolicy[] }; error?: { message?: string } | string };
     if (!response.ok) return setFeedback(typeof result.error === 'string' ? result.error : result.error?.message ?? 'No pudimos cargar riesgo.');
     setRules(result.data?.rules ?? []); setEvaluations(result.data?.evaluations ?? []); setCases(result.data?.cases ?? []); setSystemPolicies(result.data?.systemPolicies ?? []);
@@ -36,7 +37,7 @@ export default function RiskPanel({ holds, busy: externalBusy, canManageRules, c
     const configuration = kind === 'amount_threshold' ? { threshold: form.get('threshold'), currency: form.get('currency') }
       : kind === 'counterparty_match' ? { pattern: form.get('pattern') }
         : { count: Number(form.get('count')), windowMinutes: Number(form.get('windowMinutes')) };
-    const response = await fetch('/api/v1/risk/rules', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
+    const response = await authenticatedFetch('/api/v1/risk/rules', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
       body: JSON.stringify({ name: form.get('name'), kind, operationType: form.get('operationType'), action: form.get('action'),
         scoreDelta: Number(form.get('scoreDelta')), priority: Number(form.get('priority')), configuration }) });
     const result = await response.json() as { error?: { message?: string } | string };
@@ -45,12 +46,12 @@ export default function RiskPanel({ holds, busy: externalBusy, canManageRules, c
   }
 
   async function disableRule(id: string) {
-    setBusy(true); const response = await fetch(`/api/v1/risk/rules/${id}`, { method: 'DELETE' });
+    setBusy(true); const response = await authenticatedFetch(`/api/v1/risk/rules/${id}`, { method: 'DELETE' });
     setFeedback(response.ok ? 'Regla deshabilitada.' : 'No pudimos deshabilitar la regla.'); if (response.ok) await load(); setBusy(false);
   }
 
   async function resolveCase(id: string, resolution: 'approved' | 'declined') {
-    setBusy(true); setFeedback(''); const response = await fetch(`/api/v1/risk/cases/${id}/resolve`, { method: 'POST',
+    setBusy(true); setFeedback(''); const response = await authenticatedFetch(`/api/v1/risk/cases/${id}/resolve`, { method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
       body: JSON.stringify({ resolution, note: `Decisión ${resolution} desde consola sandbox.` }) });
     const result = await response.json() as { error?: { message?: string } | string };

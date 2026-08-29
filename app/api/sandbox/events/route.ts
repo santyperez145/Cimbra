@@ -4,7 +4,7 @@ import { ensureDatabase, getDatabase } from '@/db/runtime';
 
 export async function GET(request: Request) {
   try {
-  const principal = await authorizeApiRequest(request, { scope: 'events:read', roles: ['owner', 'admin', 'operator', 'viewer'] });
+  const principal = await authorizeApiRequest(request, { scope: 'events:read', capability: 'console.read' });
   const { organizationId } = principal;
   await ensureDatabase();
   const events = await getDatabase().prepare(

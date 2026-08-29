@@ -4,11 +4,9 @@ import { scheduleWebhookDispatch } from '@/app/lib/platform/dispatch';
 import { AccessControlError, assignableRole, removeOrganizationMember, updateOrganizationMember } from '@/db/access';
 import type { OrganizationRole } from '@/db/runtime';
 
-const roles = ['owner', 'admin'] as const;
-
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const principal = await authorizeApiRequest(request, { roles, mutation: true, sessionOnly: true });
+    const principal = await authorizeApiRequest(request, { capability: 'organization.manage', mutation: true, sessionOnly: true });
     const body = await request.json().catch(() => null) as Record<string, unknown> | null;
     const role = assignableRole(body?.role);
     if (!role) return NextResponse.json({ error: 'Rol inválido.', code: 'invalid_member_role' }, { status: 400 });
@@ -25,7 +23,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
 export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const principal = await authorizeApiRequest(request, { roles, mutation: true, sessionOnly: true });
+    const principal = await authorizeApiRequest(request, { capability: 'organization.manage', mutation: true, sessionOnly: true });
     const result = await removeOrganizationMember({ organizationId: principal.organizationId, actor: principal.user,
       actorRole: principal.role as Extract<OrganizationRole, 'owner' | 'admin'>, memberId: (await params).id });
     scheduleWebhookDispatch(principal.organizationId);

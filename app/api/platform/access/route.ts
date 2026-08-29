@@ -6,11 +6,9 @@ import { scheduleWebhookDispatch } from '@/app/lib/platform/dispatch';
 import { AccessControlError, assignableRole, inviteOrganizationMember, listOrganizationAccess, normalizeAccessEmail } from '@/db/access';
 import type { OrganizationRole } from '@/db/runtime';
 
-const roles = ['owner', 'admin'] as const;
-
 export async function GET(request: Request) {
   try {
-    const principal = await authorizeApiRequest(request, { roles, sessionOnly: true });
+    const principal = await authorizeApiRequest(request, { capability: 'organization.manage', sessionOnly: true });
     return NextResponse.json({ data: await listOrganizationAccess(principal.organizationId), current: {
       userId: principal.user.userId, role: principal.role,
     } }, { headers: { 'Cache-Control': 'no-store' } });
@@ -21,7 +19,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const principal = await authorizeApiRequest(request, { roles, mutation: true, sessionOnly: true });
+    const principal = await authorizeApiRequest(request, { capability: 'organization.manage', mutation: true, sessionOnly: true });
     const body = await request.json().catch(() => null) as Record<string, unknown> | null;
     const email = normalizeAccessEmail(body?.email); const role = assignableRole(body?.role);
     if (!email || !role) return NextResponse.json({ error: 'Email o rol inválido.', code: 'invalid_invitation' }, { status: 400 });

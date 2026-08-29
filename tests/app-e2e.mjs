@@ -118,6 +118,11 @@ try {
   const health = await json(await request('/api/health'), 200);
   assert.equal(health.status, 'ok');
   assert.equal(health.dependencies.database, 'ok');
+  const publicLanding = await request('/');
+  assert.equal(publicLanding.status, 200);
+  const publicLandingHtml = await publicLanding.text();
+  assert.match(publicLandingHtml, />Ingresar</);
+  assert.match(publicLandingHtml, /SANDBOX OPERATIVO/);
 
   trackAuthAttempt('register', email);
   const registration = await request('/api/auth/register', {
@@ -128,6 +133,10 @@ try {
   await json(registration, 201);
   cookie = registration.headers.get('set-cookie')?.split(';', 1)[0] ?? '';
   assert.match(cookie, /cimbra_session=/);
+
+  const authenticatedLandingHtml = await (await request('/')).text();
+  assert.match(authenticatedLandingHtml, /Abrir consola/);
+  assert.match(authenticatedLandingHtml, /Sesión activa/);
 
   assert.equal((await request('/console')).status, 200);
   const me = await json(await request('/api/auth/me'), 200);
@@ -186,6 +195,11 @@ try {
   }), 200);
   assert.equal(enabled.recoveryCodes.length, 8);
   await json(await request('/api/auth/logout', { method: 'POST' }), 200);
+  const signedOutConsole = await request('/console');
+  assert.ok([303, 307, 308].includes(signedOutConsole.status));
+  const signedOutLocation = new URL(signedOutConsole.headers.get('location') ?? '/', target);
+  assert.equal(signedOutLocation.pathname, '/login');
+  assert.equal(signedOutLocation.searchParams.get('return_to'), '/console');
   const passwordStep = await json(await request('/api/auth/login', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ identifier: email, password: replacementPassword }),
   }), 200);
@@ -567,6 +581,27 @@ try {
   form.append('file', new File([png], 'qa-evidence.png', { type: 'image/png' }));
   await json(await request('/api/v1/compliance/documents', { method: 'POST', body: form }), 201);
 
+  const finalAccess = await json(await request('/api/platform/access'), 200);
+  const checkerMember = finalAccess.data.members.find((member) => member.email === checkerEmail);
+  assert.ok(checkerMember);
+  await json(await request(`/api/platform/access/members/${checkerMember.id}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role: 'viewer' }),
+  }), 200);
+  cookie = checkerCookie;
+  await json(await request('/api/v1/ledger'), 200);
+  assert.equal((await request('/console')).status, 200);
+  const viewerWriteDenied = await json(await request('/api/v1/transfers', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-viewer-denied-${runId}` },
+    body: JSON.stringify({ counterparty: 'QA Denied', description: 'Viewer cannot mutate', amount: '1.00', currency: 'ARS' }),
+  }), 403);
+  assert.equal(viewerWriteDenied.error.code, 'insufficient_role');
+  const viewerCredentialsDenied = await json(await request('/api/platform/api-keys'), 403);
+  assert.equal(viewerCredentialsDenied.code, 'insufficient_role');
+  cookie = ownerCookieAfterRequest;
+  await json(await request(`/api/platform/access/members/${checkerMember.id}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role: 'admin' }),
+  }), 200);
+
   const events = (await json(await request('/api/v1/events'), 200)).data;
   assert.ok(events.some((event) => event.action === 'transfer.reversed'));
   assert.ok(events.every((event) => typeof event.payload === 'object'));
@@ -587,7 +622,7 @@ try {
 
   console.log(JSON.stringify({
     ok: true,
-    checks: ['auth', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'member-invitations', 'dual-control', 'maker-checker', 'transfer-approval', 'approval-replay', 'approval-fail-closed', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'reconciliation', 'csv-import', 'settlement', 'private-evidence', 'audit'],
+    checks: ['auth', 'landing-session-state', 'console-session-guard', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'viewer-read-only', 'member-invitations', 'dual-control', 'maker-checker', 'transfer-approval', 'approval-replay', 'approval-fail-closed', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'reconciliation', 'csv-import', 'settlement', 'private-evidence', 'audit'],
   }));
 } finally {
   await cleanup();

@@ -9,7 +9,7 @@ const countries = new Set(['AR', 'MX', 'CO', 'BR', 'CL', 'PE']);
 
 export async function GET(request: Request) {
   try {
-    const principal = await authorizeApiRequest(request, { scope: 'customers:read', roles: ['owner', 'admin', 'operator', 'viewer'] });
+    const principal = await authorizeApiRequest(request, { scope: 'customers:read', capability: 'console.read' });
     const url = new URL(request.url);
     const limit = pageLimit(url.searchParams.get('limit'));
     const cursor = decodePageCursor(url.searchParams.get('cursor'));
@@ -32,7 +32,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const principal = await authorizeApiRequest(request, { scope: 'customers:write', roles: ['owner', 'admin', 'operator'], mutation: true });
+    const principal = await authorizeApiRequest(request, { scope: 'customers:write', capability: 'finance.write', mutation: true });
     const { user, organizationId } = principal;
     const idempotencyKey = requestIdempotencyKey(request, principal);
     const body = await request.json().catch(() => null) as Record<string, unknown> | null;

@@ -2,8 +2,9 @@ import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/app/lib/auth/session';
 import { mutationAllowed } from '@/app/lib/auth/http';
 import type { AuthUser } from '@/app/lib/auth/types';
-import { ensureDatabase, getDatabase, requireOrganizationRole, type OrganizationRole } from '@/db/runtime';
+import { ensureDatabase, getDatabase, OrganizationAccessError, requireOrganizationRole, type OrganizationRole } from '@/db/runtime';
 import { AccessControlError } from '@/db/access';
+import { rolesFor, type AccessCapability } from './access-policy';
 import { apiKeyPrefix, verifyApiKey } from './crypto';
 import type { ApiScope } from './scopes';
 
@@ -90,10 +91,10 @@ async function authenticateApiKey(token: string, requiredScope?: ApiScope): Prom
 
 export async function authorizeApiRequest(request: Request, options: {
   scope?: ApiScope;
-  roles?: readonly OrganizationRole[];
+  capability: AccessCapability;
   mutation?: boolean;
   sessionOnly?: boolean;
-} = {}): Promise<ApiPrincipal> {
+}): Promise<ApiPrincipal> {
   const token = bearerToken(request);
   if (token && options.sessionOnly) throw new ApiAuthorizationError('Esta operación requiere una sesión de consola.', 403, 'session_required');
   if (token) return authenticateApiKey(token, options.scope);
@@ -102,7 +103,7 @@ export async function authorizeApiRequest(request: Request, options: {
   }
   const user = await getCurrentUser(request);
   if (!user) throw new ApiAuthorizationError('Autenticación requerida.', 401, 'authentication_required');
-  const context = await requireOrganizationRole(user, options.roles ?? ['owner', 'admin', 'operator', 'viewer']);
+  const context = await requireOrganizationRole(user, rolesFor(options.capability));
   if (process.env.CIMBRA_REQUIRE_VERIFIED_EMAIL === '1' && !user.emailVerified) {
     throw new ApiAuthorizationError('Verificá el email de la cuenta antes de operar.', 403, 'email_verification_required');
   }
@@ -122,6 +123,9 @@ export function rateLimitHeaders(principal: ApiPrincipal): HeadersInit | undefin
 }
 
 export function authorizationErrorResponse(error: unknown) {
+  if (error instanceof OrganizationAccessError) {
+    return NextResponse.json({ error: error.message, code: 'insufficient_role' }, { status: error.status });
+  }
   if (error instanceof AccessControlError) {
     return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
   }

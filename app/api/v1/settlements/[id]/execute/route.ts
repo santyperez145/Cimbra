@@ -8,7 +8,7 @@ import { executeSettlementCycle, SettlementError } from '@/db/settlements';
 
 async function execute(request: Request, id: string) {
   try {
-    const principal = await authorizeApiRequest(request, { scope: 'settlements:write', roles: ['owner', 'admin', 'operator'], mutation: true });
+    const principal = await authorizeApiRequest(request, { scope: 'settlements:write', capability: 'reconciliation.write', mutation: true });
     const idempotencyKey = requestIdempotencyKey(request, principal)!;
     if (await requiresSettlementApproval(principal.organizationId)) {
       const result = await requestSettlementExecutionApproval({ organizationId: principal.organizationId,

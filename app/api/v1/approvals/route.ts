@@ -5,7 +5,7 @@ import { listApprovalRequests } from '@/db/approvals';
 
 async function list(request: Request) {
   try {
-    const principal = await authorizeApiRequest(request, { scope: 'approvals:read' });
+    const principal = await authorizeApiRequest(request, { scope: 'approvals:read', capability: 'approvals.read' });
     return NextResponse.json({ data: await listApprovalRequests(principal.organizationId), meta: {
       currentUserId: principal.user.userId, role: principal.role, mfaEnabled: principal.user.mfaEnabled,
     } }, { headers: { 'Cache-Control': 'no-store', ...rateLimitHeaders(principal) } });

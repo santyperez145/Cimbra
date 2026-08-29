@@ -4,7 +4,7 @@ import { getLedgerBalances, listActiveHolds, listLedgerJournals } from '@/db/led
 
 export async function GET(request: Request) {
   try {
-  const principal = await authorizeApiRequest(request, { scope: 'ledger:read', roles: ['owner', 'admin', 'operator', 'viewer'] });
+  const principal = await authorizeApiRequest(request, { scope: 'ledger:read', capability: 'console.read' });
   const { organizationId } = principal;
   const [balances, journals, holds] = await Promise.all([
     getLedgerBalances(organizationId),
