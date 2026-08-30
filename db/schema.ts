@@ -190,6 +190,33 @@ export const accounts = pgTable('accounts', {
   uniqueIndex('idx_accounts_org_idempotency').on(table.organizationId, table.idempotencyKey),
 ]);
 
+export const bookTransfers = pgTable('book_transfers', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  idempotencyKey: text('idempotency_key').notNull(), requestFingerprint: text('request_fingerprint').notNull(),
+  externalReference: text('external_reference').notNull(),
+  sourceAccountId: text('source_account_id').notNull().references(() => accounts.id, { onDelete: 'restrict' }),
+  destinationAccountId: text('destination_account_id').notNull().references(() => accounts.id, { onDelete: 'restrict' }),
+  transactionId: text('transaction_id').notNull().references(() => transactions.id, { onDelete: 'restrict' }),
+  reversalTransactionId: text('reversal_transaction_id').references(() => transactions.id, { onDelete: 'restrict' }),
+  description: text('description').notNull(), amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(),
+  currency: text('currency').notNull(), status: text('status').notNull().default('settled'),
+  createdBy: text('created_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
+  reversedAt: text('reversed_at'), createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_book_transfers_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  uniqueIndex('idx_book_transfers_org_reference').on(table.organizationId, table.externalReference),
+  uniqueIndex('idx_book_transfers_transaction').on(table.transactionId),
+  uniqueIndex('idx_book_transfers_reversal').on(table.reversalTransactionId),
+  index('idx_book_transfers_org_created').on(table.organizationId, table.createdAt),
+  index('idx_book_transfers_source_created').on(table.sourceAccountId, table.createdAt),
+  index('idx_book_transfers_destination_created').on(table.destinationAccountId, table.createdAt),
+  check('book_transfers_distinct_accounts', sql`${table.sourceAccountId} <> ${table.destinationAccountId}`),
+  check('book_transfers_amount_positive', sql`${table.amountMinor} > 0`),
+  check('book_transfers_status', sql`${table.status} IN ('review', 'settled', 'reversed', 'cancelled')`),
+  check('book_transfers_currency', sql`${table.currency} IN ('ARS', 'USD', 'MXN', 'COP', 'BRL', 'CLP', 'PEN')`),
+]);
+
 export const payoutBeneficiaries = pgTable('payout_beneficiaries', {
   id: text('id').primaryKey(),
   organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
@@ -813,7 +840,7 @@ export const approvalRequests = pgTable('approval_requests', {
   index('idx_approval_requests_org_resource').on(table.organizationId, table.actionType, table.resourceId),
   check('approval_requests_action_resource', sql`(
     (${table.actionType} = 'settlement.execute' AND ${table.resourceType} = 'settlement_cycle') OR
-    (${table.actionType} = 'transfer.create' AND ${table.resourceType} = 'transfer') OR
+    (${table.actionType} = 'transfer.create' AND ${table.resourceType} IN ('transfer', 'book_transfer')) OR
     (${table.actionType} = 'payout_batch.execute' AND ${table.resourceType} = 'payout_batch') OR
     (${table.actionType} = 'risk.case.resolve' AND ${table.resourceType} = 'risk_case') OR
     (${table.actionType} = 'reconciliation.exception.resolve' AND ${table.resourceType} = 'reconciliation_exception') OR

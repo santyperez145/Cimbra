@@ -32,7 +32,7 @@ export const PLATFORM_CAPABILITIES: readonly PlatformCapability[] = [
   {
     id: 'financial-core', name: 'Financial Core & Ledger', domain: 'core', availability: 'sandbox', delivery: 'cimbra_native',
     summary: 'Cuentas, ledger de doble partida, holds, límites, fees, reversas y balances derivados.',
-    features: ['multi-currency', 'double-entry ledger', 'holds y captures', 'reversas compensatorias', 'idempotencia'],
+    features: ['multi-currency', 'double-entry ledger', 'native book transfers', 'account statements', 'holds y captures', 'reversas compensatorias', 'idempotencia'],
     interfaces: ['rest_api', 'webhooks', 'sdk', 'console'], regulatoryBoundary: 'El sandbox no custodia dinero. Cuentas transaccionales reales requieren licencia propia o patrocinio regulado y safeguarding.',
   },
   {
@@ -50,7 +50,7 @@ export const PLATFORM_CAPABILITIES: readonly PlatformCapability[] = [
   {
     id: 'instant-payments', name: 'Instant Payments & Transfers', domain: 'payments', availability: 'roadmap', delivery: 'cimbra_native',
     summary: 'Transferencias inmediatas, alias, QR interoperable, solicitudes de pago y devoluciones.',
-    features: ['account-to-account', 'aliases', 'QR interoperable', 'request to pay', 'returns'],
+    features: ['external account-to-account rails', 'aliases', 'QR interoperable', 'request to pay', 'returns'],
     interfaces: ['rest_api', 'webhooks', 'sdk', 'files'], regulatoryBoundary: 'El acceso a Pix, SPEI, Transferencias 3.0 y otros rieles exige membresía, certificación o sponsor local.',
   },
   {

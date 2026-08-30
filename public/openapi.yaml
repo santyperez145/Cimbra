@@ -141,6 +141,27 @@ paths:
       responses:
         '200': { description: Account }
         '404': { description: Account not found in tenant }
+  /api/v1/accounts/{id}/statement:
+    get:
+      operationId: getAccountStatement
+      summary: Retrieve a ledger-backed account statement
+      description: Returns immutable postings for one tenant account plus opening and closing balances for an ISO-8601 period of at most 366 days. Reversals appear as separate compensating entries.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - { name: from, in: query, required: false, schema: { type: string, format: date-time }, description: Inclusive period start; defaults to 30 days before now. }
+        - { name: to, in: query, required: false, schema: { type: string, format: date-time }, description: Exclusive period end; defaults to now. }
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200':
+          description: Account statement page and period balances
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AccountStatement' }
+        '400': { description: Invalid period or pagination }
+        '403': { description: Missing accounts:read scope or console role }
+        '404': { description: Account not found in tenant }
   /api/v1/card-programs:
     get:
       operationId: listCardPrograms
@@ -389,6 +410,85 @@ paths:
         '403': { description: Role does not allow mutation }
         '409': { description: Idempotency mismatch or prior approval is no longer actionable }
         '422': { description: 'Insufficient available balance, risk decline or failed approved execution' }
+  /api/v1/book-transfers:
+    get:
+      operationId: listBookTransfers
+      summary: List native book transfers with cursor pagination
+      description: Tenant-scoped account-to-account movements backed by paired ledger postings. This sandbox operation does not use an external rail or move real funds.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/PageLimit' }, { $ref: '#/components/parameters/PageCursor' }]
+      responses:
+        '200':
+          description: Book transfer page
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, hasMore, nextCursor]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/BookTransfer' } }
+                  hasMore: { type: boolean }
+                  nextCursor: { type: [string, 'null'] }
+        '403': { description: Missing transfers:read scope or console role }
+    post:
+      operationId: createBookTransfer
+      summary: Atomically move balance between two Cimbra accounts
+      description: Locks both tenant accounts, validates status, currency and available balance, evaluates risk, and either creates a source hold or posts an atomic debit/credit pair. The existing transfer.create maker/checker policy protects this operation when enabled.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [externalReference, sourceAccountId, destinationAccountId, description, amount, currency]
+              properties:
+                externalReference: { type: string, minLength: 2, maxLength: 100 }
+                sourceAccountId: { type: string, format: uuid }
+                destinationAccountId: { type: string, format: uuid }
+                description: { type: string, minLength: 2, maxLength: 180 }
+                amount:
+                  description: Positive decimal major-unit amount. Prefer a string to avoid floating-point serialization.
+                  oneOf:
+                    - { type: string, pattern: '^\d+(?:\.\d+)?$' }
+                    - { type: number, exclusiveMinimum: 0, maximum: 10000000 }
+                currency: { type: string, enum: [ARS, USD, MXN, COP, BRL, CLP, PEN] }
+                signals: { $ref: '#/components/schemas/RiskSignalsInput' }
+      responses:
+        '201': { description: Book transfer settled or placed in risk review }
+        '200': { description: Idempotent replay }
+        '202': { description: Maker/checker policy is active and a human approval is pending }
+        '400': { description: Invalid payload or same source and destination }
+        '403': { description: Missing transfers:write scope or finance.write permission }
+        '404': { description: Source or destination account not found in tenant }
+        '409': { description: Account state, currency, external reference or idempotency conflict }
+        '422': { description: Insufficient available balance or risk decline }
+  /api/v1/book-transfers/{id}:
+    get:
+      operationId: retrieveBookTransfer
+      summary: Retrieve a native book transfer
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses:
+        '200': { description: Book transfer, content: { application/json: { schema: { $ref: '#/components/schemas/BookTransfer' } } } }
+        '404': { description: Book transfer not found in tenant }
+  /api/v1/book-transfers/{id}/reverse:
+    post:
+      operationId: reverseBookTransfer
+      summary: Reverse a settled book transfer with compensating postings
+      description: Never mutates the original postings. It creates an opposite journal, links the reversal transaction and preserves the full account statement history.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '201': { description: Compensating reversal created }
+        '200': { description: Idempotent replay }
+        '403': { description: Missing transfers:write scope or finance.write permission }
+        '404': { description: Book transfer not found in tenant }
+        '409': { description: Transfer is not settled, was already reversed or idempotency conflicts }
   /api/v1/payments:
     post:
       operationId: createPayment
@@ -2564,7 +2664,7 @@ components:
       properties:
         id: { type: string, format: uuid }
         actionType: { type: string, enum: [settlement.execute, transfer.create, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve] }
-        resourceType: { type: string, enum: [settlement_cycle, transfer, payout_batch, risk_case, reconciliation_exception, dispute] }
+        resourceType: { type: string, enum: [settlement_cycle, transfer, book_transfer, payout_batch, risk_case, reconciliation_exception, dispute] }
         resourceId: { type: string, format: uuid }
         status: { type: string, enum: [pending, executed, rejected, cancelled, expired, failed] }
         requestPayload: { type: object, additionalProperties: true }
@@ -2578,6 +2678,77 @@ components:
         executedAt: { type: [string, 'null'], format: date-time }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+    BookTransfer:
+      type: object
+      additionalProperties: false
+      required: [id, externalReference, sourceAccountId, sourceAccountReference, sourceCustomerName, destinationAccountId, destinationAccountReference, destinationCustomerName, transactionId, reversalTransactionId, description, amountMinor, amount, currency, status, riskScore, holdId, createdBy, reversedAt, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        externalReference: { type: string }
+        sourceAccountId: { type: string, format: uuid }
+        sourceAccountReference: { type: string }
+        sourceCustomerName: { type: string }
+        destinationAccountId: { type: string, format: uuid }
+        destinationAccountReference: { type: string }
+        destinationCustomerName: { type: string }
+        transactionId: { type: string, format: uuid }
+        reversalTransactionId: { type: [string, 'null'], format: uuid }
+        description: { type: string }
+        amountMinor: { type: string, pattern: '^\d+$' }
+        amount: { type: number, exclusiveMinimum: 0 }
+        currency: { type: string, enum: [ARS, USD, MXN, COP, BRL, CLP, PEN] }
+        status: { type: string, enum: [review, settled, reversed, cancelled] }
+        riskScore: { type: integer, minimum: 0, maximum: 100 }
+        holdId: { type: [string, 'null'], format: uuid }
+        createdBy: { type: string, format: uuid }
+        reversedAt: { type: [string, 'null'], format: date-time }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    AccountStatementEntry:
+      type: object
+      additionalProperties: false
+      required: [id, journalId, transactionId, kind, description, direction, amountMinor, amount, signedAmountMinor, signedAmount, currency, status, reversalOf, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        journalId: { type: string, format: uuid }
+        transactionId: { type: [string, 'null'], format: uuid }
+        kind: { type: string }
+        description: { type: string }
+        direction: { type: string, enum: [debit, credit] }
+        amountMinor: { type: string, pattern: '^\d+$' }
+        amount: { type: number, exclusiveMinimum: 0 }
+        signedAmountMinor: { type: string, pattern: '^-?\d+$' }
+        signedAmount: { type: number }
+        currency: { type: string, enum: [ARS, USD, MXN, COP, BRL, CLP, PEN] }
+        status: { type: [string, 'null'] }
+        reversalOf: { type: [string, 'null'], format: uuid }
+        createdAt: { type: string, format: date-time }
+    AccountStatement:
+      type: object
+      additionalProperties: false
+      required: [account, period, data, hasMore, nextCursor]
+      properties:
+        account:
+          type: object
+          required: [id, accountReference, currency, status]
+          properties:
+            id: { type: string, format: uuid }
+            accountReference: { type: string }
+            currency: { type: string, enum: [ARS, USD, MXN, COP, BRL, CLP, PEN] }
+            status: { type: string }
+        period:
+          type: object
+          required: [from, to, openingBalanceMinor, openingBalance, closingBalanceMinor, closingBalance]
+          properties:
+            from: { type: string, format: date-time }
+            to: { type: string, format: date-time }
+            openingBalanceMinor: { type: string, pattern: '^-?\d+$' }
+            openingBalance: { type: number }
+            closingBalanceMinor: { type: string, pattern: '^-?\d+$' }
+            closingBalance: { type: number }
+        data: { type: array, items: { $ref: '#/components/schemas/AccountStatementEntry' } }
+        hasMore: { type: boolean }
+        nextCursor: { type: [string, 'null'] }
     OrganizationMember:
       type: object
       required: [id, userId, email, displayName, role, emailVerified, mfaEnabled, createdAt]

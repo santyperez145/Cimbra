@@ -31,7 +31,7 @@ export class LedgerError extends Error {
   }
 }
 
-async function insertAudit(database: DatabaseClient, input: {
+export async function insertAudit(database: DatabaseClient, input: {
   organizationId: string;
   actorId: string;
   action: string;
@@ -98,7 +98,7 @@ export async function createProductLedgerAccount(input: {
   return id;
 }
 
-async function postJournal(input: {
+export async function postJournal(input: {
   organizationId: string;
   transactionId?: string;
   idempotencyKey: string;
@@ -229,7 +229,7 @@ export async function reverseDisputeCreditInTransaction(input: {
   return { transactionId: id, replayed: false };
 }
 
-async function accountBalanceMinor(accountId: string, database: DatabaseClient) {
+export async function accountBalanceMinor(accountId: string, database: DatabaseClient) {
   const result = await database.prepare(
     `SELECT COALESCE(SUM(CASE WHEN p.direction = a.normal_balance THEN p.amount_minor ELSE -p.amount_minor END), 0)::text AS balanceMinor
      FROM financial_accounts a LEFT JOIN ledger_postings p ON p.account_id = a.id
@@ -238,11 +238,11 @@ async function accountBalanceMinor(accountId: string, database: DatabaseClient) 
   return BigInt(result?.balanceMinor ?? '0');
 }
 
-async function activeHoldsMinor(accountId: string, database: DatabaseClient) {
+export async function activeHoldsMinor(accountId: string, database: DatabaseClient) {
   const result = await database.prepare(
     `SELECT COALESCE(SUM(h.amount_minor), 0)::text AS heldMinor
      FROM holds h JOIN transactions t ON t.id = h.transaction_id
-     WHERE h.account_id = ? AND h.status = 'active' AND t.type = 'debit'`,
+     WHERE h.account_id = ? AND h.status = 'active' AND t.type IN ('debit', 'book_transfer')`,
   ).bind(accountId).first<{ heldMinor: string }>();
   return BigInt(result?.heldMinor ?? '0');
 }
@@ -488,7 +488,7 @@ export type ReverseTransactionInput = {
   actor: AuthUser;
   transactionId: string;
   idempotencyKey: string;
-  auditAction?: 'transfer.reversed' | 'bill_payment.reversed';
+  auditAction?: 'transfer.reversed' | 'bill_payment.reversed' | 'book_transfer.reversed';
 };
 
 export async function reverseTransfer(input: ReverseTransactionInput) {
@@ -519,6 +519,9 @@ export async function reverseTransactionInTransaction(input: ReverseTransactionI
       const billPayment = await transaction.prepare('SELECT id FROM bill_payment_orders WHERE organization_id = ? AND transaction_id = ? LIMIT 1')
         .bind(input.organizationId, original.id).first<{ id: string }>();
       if (billPayment) throw new LedgerError('Esta transacción debe revertirse desde su orden de servicio.', 409, 'bill_payment_reverse_required');
+      const bookTransfer = await transaction.prepare('SELECT id FROM book_transfers WHERE organization_id = ? AND transaction_id = ? LIMIT 1')
+        .bind(input.organizationId, original.id).first<{ id: string }>();
+      if (bookTransfer) throw new LedgerError('Esta transacción debe revertirse desde su book transfer.', 409, 'book_transfer_reverse_required');
     }
     if (original.status !== 'settled') throw new LedgerError('Sólo se puede revertir una transferencia liquidada.', 409, 'transaction_not_reversible');
     const alreadyReversed = await transaction.prepare('SELECT id FROM transactions WHERE reversal_of = ? LIMIT 1')
@@ -561,6 +564,20 @@ export async function reverseTransactionInTransaction(input: ReverseTransactionI
     }, transaction);
     await transaction.prepare("UPDATE transactions SET status = 'reversed', updated_at = ? WHERE id = ?").bind(now, original.id).run();
     await transaction.prepare("UPDATE ledger_journals SET status = 'reversed' WHERE id = ?").bind(originalJournal.id).run();
+    const bookTransfer = await transaction.prepare(`SELECT id, status FROM book_transfers
+      WHERE organization_id = ? AND transaction_id = ? LIMIT 1 FOR UPDATE`)
+      .bind(input.organizationId, original.id).first<{ id: string; status: string }>();
+    if (bookTransfer) {
+      if (input.auditAction !== 'book_transfer.reversed') {
+        throw new LedgerError('La reversa del book transfer debe usar su operación canónica.', 409, 'book_transfer_reverse_required');
+      }
+      await transaction.prepare(`UPDATE book_transfers SET status = 'reversed', reversal_transaction_id = ?, reversed_at = ?, updated_at = ? WHERE id = ?`)
+        .bind(id, now, now, bookTransfer.id).run();
+      await insertAudit(transaction, {
+        organizationId: input.organizationId, actorId: input.actor.userId, action: 'book_transfer.reversed',
+        resourceType: 'book_transfer', resourceId: bookTransfer.id, payload: { transactionId: original.id, reversalId: id },
+      });
+    }
     const payoutItem = await transaction.prepare(`SELECT id, batch_id AS "batchId", external_reference AS "externalReference", status
       FROM payout_items WHERE organization_id = ? AND transaction_id = ? LIMIT 1 FOR UPDATE`)
       .bind(input.organizationId, original.id).first<{ id: string; batchId: string; externalReference: string; status: string }>();
@@ -599,14 +616,16 @@ export async function reverseTransactionInTransaction(input: ReverseTransactionI
         payload: { status: batchStatus, counts, reversalId: id },
       });
     }
-    await insertAudit(transaction, {
-      organizationId: input.organizationId,
-      actorId: input.actor.userId,
-      action: input.auditAction ?? 'transfer.reversed',
-      resourceType: 'transaction',
-      resourceId: original.id,
-      payload: { reversalId: id },
-    });
+    if (!bookTransfer) {
+      await insertAudit(transaction, {
+        organizationId: input.organizationId,
+        actorId: input.actor.userId,
+        action: input.auditAction ?? 'transfer.reversed',
+        resourceType: 'transaction',
+        resourceId: original.id,
+        payload: { reversalId: id },
+      });
+    }
     return {
       transaction: serializeTransaction({
         ...original, id, amountMinor: (-BigInt(original.amountMinor)).toString(), status: 'settled',
@@ -643,7 +662,7 @@ export async function resolveHold(input: {
        WHERE h.id = ? AND h.organization_id = ? FOR UPDATE`,
     ).bind(input.holdId, input.organizationId).first<{
       id: string; accountId: string; transactionId: string; amountMinor: string;
-      currency: Currency; status: string; description: string; type: 'credit' | 'debit';
+      currency: Currency; status: string; description: string; type: 'credit' | 'debit' | 'book_transfer';
     }>();
     if (!hold) throw new LedgerError('Reserva no encontrada.', 404, 'hold_not_found');
     if (hold.status !== 'active') {
@@ -679,21 +698,35 @@ export async function resolveHold(input: {
     await transaction.prepare('SELECT id FROM financial_accounts WHERE id = ? FOR UPDATE')
       .bind(hold.accountId).first();
     const now = new Date().toISOString();
+    const bookTransfer = await transaction.prepare(`SELECT bt.id, bt.destination_account_id AS "destinationAccountId",
+        destination.ledger_account_id AS "destinationLedgerAccountId", bt.status
+      FROM book_transfers bt JOIN accounts destination ON destination.id = bt.destination_account_id
+      WHERE bt.organization_id = ? AND bt.transaction_id = ? LIMIT 1 FOR UPDATE OF bt`)
+      .bind(input.organizationId, hold.transactionId).first<{
+        id: string; destinationAccountId: string; destinationLedgerAccountId: string; status: string;
+      }>();
+    if (bookTransfer) {
+      await transaction.prepare('SELECT id FROM financial_accounts WHERE id = ? FOR UPDATE')
+        .bind(bookTransfer.destinationLedgerAccountId).first();
+    }
     if (input.action === 'capture') {
-      const accounts = await getOrCreateCoreAccounts(input.organizationId, hold.currency, transaction);
+      const accounts = bookTransfer ? null : await getOrCreateCoreAccounts(input.organizationId, hold.currency, transaction);
       await postJournal({
         organizationId: input.organizationId,
         transactionId: hold.transactionId,
         idempotencyKey: `hold:capture:${hold.id}`,
-        kind: 'hold_capture',
+        kind: bookTransfer ? 'book_transfer' : 'hold_capture',
         description: hold.description,
         currency: hold.currency,
-        postings: hold.type === 'credit' ? [
-          { accountId: accounts.settlement, direction: 'debit', amountMinor: BigInt(hold.amountMinor) },
+        postings: bookTransfer ? [
+          { accountId: hold.accountId, direction: 'debit', amountMinor: BigInt(hold.amountMinor) },
+          { accountId: bookTransfer.destinationLedgerAccountId, direction: 'credit', amountMinor: BigInt(hold.amountMinor) },
+        ] : hold.type === 'credit' ? [
+          { accountId: accounts!.settlement, direction: 'debit', amountMinor: BigInt(hold.amountMinor) },
           { accountId: hold.accountId, direction: 'credit', amountMinor: BigInt(hold.amountMinor) },
         ] : [
           { accountId: hold.accountId, direction: 'debit', amountMinor: BigInt(hold.amountMinor) },
-          { accountId: accounts.settlement, direction: 'credit', amountMinor: BigInt(hold.amountMinor) },
+          { accountId: accounts!.settlement, direction: 'credit', amountMinor: BigInt(hold.amountMinor) },
         ],
         createdAt: now,
       }, transaction);
@@ -702,6 +735,16 @@ export async function resolveHold(input: {
     } else {
       await transaction.prepare("UPDATE holds SET status = 'released', updated_at = ? WHERE id = ?").bind(now, hold.id).run();
       await transaction.prepare("UPDATE transactions SET status = 'cancelled', updated_at = ? WHERE id = ?").bind(now, hold.transactionId).run();
+    }
+    if (bookTransfer && bookTransfer.status === 'review') {
+      const transferStatus = input.action === 'capture' ? 'settled' : 'cancelled';
+      await transaction.prepare('UPDATE book_transfers SET status = ?, updated_at = ? WHERE id = ?')
+        .bind(transferStatus, now, bookTransfer.id).run();
+      await insertAudit(transaction, {
+        organizationId: input.organizationId, actorId: input.actor.userId, action: `book_transfer.${transferStatus}`,
+        resourceType: 'book_transfer', resourceId: bookTransfer.id,
+        payload: { transactionId: hold.transactionId, holdId: hold.id, status: transferStatus },
+      });
     }
     const billPayment = await transaction.prepare(`SELECT id, obligation_id AS "obligationId", status FROM bill_payment_orders
       WHERE organization_id = ? AND transaction_id = ? LIMIT 1 FOR UPDATE`)

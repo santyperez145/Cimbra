@@ -118,6 +118,33 @@ test('el SDK crea payments regionales con idempotencia automática', async () =>
   assert.equal(result.data.payment.id, 'pay_1');
 });
 
+test('el SDK cablea book transfers, reversas y statements paginados', async () => {
+  const calls: Array<{ url: string; method: string; idempotencyKey: string | null }> = [];
+  const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0,
+    fetch: async (input, init) => {
+      const url = String(input); const method = init?.method ?? 'GET';
+      calls.push({ url, method, idempotencyKey: new Headers(init?.headers).get('idempotency-key') });
+      if (url.includes('/statement')) return Response.json({ account: { id: 'acc_1', accountReference: 'AR-ARS-1', currency: 'ARS', status: 'active' },
+        period: { from: '2026-08-01T00:00:00.000Z', to: '2026-09-01T00:00:00.000Z', openingBalanceMinor: '0', openingBalance: 0,
+          closingBalanceMinor: '1000', closingBalance: 10 }, data: [], hasMore: false, nextCursor: null });
+      if (url.endsWith('/reverse')) return Response.json({ ok: true, transfer: { id: 'bt_1', status: 'reversed' },
+        reversal: { id: 'tx_rev_1' }, replayed: false }, { status: 201 });
+      return Response.json({ ok: true, requiresApproval: false, transfer: { id: 'bt_1', status: 'settled' }, replayed: false }, { status: 201 });
+    } });
+  const created = await client.bookTransfers.create({ externalReference: 'BT-001', sourceAccountId: 'acc_1',
+    destinationAccountId: 'acc_2', description: 'Distribución', amount: '10.00', currency: 'ARS' });
+  if (!created.data.requiresApproval) await client.bookTransfers.reverse(created.data.transfer.id);
+  await client.accounts.statement('acc_1', { from: '2026-08-01T00:00:00.000Z', to: '2026-09-01T00:00:00.000Z', limit: 50 });
+  assert.deepEqual(calls.map(({ method, url }) => `${method} ${url}`), [
+    'POST https://api.test/api/v1/book-transfers',
+    'POST https://api.test/api/v1/book-transfers/bt_1/reverse',
+    'GET https://api.test/api/v1/accounts/acc_1/statement?from=2026-08-01T00%3A00%3A00.000Z&to=2026-09-01T00%3A00%3A00.000Z&limit=50',
+  ]);
+  assert.match(calls[0].idempotencyKey ?? '', /^idem_[a-f0-9]{32}$/);
+  assert.match(calls[1].idempotencyKey ?? '', /^idem_[a-f0-9]{32}$/);
+  assert.equal(calls[2].idempotencyKey, null);
+});
+
 test('el SDK representa transferencias pendientes de aprobación humana', async () => {
   const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async () =>
     Response.json({ ok: true, requiresApproval: true, replayed: false, deduplicated: false,

@@ -17,6 +17,8 @@ La aplicación pública actual corre en Vercel con PostgreSQL administrado. `ter
 
 Esta topología evita incorporar Kafka, Temporal, Redis o Kubernetes antes de tener carga que los justifique. Se agregan cuando aparecen workflows multi-servicio, partición del throughput, consumidores independientes o límites operativos que no pueda resolver el outbox de PostgreSQL.
 
+Book transfers y estados de cuenta no agregan un servicio pago ni una cola paralela: usan PostgreSQL autoritativo, locks transaccionales, ledger y outbox ya declarados. Antes del piloto deberán medirse contención por cuenta, latencia de statements, crecimiento de postings y estrategia de particionado/read replicas; sólo esa evidencia justifica separar lectura o procesamiento. No se aplicó Terraform ni se aprovisionó AWS para esta capacidad.
+
 El runtime actual de Vercel ejecuta ese recovery sweep diariamente a las 03:00 UTC y cada envío inmediato también solicita procesamiento post-response; el sweep sigue siendo la garantía de recuperación. Esto demuestra agendas por fecha sin prometer puntualidad horaria. El piloto AWS declara cadencia de un minuto, pero no se aprovisiona hasta autorizar costo; producción deberá medir atraso, reintentos, lotes parciales y volumen antes de ofrecer un SLA.
 
 ## Aplicación controlada

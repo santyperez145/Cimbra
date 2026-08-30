@@ -13,6 +13,8 @@ import { getRiskCaseForResolution, resolveRiskCase, RiskError } from './risk';
 import { executeSettlementCycle, executeSettlementCycleInTransaction, SettlementError } from './settlements';
 import { DisputeError, transitionDispute } from './disputes';
 import { authorizePayoutBatchInTransaction, closePayoutBatchApprovalInTransaction, PayoutError } from './payouts';
+import { bookTransferFingerprint, BookTransferError, createBookTransferInTransaction, findBookTransferByIdempotency,
+  type BookTransferInput } from './book-transfers';
 
 export class ApprovalError extends Error {
   constructor(message: string, readonly status = 400, readonly code = 'approval_error') { super(message); }
@@ -20,7 +22,7 @@ export class ApprovalError extends Error {
 
 type ApprovalRow = {
   id: string; actionType: ApprovalActionType;
-  resourceType: 'settlement_cycle' | 'transfer' | 'payout_batch' | 'risk_case' | 'reconciliation_exception' | 'dispute'; resourceId: string;
+  resourceType: 'settlement_cycle' | 'transfer' | 'book_transfer' | 'payout_batch' | 'risk_case' | 'reconciliation_exception' | 'dispute'; resourceId: string;
   status: ApprovalStatus; requestFingerprint: string; requestPayload: string; requestedBy: string; requestedByName: string;
   resolvedBy: string | null; resolvedByName: string | null; resolutionReason: string | null;
   expiresAt: string; resolvedAt: string | null; executedAt: string | null; createdAt: string; updatedAt: string;
@@ -322,6 +324,57 @@ export async function createTransferWithApprovalPolicy(input: TransferCreationIn
   });
 }
 
+export async function createBookTransferWithApprovalPolicy(input: BookTransferInput & {
+  authentication: 'session' | 'api_key'; apiKeyId: string | null;
+}) {
+  const fingerprint = await bookTransferFingerprint(input);
+  return getDatabaseClient().transaction(async (database) => {
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:book-transfer:${input.idempotencyKey}`).first();
+    const existingTransfer = await findBookTransferByIdempotency(input, database);
+    if (existingTransfer) return { requiresApproval: false as const, transfer: existingTransfer, replayed: true };
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:approval:${input.idempotencyKey}`).first();
+    const existingApproval = await database.prepare(
+      `${approvalSelect} WHERE ar.organization_id = ? AND ar.idempotency_key = ? LIMIT 1`,
+    ).bind(input.organizationId, input.idempotencyKey).first<ApprovalRow>();
+    if (existingApproval) {
+      if (existingApproval.requestFingerprint !== fingerprint || existingApproval.resourceType !== 'book_transfer') {
+        throw new ApprovalError('La Idempotency-Key ya fue usada para otra operación.', 409, 'idempotency_mismatch');
+      }
+      return { requiresApproval: true as const, approval: serializeApproval(existingApproval), replayed: true, deduplicated: false };
+    }
+    await database.prepare('SELECT pg_advisory_xact_lock_shared(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:approval-policy:transfer.create`).first();
+    const policy = await database.prepare(`SELECT expires_in_minutes AS "expiresInMinutes" FROM approval_policies
+      WHERE organization_id = ? AND action_type = 'transfer.create' AND enabled = 1 LIMIT 1`)
+      .bind(input.organizationId).first<{ expiresInMinutes: number }>();
+    if (!policy) {
+      const result = await createBookTransferInTransaction(input, database);
+      return { requiresApproval: false as const, ...result };
+    }
+    const id = crypto.randomUUID(); const resourceId = crypto.randomUUID(); const now = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + policy.expiresInMinutes * 60_000).toISOString();
+    const payload = { bookTransfer: true, externalReference: input.externalReference,
+      sourceAccountId: input.sourceAccountId, destinationAccountId: input.destinationAccountId,
+      description: input.description, amountMinor: input.amountMinor.toString(), currency: input.currency,
+      signals: input.signals ?? {}, origin: input.authentication, apiKeyId: input.apiKeyId, sandbox: true };
+    await database.prepare(`INSERT INTO approval_requests
+      (id, organization_id, action_type, resource_type, resource_id, idempotency_key, request_fingerprint, status,
+       request_payload, requested_by, expires_at, created_at, updated_at)
+      VALUES (?, ?, 'transfer.create', 'book_transfer', ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`)
+      .bind(id, input.organizationId, resourceId, input.idempotencyKey, fingerprint, JSON.stringify(payload),
+        input.actor.userId, expiresAt, now, now).run();
+    await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId,
+      action: 'approval.request_created', resourceType: 'approval_request', resourceId: id,
+      payload: { actionType: 'transfer.create', resourceType: 'book_transfer', resourceId, expiresAt,
+        ...publicApprovalPayload(payload) } });
+    const approval = await approvalById(database, input.organizationId, id);
+    if (!approval) throw new ApprovalError('No pudimos recuperar la solicitud.', 500, 'approval_create_failed');
+    return { requiresApproval: true as const, approval, replayed: false, deduplicated: false };
+  });
+}
+
 function transferPayload(row: ApprovalRow) {
   try {
     const payload = JSON.parse(row.requestPayload) as Record<string, unknown>;
@@ -350,6 +403,21 @@ function reconciliationResolutionPayload(row: ApprovalRow): { resolution: 'corre
     if ((payload.resolution !== 'corrected' && payload.resolution !== 'accepted') ||
       typeof payload.note !== 'string' || payload.note.length < 3) return null;
     return { resolution: payload.resolution, note: payload.note };
+  } catch { return null; }
+}
+
+function bookTransferPayload(row: ApprovalRow) {
+  try {
+    const payload = JSON.parse(row.requestPayload) as Record<string, unknown>;
+    if (payload.bookTransfer !== true || typeof payload.externalReference !== 'string' ||
+      typeof payload.sourceAccountId !== 'string' || typeof payload.destinationAccountId !== 'string' ||
+      typeof payload.description !== 'string' || typeof payload.amountMinor !== 'string' ||
+      !['ARS', 'MXN', 'COP', 'BRL', 'CLP', 'PEN', 'USD'].includes(String(payload.currency))) return null;
+    const amountMinor = BigInt(payload.amountMinor); const signals = parseProtectedRiskSignals(payload.signals);
+    if (amountMinor <= 0n || !signals) return null;
+    return { externalReference: payload.externalReference, sourceAccountId: payload.sourceAccountId,
+      destinationAccountId: payload.destinationAccountId, description: payload.description, amountMinor,
+      currency: payload.currency as Currency, signals };
   } catch { return null; }
 }
 
@@ -563,6 +631,7 @@ export async function decideApprovalRequest(input: {
     }
     let executedCycle: Awaited<ReturnType<typeof executeSettlementCycleInTransaction>>['cycle'] | undefined;
     let executedTransfer: Awaited<ReturnType<typeof findTransferByIdempotency>> | undefined;
+    let executedBookTransfer: Awaited<ReturnType<typeof findBookTransferByIdempotency>> | undefined;
     let executedPayoutBatch: Awaited<ReturnType<typeof authorizePayoutBatchInTransaction>> | undefined;
     let executedRiskCase: Awaited<ReturnType<typeof resolveRiskCase>> | undefined;
     let executedException: Awaited<ReturnType<typeof resolveReconciliationException>> | undefined;
@@ -585,18 +654,32 @@ export async function decideApprovalRequest(input: {
           cycleId: row.resourceId, idempotencyKey: `approval:${row.id}`, executionMode: approvalExecutionMode(row), approvalAuthorized: true });
         executedCycle = execution.cycle;
       } else if (row.actionType === 'transfer.create') {
-        const payload = transferPayload(row);
-        if (!payload) throw new ApprovalError('El payload protegido de la transferencia es inválido.', 500, 'approval_payload_invalid');
-        try {
-          const execution = await createTransferInTransaction({ organizationId: input.organizationId, actor: input.actor,
-            idempotencyKey: `approval:${row.id}`, transactionId: row.resourceId, approvalContext: { requestId: row.id, requestedBy: row.requestedBy },
-            ...payload }, database);
-          if ('declined' in execution) {
-            failure = { message: 'La política de riesgo rechazó la transferencia aprobada.', code: 'risk_declined', status: 422 };
-          } else executedTransfer = execution.transaction;
-        } catch (error) {
-          if (error instanceof LedgerError && error.status === 422) failure = { message: error.message, code: error.code, status: error.status };
-          else throw error;
+        if (row.resourceType === 'book_transfer') {
+          const payload = bookTransferPayload(row);
+          if (!payload) throw new ApprovalError('El payload protegido del book transfer es inválido.', 500, 'approval_payload_invalid');
+          try {
+            const execution = await createBookTransferInTransaction({ organizationId: input.organizationId, actor: input.actor,
+              idempotencyKey: `approval:${row.id}`, transferId: row.resourceId,
+              approvalContext: { requestId: row.id, requestedBy: row.requestedBy }, ...payload }, database);
+            if ('declined' in execution) failure = { message: 'La política de riesgo rechazó el book transfer aprobado.', code: 'risk_declined', status: 422 };
+            else executedBookTransfer = execution.transfer;
+          } catch (error) {
+            if (error instanceof BookTransferError && error.status < 500) failure = { message: error.message, code: error.code, status: error.status };
+            else throw error;
+          }
+        } else {
+          const payload = transferPayload(row);
+          if (!payload) throw new ApprovalError('El payload protegido de la transferencia es inválido.', 500, 'approval_payload_invalid');
+          try {
+            const execution = await createTransferInTransaction({ organizationId: input.organizationId, actor: input.actor,
+              idempotencyKey: `approval:${row.id}`, transactionId: row.resourceId,
+              approvalContext: { requestId: row.id, requestedBy: row.requestedBy }, ...payload }, database);
+            if ('declined' in execution) failure = { message: 'La política de riesgo rechazó la transferencia aprobada.', code: 'risk_declined', status: 422 };
+            else executedTransfer = execution.transaction;
+          } catch (error) {
+            if (error instanceof LedgerError && error.status === 422) failure = { message: error.message, code: error.code, status: error.status };
+            else throw error;
+          }
         }
       } else if (row.actionType === 'payout_batch.execute') {
         try {
@@ -671,7 +754,8 @@ export async function decideApprovalRequest(input: {
     }
     const approval = await approvalById(database, input.organizationId, row.id);
     if (!approval) throw new ApprovalError('No pudimos recuperar la decisión.', 500, 'approval_decision_failed');
-    return { approval, cycle: executedCycle, transaction: executedTransfer, payoutBatch: executedPayoutBatch, case: executedRiskCase,
+    return { approval, cycle: executedCycle, transaction: executedTransfer, bookTransfer: executedBookTransfer,
+      payoutBatch: executedPayoutBatch, case: executedRiskCase,
       exception: executedException, dispute: executedDispute, failed: failure, replayed: false, expired: false };
   });
 }

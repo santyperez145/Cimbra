@@ -49,9 +49,11 @@ const GROUP_ORDER = [
   'Identidad y estado',
   'Customers',
   'Accounts',
+  'Book transfers',
   'Cards',
   'Servicios y pagos recurrentes',
   'Payments y transfers',
+  'Payouts',
   'Ledger y holds',
   'Risk',
   'Disputas',
@@ -144,8 +146,10 @@ function operationGroup(path: string) {
   if (path.includes('/due-diligence')) return 'Compliance';
   if (path.includes('/customers')) return 'Customers';
   if (path.includes('/accounts')) return 'Accounts';
+  if (path.includes('/book-transfers')) return 'Book transfers';
   if (path.includes('/cards') || path.includes('/card-programs')) return 'Cards';
   if (path.includes('/billers') || path.includes('/bill-payments') || path.includes('/recurring-mandates')) return 'Servicios y pagos recurrentes';
+  if (path.includes('/payout-')) return 'Payouts';
   if (path.includes('/payments') || path.includes('/transfers')) return 'Payments y transfers';
   if (path.includes('/ledger') || path.includes('/holds')) return 'Ledger y holds';
   if (path.includes('/risk')) return 'Risk';
@@ -164,10 +168,12 @@ function operationScope(path: string, method: string) {
   if (path.includes('/due-diligence')) return path.endsWith('/decide') ? null : `compliance:${access}`;
   if (path.includes('/customers')) return `customers:${access}`;
   if (path.includes('/accounts')) return `accounts:${access}`;
+  if (path.includes('/book-transfers')) return `transfers:${access}`;
   if (path.includes('/cards') || path.includes('/card-programs')) return `cards:${access}`;
   if (path.includes('/billers')) return `billers:${access}`;
   if (path.includes('/bill-payments') || path.includes('/recurring-mandates')) return `payments:${access}`;
   if (path.includes('/payments')) return `payments:${access}`;
+  if (path.includes('/payout-')) return `payouts:${access}`;
   if (path.includes('/transfers')) return `transfers:${access}`;
   if (path.includes('/holds')) return 'transfers:write';
   if (path.includes('/ledger')) return 'ledger:read';

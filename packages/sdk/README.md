@@ -162,6 +162,30 @@ await cimbra.recurringMandates.pause(mandate.data.mandate.id);
 
 Estas órdenes reutilizan cuentas, ledger de doble partida, riesgo, holds, auditoría y webhooks; una reversa crea postings compensatorios. El sandbox no inventa consultas de deuda ni cobertura comercial y no debita dinero real: cada país requiere contratos directos, consentimiento exigible y homologación del riel.
 
+## Book transfers y estados de cuenta
+
+```ts
+const transfer = await cimbra.bookTransfers.create({
+  externalReference: 'BT-2026-0001',
+  sourceAccountId: '00000000-0000-4000-8000-000000000001',
+  destinationAccountId: '00000000-0000-4000-8000-000000000002',
+  description: 'Distribución de saldo marketplace',
+  amount: '1250.00',
+  currency: 'ARS',
+});
+
+if (!transfer.data.requiresApproval) {
+  const statement = await cimbra.accounts.statement(transfer.data.transfer.sourceAccountId, {
+    from: '2026-08-01T00:00:00.000Z',
+    to: '2026-09-01T00:00:00.000Z',
+    limit: 50,
+  });
+  console.log(statement.data.period.openingBalance, statement.data.period.closingBalance);
+}
+```
+
+El book transfer debita origen y acredita destino dentro de un solo journal, exige cuentas activas del mismo tenant/moneda, descuenta holds del saldo disponible y comparte riesgo y `transfer.create` maker/checker. Una reversa mediante `cimbra.bookTransfers.reverse(id)` agrega postings compensatorios. El statement pagina postings inmutables y calcula apertura/cierre para un período máximo de 366 días. Es un rail interno del sandbox: no representa CBU/CVU, Pix, SPEI ni custodia de dinero real.
+
 ## Beneficiarios y payouts masivos
 
 ```ts

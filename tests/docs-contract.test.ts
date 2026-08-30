@@ -50,7 +50,7 @@ test('el OpenAPI público usa el sandbox real y operaciones identificables', () 
   assert.equal(spec.info.version, '2026-08-30');
   assert.deepEqual(spec.servers, [{ url: 'https://cimbra-rose.vercel.app', description: 'Persistent sandbox. Does not move real funds.' }]);
   const operations = contractOperations();
-  assert.equal(operations.length, 117);
+  assert.equal(operations.length, 122);
   const ids = operations.map(({ operation }) => operation.operationId);
   assert.equal(ids.every(Boolean), true);
   assert.equal(new Set(ids).size, ids.length);
@@ -110,6 +110,20 @@ test('consola y docs consumen scopes y eventos desde fuentes canónicas', () => 
   const declaredScopes = spec.paths['/api/platform/api-keys'].post.requestBody?.content?.['application/json']
     ?.schema?.properties?.scopes?.items?.enum;
   assert.deepEqual(declaredScopes, [...API_SCOPES]);
+});
+
+test('OpenAPI publica book transfers y statements como contratos completos', () => {
+  assert.equal(spec.paths['/api/v1/book-transfers'].get.operationId, 'listBookTransfers');
+  assert.equal(spec.paths['/api/v1/book-transfers'].post.operationId, 'createBookTransfer');
+  assert.equal(spec.paths['/api/v1/book-transfers/{id}'].get.operationId, 'retrieveBookTransfer');
+  assert.equal(spec.paths['/api/v1/book-transfers/{id}/reverse'].post.operationId, 'reverseBookTransfer');
+  assert.equal(spec.paths['/api/v1/accounts/{id}/statement'].get.operationId, 'getAccountStatement');
+  assert.equal(spec.paths['/api/v1/book-transfers'].post.parameters?.some((parameter) => parameter.$ref === '#/components/parameters/IdempotencyKey'), true);
+  const reference = readFileSync(join(root, 'app', 'lib', 'platform', 'openapi-reference.ts'), 'utf8');
+  assert.match(reference, /path\.includes\('\/book-transfers'\)\) return 'Book transfers'/);
+  assert.match(reference, /path\.includes\('\/book-transfers'\)\) return `transfers:\$\{access\}`/);
+  assert.match(reference, /path\.includes\('\/payout-'\)\) return 'Payouts'/);
+  assert.match(reference, /path\.includes\('\/payout-'\)\) return `payouts:\$\{access\}`/);
 });
 
 test('el sistema de diseño declara el token navy usado por formularios y autenticación', () => {

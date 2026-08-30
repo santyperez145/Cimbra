@@ -116,6 +116,7 @@ async function cleanup() {
       await transaction`DELETE FROM payout_items WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM payout_batches WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM payout_beneficiaries WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM book_transfers WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM holds WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM ledger_postings WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM ledger_journals WHERE organization_id = ${organizationId} AND reversal_of IS NOT NULL`;
@@ -396,6 +397,11 @@ try {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': accountKey }, body: JSON.stringify(accountPayload),
   }), 200);
   assert.equal(accountReplay.account.id, account.id);
+  const destinationAccount = (await json(await request('/api/v1/accounts', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-account-destination-${runId}` },
+    body: JSON.stringify(accountPayload),
+  }), 201)).account;
+  assert.notEqual(destinationAccount.id, account.id);
   const cashIn = await json(await request('/api/v1/payments', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-cashin-${runId}` },
     body: JSON.stringify({ accountId: account.id, direction: 'cash_in', counterparty: 'QA Sponsor Bank', description: 'Incoming settlement', amount: '5000.00', currency: 'ARS' }),
@@ -413,6 +419,43 @@ try {
   assert.equal(cashOut.payment.amountMinor, '-10000');
   const retrievedPayment = await json(await request(`/api/v1/payments/${cashOut.payment.id}`), 200);
   assert.equal(retrievedPayment.id, cashOut.payment.id);
+
+  const bookTransferKey = `qa-book-transfer-${runId}`;
+  const bookTransferPayload = { externalReference: `BT-${runId}`, sourceAccountId: account.id,
+    destinationAccountId: destinationAccount.id, description: 'QA internal allocation', amount: '50.00', currency: 'ARS' };
+  const bookTransferCreated = await json(await request('/api/v1/book-transfers', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': bookTransferKey },
+    body: JSON.stringify(bookTransferPayload),
+  }), 201);
+  const bookTransfer = bookTransferCreated.transfer;
+  assert.equal(bookTransfer.status, 'settled'); assert.equal(bookTransfer.amountMinor, '5000');
+  const bookTransferReplay = await json(await request('/api/v1/book-transfers', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': bookTransferKey }, body: JSON.stringify(bookTransferPayload),
+  }), 200);
+  assert.equal(bookTransferReplay.replayed, true); assert.equal(bookTransferReplay.transfer.id, bookTransfer.id);
+  const bookTransferMismatch = await json(await request('/api/v1/book-transfers', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': bookTransferKey },
+    body: JSON.stringify({ ...bookTransferPayload, amount: '51.00' }),
+  }), 409);
+  assert.equal(bookTransferMismatch.error.code, 'idempotency_mismatch');
+  assert.equal((await json(await request(`/api/v1/book-transfers/${bookTransfer.id}`), 200)).transactionId, bookTransfer.transactionId);
+  assert.ok((await json(await request('/api/v1/book-transfers?limit=10'), 200)).data.some((item) => item.id === bookTransfer.id));
+  const sourceStatement = await json(await request(`/api/v1/accounts/${account.id}/statement?limit=100`), 200);
+  const destinationStatement = await json(await request(`/api/v1/accounts/${destinationAccount.id}/statement?limit=100`), 200);
+  assert.ok(sourceStatement.data.some((entry) => entry.transactionId === bookTransfer.transactionId && entry.signedAmountMinor === '-5000'));
+  assert.ok(destinationStatement.data.some((entry) => entry.transactionId === bookTransfer.transactionId && entry.signedAmountMinor === '5000'));
+  const genericBookReverseDenied = await json(await request(`/api/v1/transfers/${bookTransfer.transactionId}/reverse`, {
+    method: 'POST', headers: { 'Idempotency-Key': `qa-book-generic-reverse-${runId}` },
+  }), 409);
+  assert.equal(genericBookReverseDenied.error.code, 'book_transfer_reverse_required');
+  const bookReversed = await json(await request(`/api/v1/book-transfers/${bookTransfer.id}/reverse`, {
+    method: 'POST', headers: { 'Idempotency-Key': `qa-book-reverse-${runId}` },
+  }), 201);
+  assert.equal(bookReversed.transfer.status, 'reversed'); assert.equal(bookReversed.reversal.reversalOf, bookTransfer.transactionId);
+  const bookReverseReplay = await json(await request(`/api/v1/book-transfers/${bookTransfer.id}/reverse`, {
+    method: 'POST', headers: { 'Idempotency-Key': `qa-book-reverse-${runId}` },
+  }), 200);
+  assert.equal(bookReverseReplay.replayed, true);
 
   const servicesKey = await json(await request('/api/platform/api-keys', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1145,6 +1188,27 @@ try {
   assert.equal(protectedDecisionReplay.approval.status, 'executed');
   cookie = ownerCookieAfterRequest;
 
+  const protectedBookPayload = { externalReference: `BT-PROTECTED-${runId}`, sourceAccountId: account.id,
+    destinationAccountId: destinationAccount.id, description: 'Maker checker book transfer', amount: '10.00', currency: 'ARS' };
+  const protectedBook = await json(await request('/api/v1/book-transfers', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-protected-book-${runId}` },
+    body: JSON.stringify(protectedBookPayload),
+  }), 202);
+  assert.equal(protectedBook.requiresApproval, true); assert.equal(protectedBook.approval.resourceType, 'book_transfer');
+  await json(await request(`/api/v1/approvals/${protectedBook.approval.id}/approve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-book-self-${runId}` },
+    body: JSON.stringify({ reason: 'self approval must fail' }),
+  }), 409);
+  cookie = checkerCookie;
+  const protectedBookExecution = await json(await request(`/api/v1/approvals/${protectedBook.approval.id}/approve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-book-checker-${runId}` },
+    body: JSON.stringify({ reason: 'Independent book transfer checker' }),
+  }), 200);
+  assert.equal(protectedBookExecution.approval.status, 'executed');
+  assert.equal(protectedBookExecution.bookTransfer.id, protectedBook.approval.resourceId);
+  assert.equal(protectedBookExecution.bookTransfer.status, 'settled');
+  cookie = ownerCookieAfterRequest;
+
   const unfundedTransfer = await json(await request('/api/v1/transfers', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-protected-unfunded-${runId}` },
     body: JSON.stringify({ counterparty: 'QA Protected Supplier', description: 'Approval-time balance recheck', amount: '9000000', currency: 'ARS' }),
@@ -1496,6 +1560,8 @@ try {
   await json(await request('/api/v1/recurring-mandates'), 200);
   await json(await request('/api/v1/payout-beneficiaries'), 200);
   await json(await request('/api/v1/payout-batches'), 200);
+  await json(await request('/api/v1/book-transfers'), 200);
+  await json(await request(`/api/v1/accounts/${account.id}/statement`), 200);
   await json(await request(`/api/v1/cards/${card.id}/lifecycle`), 200);
   assert.equal((await request('/console')).status, 200);
   const viewerWriteDenied = await json(await request('/api/v1/transfers', {
@@ -1503,6 +1569,11 @@ try {
     body: JSON.stringify({ counterparty: 'QA Denied', description: 'Viewer cannot mutate', amount: '1.00', currency: 'ARS' }),
   }), 403);
   assert.equal(viewerWriteDenied.error.code, 'insufficient_role');
+  const viewerBookTransferDenied = await json(await request('/api/v1/book-transfers', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-viewer-book-${runId}` },
+    body: JSON.stringify({ ...bookTransferPayload, externalReference: `BT-VIEWER-${runId}` }),
+  }), 403);
+  assert.equal(viewerBookTransferDenied.error.code, 'insufficient_role');
   const viewerOperationsDenied = await json(await request(`/api/v1/operations/work-items/risk-case/${operationalCase.id}`, {
     method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-viewer-work-${runId}` }, body: JSON.stringify({ priority: 'low' }),
   }), 403);
@@ -1581,6 +1652,8 @@ try {
   assert.ok(events.some((event) => event.action === 'payout.batch_cancelled'));
   assert.ok(events.some((event) => event.action === 'payout.item_settled'));
   assert.ok(events.some((event) => event.action === 'payout.item_failed' && event.payload.failureCode === 'payout_reversed'));
+  assert.ok(events.some((event) => event.action === 'book_transfer.created'));
+  assert.ok(events.some((event) => event.action === 'book_transfer.reversed'));
   assert.ok(events.every((event) => typeof event.payload === 'object'));
 
   const [integrity] = await sql`
@@ -1599,7 +1672,7 @@ try {
 
   console.log(JSON.stringify({
     ok: true,
-    checks: ['auth', 'landing-session-state', 'console-session-guard', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'viewer-read-only', 'member-invitations', 'dual-control', 'maker-checker', 'transfer-approval', 'approval-replay', 'approval-fail-closed', 'payout-approval', 'risk-case-approval', 'risk-hold-bypass-guard', 'reconciliation-exception-approval', 'disputes', 'partial-dispute', 'dispute-ledger-credit', 'dispute-compensation', 'dispute-approval', 'dispute-evidence', 'dispute-rbac', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'payout-beneficiaries', 'protected-payout-destination', 'payout-batches', 'payout-scheduling', 'payout-result-file', 'payout-compensation', 'payout-rbac', 'payout-s2s', 'billers', 'biller-obligations', 'protected-subscriber-reference', 'bill-payments', 'mobile-topups', 'gift-cards', 'recurring-mandates', 'mandate-consent', 'biller-rbac', 'biller-s2s', 'bill-payment-compensation', 'cdd-kyb', 'cdd-evidence', 'cdd-idempotency', 'cdd-maker-checker', 'cdd-s2s-orchestration', 'cdd-session-only-decision', 'cdd-expiry', 'cdd-rbac', 'card-programs', 'card-lifecycle', 'card-controls', 'card-terminal-state', 'card-rbac', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'risk-signals-privacy', 'risk-decision-lists', 'risk-step-up', 'risk-step-up-idempotency', 'risk-step-up-rbac', 'risk-decision-slo', 'risk-confirmed-outcomes', 'risk-supervised-metrics', 'risk-outcome-revisions', 'reconciliation', 'operations-work-queue', 'operations-idempotency', 'operations-evidence', 'operations-rbac', 'csv-import', 'settlement', 'private-evidence', 'audit'],
+    checks: ['auth', 'landing-session-state', 'console-session-guard', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'viewer-read-only', 'member-invitations', 'dual-control', 'maker-checker', 'transfer-approval', 'book-transfer-approval', 'approval-replay', 'approval-fail-closed', 'payout-approval', 'risk-case-approval', 'risk-hold-bypass-guard', 'reconciliation-exception-approval', 'disputes', 'partial-dispute', 'dispute-ledger-credit', 'dispute-compensation', 'dispute-approval', 'dispute-evidence', 'dispute-rbac', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'book-transfers', 'account-statements', 'book-transfer-compensation', 'book-transfer-rbac', 'payout-beneficiaries', 'protected-payout-destination', 'payout-batches', 'payout-scheduling', 'payout-result-file', 'payout-compensation', 'payout-rbac', 'payout-s2s', 'billers', 'biller-obligations', 'protected-subscriber-reference', 'bill-payments', 'mobile-topups', 'gift-cards', 'recurring-mandates', 'mandate-consent', 'biller-rbac', 'biller-s2s', 'bill-payment-compensation', 'cdd-kyb', 'cdd-evidence', 'cdd-idempotency', 'cdd-maker-checker', 'cdd-s2s-orchestration', 'cdd-session-only-decision', 'cdd-expiry', 'cdd-rbac', 'card-programs', 'card-lifecycle', 'card-controls', 'card-terminal-state', 'card-rbac', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'risk-signals-privacy', 'risk-decision-lists', 'risk-step-up', 'risk-step-up-idempotency', 'risk-step-up-rbac', 'risk-decision-slo', 'risk-confirmed-outcomes', 'risk-supervised-metrics', 'risk-outcome-revisions', 'reconciliation', 'operations-work-queue', 'operations-idempotency', 'operations-evidence', 'operations-rbac', 'csv-import', 'settlement', 'private-evidence', 'audit'],
   }));
 } finally {
   await cleanup();

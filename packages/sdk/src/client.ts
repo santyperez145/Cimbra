@@ -1,11 +1,12 @@
 import { CimbraApiError, CimbraConnectionError, CimbraTimeoutError } from './errors.ts';
 import type {
-  Account, ApprovalRequest, AuditEvent, Biller, BillerObligation, BillPaymentOrder, Card, CardControls, CardLifecycleEvent, CardProgram, CimbraResult, CreateAccountInput,
+  Account, AccountStatement, AccountStatementOptions, ApprovalRequest, AuditEvent, Biller, BillerObligation, BillPaymentOrder, BookTransfer,
+  BookTransferCreationResult, Card, CardControls, CardLifecycleEvent, CardProgram, CimbraResult, CreateAccountInput,
   CreateBillerInput, CreateBillerObligationInput, CreateBillPaymentInput, CreateCardInput, CreateCardProgramInput, CreateCustomerInput, CreateDisputeInput, CreatePaymentInput,
   CreateDueDiligenceCaseInput, CreateDueDiligencePartyInput,
   CreateReconciliationCsvImportInput, CreateReconciliationRunInput, CreateRiskEvaluationInput, CreateRiskListEntryInput, CreateRiskRuleInput, CreateRiskSimulationInput,
   CreateRiskStepUpChallengeInput,
-  CreateRecurringPaymentMandateInput, CreateSettlementCycleInput, CreateTransferInput, CreateWebhookInput,
+  CreateBookTransferInput, CreateRecurringPaymentMandateInput, CreateSettlementCycleInput, CreateTransferInput, CreateWebhookInput,
   CreatePayoutBatchInput, CreatePayoutBeneficiaryInput, PayoutBatch, PayoutBeneficiary,
   Customer, DueDiligenceCase, DueDiligenceCheck, DueDiligenceParty, DueDiligenceState,
   Dispute, DisputeEventName, DisputeTimelineEvent, DisputeTransitionResult, Hold, HoldResolution, LedgerBalance, LedgerJournal, ListOptions, Page, PlatformCapability,
@@ -59,6 +60,16 @@ function listPath(path: string, options?: ListOptions) {
   return query ? `${path}?${query}` : path;
 }
 
+function statementPath(id: string, options?: AccountStatementOptions) {
+  const parameters = new URLSearchParams();
+  if (options?.from) parameters.set('from', options.from);
+  if (options?.to) parameters.set('to', options.to);
+  if (options?.limit !== undefined) parameters.set('limit', String(options.limit));
+  if (options?.cursor) parameters.set('cursor', options.cursor);
+  const query = parameters.toString();
+  return `/api/v1/accounts/${encodeURIComponent(id)}/statement${query ? `?${query}` : ''}`;
+}
+
 function operationalPath(type: WorkItemType) {
   return type === 'risk_case' ? 'risk-case' : type === 'dispute' ? 'dispute' : 'reconciliation-exception';
 }
@@ -98,6 +109,8 @@ export class Cimbra {
     retrieve: (id: string, options?: RequestOptions) => this.request<Account>('GET', `/api/v1/accounts/${encodeURIComponent(id)}`, undefined, options),
     create: (input: CreateAccountInput, options?: RequestOptions) =>
       this.post<{ ok: true; account: Account; replayed: boolean }>('/api/v1/accounts', input, options, true),
+    statement: (id: string, options?: AccountStatementOptions) =>
+      this.request<AccountStatement>('GET', statementPath(id, options), undefined, options),
   };
 
   readonly cards = {
@@ -205,6 +218,18 @@ export class Cimbra {
       this.request<ReconciliationRun & { items: Array<Record<string, unknown>> }>('GET', `/api/v1/reconciliation/runs/${encodeURIComponent(id)}`, undefined, options),
     resolveException: (id: string, input: { resolution: 'corrected' | 'accepted'; note: string }, options?: RequestOptions) =>
       this.post<ReconciliationExceptionResolutionResult>(`/api/v1/reconciliation/exceptions/${encodeURIComponent(id)}/resolve`, input, options, true),
+  };
+
+  readonly bookTransfers = {
+    list: (options?: ListOptions) => this.request<Page<BookTransfer>>('GET', listPath('/api/v1/book-transfers', options), undefined, options),
+    listAll: (options?: ListOptions) => this.iterate((page) => this.bookTransfers.list({ ...options, cursor: page })),
+    retrieve: (id: string, options?: RequestOptions) =>
+      this.request<BookTransfer>('GET', `/api/v1/book-transfers/${encodeURIComponent(id)}`, undefined, options),
+    create: (input: CreateBookTransferInput, options?: RequestOptions) =>
+      this.post<BookTransferCreationResult>('/api/v1/book-transfers', input, options, true),
+    reverse: (id: string, options?: RequestOptions) =>
+      this.post<{ ok: true; transfer: BookTransfer; reversal: Transaction; replayed: boolean }>(
+        `/api/v1/book-transfers/${encodeURIComponent(id)}/reverse`, undefined, options, true),
   };
 
   readonly billers = {

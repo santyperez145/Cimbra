@@ -29,6 +29,11 @@ const errorResponses = [
 const changelog = [
   {
     date: '30 AGO 2026',
+    title: 'Book transfers y estados de cuenta nativos',
+    detail: 'Movimientos account-to-account con dos postings atómicos, saldo disponible, holds de riesgo, maker/checker, reversas compensatorias, API paginada, SDK, eventos y consola por rol.',
+  },
+  {
+    date: '30 AGO 2026',
     title: 'Beneficiarios y payouts masivos nativos',
     detail: 'Destinos protegidos por tenant, lotes inmutables de hasta 100 ítems, programación/deadline, maker-checker, worker con lease, riesgo/ledger por ítem, CSV de resultados, scopes, SDK y consola por rol.',
   },
@@ -261,6 +266,23 @@ const batch = await cimbra.payoutBatches.create({
 const submitted = await cimbra.payoutBatches.submit(batch.data.batch.id);
 const csv = await cimbra.payoutBatches.resultCsv(batch.data.batch.id);
 console.log(submitted.data.batch.status, csv.data);`;
+  const bookTransferExample = `const movement = await cimbra.bookTransfers.create({
+  externalReference: 'BT-2026-0001',
+  sourceAccountId: '<source_account_uuid>',
+  destinationAccountId: '<destination_account_uuid>',
+  description: 'Distribución de saldo marketplace',
+  amount: '1250.00',
+  currency: 'ARS',
+});
+
+if (!movement.data.requiresApproval) {
+  const statement = await cimbra.accounts.statement(movement.data.transfer.sourceAccountId, {
+    from: '2026-08-01T00:00:00.000Z',
+    to: '2026-09-01T00:00:00.000Z',
+    limit: 50,
+  });
+  console.log(statement.data.period.closingBalance, statement.data.data);
+}`;
 
   return <main className="docs-shell docs-shell-expanded">
     <header className="docs-topbar">
@@ -286,6 +308,7 @@ console.log(submitted.data.batch.status, csv.data);`;
         <a href="#errors">Errores y rate limits</a>
         <strong>INTEGRACIÓN</strong>
         <a href="#sdk">SDK TypeScript</a>
+        <a href="#book-transfers">Book transfers</a>
         <a href="#payouts">Payouts masivos</a>
         <a href="#billers">Servicios y recargas</a>
         <a href="#due-diligence">KYC/KYB</a>
@@ -300,7 +323,7 @@ console.log(submitted.data.batch.status, csv.data);`;
     <article className="docs-content docs-content-expanded">
       <details className="docs-mobile-nav">
         <summary>Índice de documentación</summary>
-        <nav><a href="#overview">Overview</a><a href="#quickstart">Quickstart</a><a href="#authentication">Auth</a><a href="#sdk">SDK</a><a href="#payouts">Payouts</a><a href="#billers">Servicios</a><a href="#due-diligence">KYC/KYB</a><a href="#risk-step-up">Step-up</a><a href="#webhooks">Webhooks</a><a href="#reference">API reference</a></nav>
+        <nav><a href="#overview">Overview</a><a href="#quickstart">Quickstart</a><a href="#authentication">Auth</a><a href="#sdk">SDK</a><a href="#book-transfers">Book transfers</a><a href="#payouts">Payouts</a><a href="#billers">Servicios</a><a href="#due-diligence">KYC/KYB</a><a href="#risk-step-up">Step-up</a><a href="#webhooks">Webhooks</a><a href="#reference">API reference</a></nav>
       </details>
 
       <section id="overview" className="docs-hero">
@@ -314,7 +337,7 @@ console.log(submitted.data.batch.status, csv.data);`;
           <article><strong>{API_SCOPES.length}</strong><span>Scopes S2S canónicos</span></article>
           <article><strong>{WEBHOOK_EVENT_TYPES.length}</strong><span>Tipos de evento emitidos</span></article>
         </div>
-        <div className="docs-callout"><i>i</i><div><strong>Sandbox persistente, no dinero real</strong><p>Customers, KYC/KYB, cuentas, tarjetas sandbox, beneficiarios, lotes de payouts, servicios, obligaciones, recargas, mandatos, movimientos, ledger, riesgo, conciliación, disputas, operaciones, aprobaciones y webhooks se persisten. No existen fuentes de identidad, cobertura comercial o rieles homologados, PAN/CVV ni instrumentos emitidos en redes de pago.</p></div></div>
+        <div className="docs-callout"><i>i</i><div><strong>Sandbox persistente, no dinero real</strong><p>Customers, KYC/KYB, cuentas, book transfers, estados de cuenta, tarjetas sandbox, beneficiarios, lotes de payouts, servicios, obligaciones, recargas, mandatos, movimientos, ledger, riesgo, conciliación, disputas, operaciones, aprobaciones y webhooks se persisten. No existen fuentes de identidad, cobertura comercial o rieles homologados, PAN/CVV ni instrumentos emitidos en redes de pago.</p></div></div>
       </section>
 
       <section id="environments" className="docs-section">
@@ -373,7 +396,7 @@ console.log(submitted.data.batch.status, csv.data);`;
       <section id="pagination" className="docs-section">
         <p className="docs-kicker">MODELO DE DATOS</p><h2>Cursores estables y montos exactos.</h2>
         <div className="data-contract-grid">
-          <article><h3>Paginación</h3><p>Customers, accounts, cards, transfers y events aceptan <code>limit</code> entre 1 y 100; el valor por defecto es 25. Reutilizá <code>nextCursor</code> mientras <code>hasMore</code> sea true.</p><pre><code>{`{
+          <article><h3>Paginación</h3><p>Customers, accounts, account statements, cards, transfers, book transfers y events aceptan <code>limit</code> entre 1 y 100. Reutilizá <code>nextCursor</code> mientras <code>hasMore</code> sea true.</p><pre><code>{`{
   "data": [/* recursos */],
   "hasMore": true,
   "nextCursor": "<base64url_opaco>"
@@ -418,6 +441,19 @@ console.log(submitted.data.batch.status, csv.data);`;
           <article><strong>Límite real</strong><p>El sandbox no consulta una deuda externa ni afirma cobertura. Producción exige contrato directo, consentimiento exigible, riel oficial y certificación por país.</p></article>
         </div>
         <CodeBlock language="TYPESCRIPT · SDK REAL" value={billerPaymentsExample} />
+      </section>
+
+      <section id="book-transfers" className="docs-section">
+        <p className="docs-kicker">CORE BANKING</p><h2>Un movimiento, dos postings, historial completo.</h2>
+        <p className="docs-section-lede">Un book transfer mueve saldo entre dos cuentas activas del mismo tenant y moneda. Cimbra bloquea ambos recursos, descuenta reservas del saldo disponible y crea el débito y crédito dentro de la misma transacción SQL.</p>
+        <div className="webhook-contract-grid">
+          <article><strong>Atomicidad</strong><p>La operación nunca deja un solo leg: el journal exige débitos iguales a créditos y el trigger protege tenant y moneda.</p></article>
+          <article><strong>Riesgo y doble control</strong><p>Una decisión <code>review</code> reserva sólo el origen. La política <code>transfer.create</code> puede exigir un checker distinto con MFA antes de crear el movimiento.</p></article>
+          <article><strong>Estados de cuenta</strong><p><code>accounts:read</code> devuelve postings paginados, saldo de apertura y cierre para un período máximo de 366 días.</p></article>
+          <article><strong>Reversas</strong><p>Una reversa crea postings opuestos y queda enlazada; jamás edita ni borra el asiento original.</p></article>
+        </div>
+        <div className="docs-callout"><i>i</i><div><strong>Rail interno, no transferencia bancaria</strong><p>El contrato está operativo dentro del sandbox persistente. Pix, SPEI, CBU/CVU u otros rieles externos requieren una conexión directa homologada, licencia o sponsor y conciliación oficial por país.</p></div></div>
+        <CodeBlock language="TYPESCRIPT · SDK REAL" value={bookTransferExample} />
       </section>
 
       <section id="payouts" className="docs-section">
@@ -485,7 +521,7 @@ console.log(submitted.data.batch.status, csv.data);`;
 
     <aside className="docs-toc">
       <strong>EN ESTA PÁGINA</strong>
-      <a href="#overview">Overview</a><a href="#environments">Entornos</a><a href="#quickstart">Quickstart</a><a href="#authentication">Autenticación</a><a href="#idempotency">Idempotencia</a><a href="#errors">Errores</a><a href="#sdk">SDK</a><a href="#payouts">Payouts</a><a href="#billers">Servicios</a><a href="#due-diligence">KYC/KYB</a><a href="#risk-step-up">Step-up</a><a href="#webhooks">Webhooks</a><a href="#reference">API reference</a><a href="#changelog">Changelog</a>
+      <a href="#overview">Overview</a><a href="#environments">Entornos</a><a href="#quickstart">Quickstart</a><a href="#authentication">Autenticación</a><a href="#idempotency">Idempotencia</a><a href="#errors">Errores</a><a href="#sdk">SDK</a><a href="#book-transfers">Book transfers</a><a href="#payouts">Payouts</a><a href="#billers">Servicios</a><a href="#due-diligence">KYC/KYB</a><a href="#risk-step-up">Step-up</a><a href="#webhooks">Webhooks</a><a href="#reference">API reference</a><a href="#changelog">Changelog</a>
       <div><span>{user ? `Sesión activa · ${user.displayName.split(' ')[0]}` : '¿Necesitás credenciales?'}</span><Link href={user ? '/console' : '/login?return_to=%2Fconsole'}>{user ? 'Abrir Developers' : 'Ingresar al sandbox'} →</Link></div>
     </aside>
   </main>;

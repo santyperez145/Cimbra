@@ -38,6 +38,16 @@ export type DueDiligenceState = {
   documents: Array<{ id: string; fileName: string; contentType: string; size: number; status: string; createdAt: string }>;
 };
 export type Account = { id: string; customerId: string; currency: Currency; country: string; accountReference: string; balance?: number; balanceMinor?: string; status: string; createdAt: string };
+export type AccountStatementEntry = {
+  id: string; journalId: string; transactionId: string | null; kind: string; description: string;
+  direction: 'debit' | 'credit'; amountMinor: string; amount: number; signedAmountMinor: string; signedAmount: number;
+  currency: Currency; status: string | null; reversalOf: string | null; createdAt: string;
+};
+export type AccountStatement = {
+  account: Pick<Account, 'id' | 'accountReference' | 'currency' | 'status'>;
+  period: { from: string; to: string; openingBalanceMinor: string; openingBalance: number; closingBalanceMinor: string; closingBalance: number };
+  data: AccountStatementEntry[]; hasMore: boolean; nextCursor: string | null;
+};
 export type CardStatus = 'created' | 'active' | 'frozen' | 'terminated';
 export type CardProduct = 'debit' | 'credit' | 'prepaid';
 export type CardFormat = 'virtual' | 'physical';
@@ -63,6 +73,13 @@ export type CardControls = {
   status: 'active' | 'inactive'; createdBy: string; createdByName: string; createdAt: string;
 };
 export type Transaction = { id: string; counterparty: string; description: string; amount: number; amountMinor: string; currency: Currency; status: string; riskScore: number; reversalOf: string | null; createdAt: string };
+export type BookTransfer = {
+  id: string; externalReference: string; sourceAccountId: string; sourceAccountReference: string; sourceCustomerName: string;
+  destinationAccountId: string; destinationAccountReference: string; destinationCustomerName: string;
+  transactionId: string; reversalTransactionId: string | null; description: string; amountMinor: string; amount: number;
+  currency: Currency; status: 'review' | 'settled' | 'reversed' | 'cancelled'; riskScore: number; holdId: string | null;
+  createdBy: string; reversedAt: string | null; createdAt: string; updatedAt: string;
+};
 export type Biller = {
   id: string; code: string; name: string; country: string;
   category: 'utilities' | 'telecom' | 'tax' | 'education' | 'health' | 'insurance' | 'transport' | 'entertainment' | 'other';
@@ -168,14 +185,15 @@ export type SettlementCycle = {
 };
 export type ApprovalRequest = {
   id: string; actionType: 'settlement.execute' | 'transfer.create' | 'payout_batch.execute' | 'risk.case.resolve' | 'reconciliation.exception.resolve' | 'dispute.resolve';
-  resourceType: 'settlement_cycle' | 'transfer' | 'payout_batch' | 'risk_case' | 'reconciliation_exception' | 'dispute'; resourceId: string;
+  resourceType: 'settlement_cycle' | 'transfer' | 'book_transfer' | 'payout_batch' | 'risk_case' | 'reconciliation_exception' | 'dispute'; resourceId: string;
   status: 'pending' | 'executed' | 'rejected' | 'cancelled' | 'expired' | 'failed'; requestPayload: {
     name?: string; rail?: ReconciliationRun['source']; currency?: Currency; netMinor?: string; differenceMinor?: string;
     scheduledFor?: string | null; executionMode?: 'manual' | 'scheduled'; counterparty?: string; description?: string;
     amountMinor?: string; origin?: 'session' | 'api_key'; apiKeyId?: string | null; sandbox?: boolean;
     signals?: RiskSignals;
     resolution?: 'approved' | 'declined' | 'corrected' | 'accepted' | DisputeEventName; note?: string; priority?: RiskCase['priority']; score?: number;
-    externalReference?: string; sourceAccountId?: string; totalAmountMinor?: string; itemCount?: number; processBefore?: string | null;
+    externalReference?: string; sourceAccountId?: string; destinationAccountId?: string; bookTransfer?: boolean;
+    totalAmountMinor?: string; itemCount?: number; processBefore?: string | null;
     runName?: string; reason?: DisputeReason; creditStatus?: Dispute['creditStatus'];
   };
   requestedBy: string; requestedByName: string; resolvedBy: string | null; resolvedByName: string | null;
@@ -193,6 +211,9 @@ export type RiskCaseResolutionResult =
   | { ok: true; requiresApproval: true; approval: ApprovalRequest; replayed: boolean; deduplicated: boolean };
 export type ReconciliationExceptionResolutionResult =
   | { ok: true; requiresApproval: false; exception: { id: string; status: 'resolved' | 'accepted'; resolution: 'corrected' | 'accepted'; replayed: boolean }; replayed: boolean }
+  | { ok: true; requiresApproval: true; approval: ApprovalRequest; replayed: boolean; deduplicated: boolean };
+export type BookTransferCreationResult =
+  | { ok: true; requiresApproval: false; transfer: BookTransfer; replayed: boolean }
   | { ok: true; requiresApproval: true; approval: ApprovalRequest; replayed: boolean; deduplicated: boolean };
 export type DisputeReason = 'card_not_present' | 'duplicate' | 'amount_mismatch' | 'service_not_received' | 'credit_not_processed' | 'cash_not_received' | 'other';
 export type DisputeStatus = 'opened' | 'under_review' | 'network_ready' | 'won' | 'lost' | 'rejected' | 'cancelled';
@@ -282,6 +303,7 @@ export type RecordDueDiligenceCheckInput = {
   resultCode: string; note: string; evidenceDocumentId?: string;
 };
 export type CreateAccountInput = { customerId: string; currency: Currency; country: string };
+export type AccountStatementOptions = ListOptions & { from?: string; to?: string };
 export type CreateCardInput = { accountId: string; programId?: string; product?: CardProduct; format?: CardFormat };
 export type CreateCardProgramInput = { name: string; product: CardProduct; formats: CardFormat[]; defaultCurrency: Currency };
 export type TransitionCardInput = { status: Exclude<CardStatus, 'created'>; reason: string };
@@ -290,6 +312,10 @@ export type UpdateCardControlsInput = {
   allowedChannels: CardControlChannel[]; allowedMccs: string[]; blockedMccs: string[]; status: 'active' | 'inactive';
 };
 export type CreateTransferInput = { counterparty: string; description: string; amount: string; currency?: Currency; signals?: RiskSignalsInput };
+export type CreateBookTransferInput = {
+  externalReference: string; sourceAccountId: string; destinationAccountId: string;
+  description: string; amount: string; currency: Currency; signals?: RiskSignalsInput;
+};
 export type CreatePaymentInput = { accountId: string; direction: 'cash_in' | 'cash_out'; counterparty: string; description: string; amount: string; currency: Currency; signals?: RiskSignalsInput };
 export type CreateBillerInput = {
   code: string; name: string; country: string; category: Biller['category']; serviceType: Biller['serviceType']; currency: Currency;

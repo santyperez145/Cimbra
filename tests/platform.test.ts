@@ -19,6 +19,7 @@ import { authenticatedFetch } from '../app/lib/platform/client-http.ts';
 import { disputeEvent, disputeNextStatus, disputePossibleEvents, disputeReason, isOpenDispute } from '../app/lib/platform/disputes.ts';
 import { normalizeBillerInput, normalizeBillPaymentInput, normalizeLifecycleAction, normalizeMandateInput, normalizeObligationInput, normalizeProtectedReference } from '../app/lib/platform/billers-input.ts';
 import { normalizePayoutBatchInput, normalizePayoutBeneficiaryInput, normalizePayoutBeneficiaryStatus, normalizePayoutDestination } from '../app/lib/platform/payouts-input.ts';
+import { parseBookTransferInput, statementPeriod } from '../app/lib/platform/book-transfers-input.ts';
 
 process.env.CIMBRA_ENCRYPTION_KEY = '3ea72fc13c567057870342c6ebd34d88f58f6d80b1dba61c4be4e1c2f1406afb';
 
@@ -152,6 +153,21 @@ test('payouts protegen destinos y acotan lotes inmutables a 100 ítems', () => {
       { externalReference: 'DUP', beneficiaryId: 'beneficiary-2', amount: '2', description: 'Dos' }] }), null);
   assert.equal(normalizePayoutBeneficiaryStatus({ action: 'suspend' }), 'suspend');
   assert.equal(normalizePayoutBeneficiaryStatus({ action: 'delete' }), null);
+});
+
+test('book transfers exigen cuentas distintas, moneda válida y períodos acotados', () => {
+  const sourceAccountId = '00000000-0000-4000-8000-000000000001';
+  const destinationAccountId = '00000000-0000-4000-8000-000000000002';
+  const parsed = parseBookTransferInput({ externalReference: ' BT-001 ', sourceAccountId, destinationAccountId,
+    description: ' Distribución interna ', amount: '1250.50', currency: 'ars' });
+  assert.ok(parsed); assert.equal(parsed.amountMinor, 125050n); assert.equal(parsed.currency, 'ARS');
+  assert.equal(parseBookTransferInput({ externalReference: 'BT-002', sourceAccountId, destinationAccountId: sourceAccountId,
+    description: 'Inválida', amount: '1.00', currency: 'ARS' }), null);
+  assert.equal(parseBookTransferInput({ externalReference: 'BT-003', sourceAccountId, destinationAccountId,
+    description: 'Inválida', amount: '0', currency: 'ARS' }), null);
+  const validPeriod = statementPeriod(new URL('https://api.test/statement?from=2026-08-01T00:00:00.000Z&to=2026-08-31T00:00:00.000Z'));
+  assert.deepEqual(validPeriod, { from: '2026-08-01T00:00:00.000Z', to: '2026-08-31T00:00:00.000Z' });
+  assert.equal(statementPeriod(new URL('https://api.test/statement?from=2024-01-01T00:00:00.000Z&to=2026-01-02T00:00:00.000Z')), null);
 });
 
 test('servicios y mandatos validan catálogo, referencias protegidas, importes y consentimiento', () => {

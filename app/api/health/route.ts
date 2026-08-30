@@ -27,7 +27,8 @@ export async function GET() {
         AND to_regclass('public.recurring_payment_mandates') IS NOT NULL
         AND to_regclass('public.payout_beneficiaries') IS NOT NULL
         AND to_regclass('public.payout_batches') IS NOT NULL
-        AND to_regclass('public.payout_items') IS NOT NULL AS ready`,
+        AND to_regclass('public.payout_items') IS NOT NULL
+        AND to_regclass('public.book_transfers') IS NOT NULL AS ready`,
     ).first<{ ready: boolean }>();
     if (!readiness?.ready) throw new Error('schema_not_ready');
   } catch (error) {
