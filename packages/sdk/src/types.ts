@@ -62,8 +62,16 @@ export type RiskListEntry = {
 export type RiskEvaluation = {
   id: string; operationType: 'transfer' | 'cash_in' | 'cash_out'; resourceType: string; resourceId: string | null;
   amountMinor: string; amount: number; currency: Currency; counterparty: string; score: number; decision: 'approve' | 'review' | 'decline';
-  matchedRuleIds: string[]; matchedListEntryIds: string[]; reasons: string[]; signals: RiskSignals; outcome: RiskOutcome | null;
+  matchedRuleIds: string[]; matchedListEntryIds: string[]; reasons: string[]; signals: RiskSignals; decisionLatencyMs: number | null; outcome: RiskOutcome | null;
   createdAt: string; requestFingerprint: string; replayed: boolean;
+};
+export type RiskStepUpChallenge = {
+  id: string; evaluationId: string; method: 'otp'; delivery: 'client_managed';
+  status: 'pending' | 'verified' | 'failed' | 'expired' | 'cancelled'; attemptCount: number; remainingAttempts: number;
+  maxAttempts: number; expiresAt: string; verifiedAt: string | null; failedAt: string | null; createdAt: string; updatedAt: string;
+};
+export type RiskStepUpAttempt = {
+  id: string; attemptNumber: number; result: 'matched' | 'mismatch' | 'expired' | 'locked'; createdAt: string;
 };
 export type RiskCase = {
   id: string; evaluationId: string; transactionId: string | null; holdId: string | null; status: 'open' | 'resolved';
@@ -147,6 +155,8 @@ export type RiskMetrics = {
     precision: number | null; recall: number | null; falsePositiveRate: number | null;
     losses: Array<{ currency: Currency; amountMinor: string; amount: number; count: number }>;
   };
+  stepUp: { total: number; pending: number; verified: number; unsuccessful: number; verificationRate: number | null };
+  decisionSlo: { targetMs: number; samples: number; p50Ms: number | null; p95Ms: number | null; p99Ms: number | null; complianceRate: number | null };
 };
 export type WorkItemType = 'risk_case' | 'reconciliation_exception' | 'dispute';
 export type OperationalWorkItem = {
@@ -196,6 +206,8 @@ export type UpdateCardControlsInput = {
 export type CreateTransferInput = { counterparty: string; description: string; amount: string; currency?: Currency; signals?: RiskSignalsInput };
 export type CreatePaymentInput = { accountId: string; direction: 'cash_in' | 'cash_out'; counterparty: string; description: string; amount: string; currency: Currency; signals?: RiskSignalsInput };
 export type CreateRiskEvaluationInput = { operationType: 'transfer' | 'cash_in' | 'cash_out'; amount: string; currency: Currency; counterparty: string; signals?: RiskSignalsInput };
+export type CreateRiskStepUpChallengeInput = { method?: 'otp'; delivery?: 'client_managed'; expiresInSeconds?: number; maxAttempts?: number };
+export type VerifyRiskStepUpChallengeInput = { credential: string };
 export type CreateRiskListEntryInput = {
   subjectType: RiskListEntry['subjectType']; subjectValue: string; category: RiskListEntry['category']; reason: string; expiresAt?: string;
 };

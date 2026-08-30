@@ -494,6 +494,98 @@ paths:
                   evaluation: { $ref: '#/components/schemas/RiskEvaluation' }
                   replayed: { type: boolean }
         '200': { description: Idempotent replay }
+  /api/v1/risk/evaluations/{id}/step-up-challenges:
+    get:
+      operationId: listRiskStepUpChallenges
+      summary: List OTP step-up challenges for one risk evaluation
+      description: Returns lifecycle metadata only. Credentials, hashes and encrypted values are never exposed by reads.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses:
+        '200':
+          description: Tenant-scoped challenge history
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/RiskStepUpChallenge' } }
+    post:
+      operationId: createRiskStepUpChallenge
+      summary: Create a client-managed OTP challenge for an evaluation in review
+      description: Cimbra generates and protects the OTP. The credential is returned only by this authenticated create request and its identical replay while pending; it is absent from lists, audit events and webhooks. This is a rail-agnostic sandbox control, not 3DS or an ACS.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                method: { type: string, const: otp, default: otp }
+                delivery: { type: string, const: client_managed, default: client_managed }
+                expiresInSeconds: { type: integer, minimum: 60, maximum: 900, default: 300 }
+                maxAttempts: { type: integer, minimum: 1, maximum: 10, default: 5 }
+      responses:
+        '201':
+          description: Challenge created; credential must be delivered by the integrator through its approved channel
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, challenge, credential, replayed]
+                properties:
+                  ok: { type: boolean, const: true }
+                  challenge: { $ref: '#/components/schemas/RiskStepUpChallenge' }
+                  credential: { type: string, pattern: '^\d{6}$', writeOnly: true }
+                  replayed: { type: boolean }
+        '200': { description: Idempotent replay while pending; terminal replays return a null credential }
+        '404': { description: Evaluation not found in tenant }
+        '409': { description: Evaluation is not in review or already has a pending challenge }
+  /api/v1/risk/evaluations/{id}/step-up-challenges/{challengeId}/verify:
+    post:
+      operationId: verifyRiskStepUpChallenge
+      summary: Verify one OTP attempt under lock and persist its result
+      description: Attempts are append-only, idempotent and limited. A successful step-up becomes evidence for the risk case but never bypasses case resolution or maker/checker policy.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - in: path
+          name: challengeId
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [credential]
+              properties:
+                credential: { type: string, pattern: '^\d{6}$', writeOnly: true }
+      responses:
+        '200':
+          description: Attempt persisted; verified indicates whether the credential matched
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, challenge, attempt, verified, replayed]
+                properties:
+                  ok: { type: boolean, const: true }
+                  challenge: { $ref: '#/components/schemas/RiskStepUpChallenge' }
+                  attempt: { $ref: '#/components/schemas/RiskStepUpAttempt' }
+                  verified: { type: boolean }
+                  replayed: { type: boolean }
+        '404': { description: Evaluation or challenge not found in tenant }
+        '409': { description: Idempotency-Key payload mismatch }
   /api/v1/risk/evaluations/{id}/outcomes:
     post:
       operationId: reportRiskOutcome
@@ -1616,7 +1708,7 @@ components:
         updatedAt: { type: string, format: date-time }
     RiskEvaluation:
       type: object
-      required: [id, operationType, resourceType, resourceId, amountMinor, amount, currency, counterparty, score, decision, matchedRuleIds, matchedListEntryIds, reasons, signals, outcome, createdAt, requestFingerprint, replayed]
+      required: [id, operationType, resourceType, resourceId, amountMinor, amount, currency, counterparty, score, decision, matchedRuleIds, matchedListEntryIds, reasons, signals, decisionLatencyMs, outcome, createdAt, requestFingerprint, replayed]
       properties:
         id: { type: string, format: uuid }
         operationType: { type: string, enum: [transfer, cash_in, cash_out] }
@@ -1632,6 +1724,7 @@ components:
         matchedListEntryIds: { type: array, items: { type: string, format: uuid } }
         reasons: { type: array, items: { type: string } }
         signals: { $ref: '#/components/schemas/RiskSignals' }
+        decisionLatencyMs: { type: [integer, 'null'], minimum: 0, description: Persisted server-side decision latency for measured SLOs. }
         outcome:
           oneOf:
             - { $ref: '#/components/schemas/RiskOutcome' }
@@ -1639,6 +1732,33 @@ components:
         createdAt: { type: string, format: date-time }
         requestFingerprint: { type: string }
         replayed: { type: boolean }
+    RiskStepUpChallenge:
+      type: object
+      additionalProperties: false
+      required: [id, evaluationId, method, delivery, status, attemptCount, remainingAttempts, maxAttempts, expiresAt, verifiedAt, failedAt, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        evaluationId: { type: string, format: uuid }
+        method: { type: string, const: otp }
+        delivery: { type: string, const: client_managed }
+        status: { type: string, enum: [pending, verified, failed, expired, cancelled] }
+        attemptCount: { type: integer, minimum: 0 }
+        remainingAttempts: { type: integer, minimum: 0 }
+        maxAttempts: { type: integer, minimum: 1, maximum: 10 }
+        expiresAt: { type: string, format: date-time }
+        verifiedAt: { type: [string, 'null'], format: date-time }
+        failedAt: { type: [string, 'null'], format: date-time }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    RiskStepUpAttempt:
+      type: object
+      additionalProperties: false
+      required: [id, attemptNumber, result, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        attemptNumber: { type: integer, minimum: 1 }
+        result: { type: string, enum: [matched, mismatch, expired, locked] }
+        createdAt: { type: string, format: date-time }
     RiskSignalsInput:
       type: object
       additionalProperties: false

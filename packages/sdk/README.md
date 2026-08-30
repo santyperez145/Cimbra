@@ -148,7 +148,24 @@ await cimbra.risk.reportOutcome(evaluation.data.evaluation.id, {
 await cimbra.risk.disableListEntry(entry.data.entry.id);
 ```
 
-Las transferencias y los cash-out ejecutan sólo las champions activas dentro de su flujo transaccional. Las referencias de dispositivo e identidad se hashean con aislamiento por tenant antes de persistirse. Las muestras de simulación no se guardan: Cimbra persiste únicamente agregados. Una decisión `review` crea evaluación, caso y hold vinculados; los outcomes confirmados alimentan precisión, recall, tasa de falsos positivos y pérdida por moneda sin reemplazar historial.
+Una evaluación en `review` puede exigir un step-up OTP nativo:
+
+```ts
+const challenge = await cimbra.risk.createStepUpChallenge(evaluation.data.evaluation.id, {
+  expiresInSeconds: 300,
+  maxAttempts: 5,
+});
+// Entregar desde backend por un canal aprobado por tu organización.
+const verified = await cimbra.risk.verifyStepUpChallenge(
+  evaluation.data.evaluation.id,
+  challenge.data.challenge.id,
+  { credential: challenge.data.credential! },
+);
+```
+
+La credencial aparece sólo en el create y su replay idéntico mientras permanece pendiente; no se devuelve en `listStepUpChallenges`, eventos o auditoría. Los intentos son append-only y el lifecycle no resuelve automáticamente el caso ni evita maker/checker. Esto es autenticación reforzada rail-agnostic del sandbox, no EMV 3DS ni un ACS certificado.
+
+Las transferencias y los cash-out ejecutan sólo las champions activas dentro de su flujo transaccional. Las referencias de dispositivo e identidad se hashean con aislamiento por tenant antes de persistirse. Las muestras de simulación no se guardan: Cimbra persiste únicamente agregados. Una decisión `review` crea evaluación, caso y hold vinculados; los outcomes confirmados alimentan precisión, recall, tasa de falsos positivos y pérdida por moneda sin reemplazar historial. El estado de riesgo agrega latencia p50/p95/p99 y cumplimiento del objetivo de 250 ms únicamente sobre evaluaciones nuevas con medición persistida.
 
 ## Conciliación
 

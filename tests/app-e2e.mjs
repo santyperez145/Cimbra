@@ -89,6 +89,8 @@ async function cleanup() {
       await transaction`DELETE FROM reconciliation_exceptions WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM reconciliation_items WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM reconciliation_runs WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM risk_step_up_attempts WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM risk_step_up_challenges WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM risk_cases WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM risk_outcomes WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM risk_evaluations WHERE organization_id = ${organizationId}`;
@@ -588,11 +590,81 @@ try {
   }), 201);
   assert.equal(watchedEvaluation.evaluation.decision, 'review');
   assert.equal(watchedEvaluation.evaluation.matchedListEntryIds.includes(watchList.entry.id), true);
+  assert.equal(Number.isInteger(watchedEvaluation.evaluation.decisionLatencyMs), true);
+  assert.equal(watchedEvaluation.evaluation.decisionLatencyMs >= 0, true);
+  const invalidStepUp = await json(await request(`/api/v1/risk/evaluations/${shadowBefore.evaluation.id}/step-up-challenges`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-step-up-invalid-${runId}` },
+    body: JSON.stringify({ method: 'otp', delivery: 'client_managed' }),
+  }), 409);
+  assert.equal(invalidStepUp.error.code, 'risk_evaluation_not_review');
+  const stepUpPayload = { method: 'otp', delivery: 'client_managed', expiresInSeconds: 300, maxAttempts: 5 };
+  const stepUpKey = `qa-step-up-create-${runId}`;
+  const stepUp = await json(await request(`/api/v1/risk/evaluations/${watchedEvaluation.evaluation.id}/step-up-challenges`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': stepUpKey }, body: JSON.stringify(stepUpPayload),
+  }), 201);
+  assert.match(stepUp.credential, /^\d{6}$/); assert.equal(stepUp.challenge.status, 'pending');
+  const stepUpReplay = await json(await request(`/api/v1/risk/evaluations/${watchedEvaluation.evaluation.id}/step-up-challenges`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': stepUpKey }, body: JSON.stringify(stepUpPayload),
+  }), 200);
+  assert.equal(stepUpReplay.replayed, true); assert.equal(stepUpReplay.challenge.id, stepUp.challenge.id);
+  assert.equal(stepUpReplay.credential, stepUp.credential);
+  const stepUpMismatch = await json(await request(`/api/v1/risk/evaluations/${watchedEvaluation.evaluation.id}/step-up-challenges`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': stepUpKey },
+    body: JSON.stringify({ ...stepUpPayload, maxAttempts: 4 }),
+  }), 409);
+  assert.equal(stepUpMismatch.error.code, 'idempotency_mismatch');
+  const listedStepUps = (await json(await request(`/api/v1/risk/evaluations/${watchedEvaluation.evaluation.id}/step-up-challenges`), 200)).data;
+  assert.equal(listedStepUps.length, 1); assert.equal(JSON.stringify(listedStepUps).includes(stepUp.credential), false);
+  assert.equal(Object.hasOwn(listedStepUps[0], 'credential'), false);
+  const [storedStepUp] = await sql`SELECT credential_hash, credential_ciphertext FROM risk_step_up_challenges WHERE id = ${stepUp.challenge.id}`;
+  assert.notEqual(storedStepUp.credential_hash, stepUp.credential); assert.notEqual(storedStepUp.credential_ciphertext, stepUp.credential);
+  const wrongCredential = stepUp.credential === '000000' ? '000001' : '000000';
+  const wrongAttemptKey = `qa-step-up-wrong-${runId}`;
+  const wrongAttempt = await json(await request(`/api/v1/risk/evaluations/${watchedEvaluation.evaluation.id}/step-up-challenges/${stepUp.challenge.id}/verify`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': wrongAttemptKey },
+    body: JSON.stringify({ credential: wrongCredential }),
+  }), 200);
+  assert.equal(wrongAttempt.verified, false); assert.equal(wrongAttempt.attempt.result, 'mismatch');
+  assert.equal(wrongAttempt.challenge.remainingAttempts, 4);
+  const wrongAttemptReplay = await json(await request(`/api/v1/risk/evaluations/${watchedEvaluation.evaluation.id}/step-up-challenges/${stepUp.challenge.id}/verify`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': wrongAttemptKey },
+    body: JSON.stringify({ credential: wrongCredential }),
+  }), 200);
+  assert.equal(wrongAttemptReplay.replayed, true); assert.equal(wrongAttemptReplay.attempt.id, wrongAttempt.attempt.id);
+  const wrongAttemptMismatch = await json(await request(`/api/v1/risk/evaluations/${watchedEvaluation.evaluation.id}/step-up-challenges/${stepUp.challenge.id}/verify`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': wrongAttemptKey },
+    body: JSON.stringify({ credential: stepUp.credential }),
+  }), 409);
+  assert.equal(wrongAttemptMismatch.error.code, 'idempotency_mismatch');
+  const verifiedStepUp = await json(await request(`/api/v1/risk/evaluations/${watchedEvaluation.evaluation.id}/step-up-challenges/${stepUp.challenge.id}/verify`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-step-up-correct-${runId}` },
+    body: JSON.stringify({ credential: stepUp.credential }),
+  }), 200);
+  assert.equal(verifiedStepUp.verified, true); assert.equal(verifiedStepUp.challenge.status, 'verified');
+  assert.equal(verifiedStepUp.attempt.attemptNumber, 2);
+  const lockedStepUp = await json(await request(`/api/v1/risk/evaluations/${watchedEvaluation.evaluation.id}/step-up-challenges/${stepUp.challenge.id}/verify`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-step-up-locked-${runId}` },
+    body: JSON.stringify({ credential: stepUp.credential }),
+  }), 200);
+  assert.equal(lockedStepUp.verified, false); assert.equal(lockedStepUp.attempt.result, 'locked');
+  const expiringStepUp = await json(await request(`/api/v1/risk/evaluations/${watchedEvaluation.evaluation.id}/step-up-challenges`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-step-up-expiring-${runId}` },
+    body: JSON.stringify(stepUpPayload),
+  }), 201);
+  await sql`UPDATE risk_step_up_challenges SET expires_at = ${new Date(Date.now() - 60_000).toISOString()} WHERE id = ${expiringStepUp.challenge.id}`;
+  const afterExpiry = (await json(await request(`/api/v1/risk/evaluations/${watchedEvaluation.evaluation.id}/step-up-challenges`), 200)).data;
+  assert.equal(afterExpiry.find((item) => item.id === expiringStepUp.challenge.id).status, 'expired');
+  const [purgedStepUp] = await sql`SELECT credential_ciphertext FROM risk_step_up_challenges WHERE id = ${expiringStepUp.challenge.id}`;
+  assert.equal(purgedStepUp.credential_ciphertext, null);
   await json(await request(`/api/v1/risk/evaluations/${watchedEvaluation.evaluation.id}/outcomes`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-risk-outcome-legitimate-${runId}` },
     body: JSON.stringify({ label: 'legitimate', note: 'QA customer confirmation' }),
   }), 201);
   const supervisedRiskState = (await json(await request('/api/v1/risk'), 200)).data;
+  assert.equal(supervisedRiskState.stepUpChallenges.find((item) => item.id === stepUp.challenge.id).status, 'verified');
+  assert.equal(supervisedRiskState.metrics.stepUp.verified >= 1, true);
+  assert.equal(supervisedRiskState.metrics.decisionSlo.samples >= 1, true);
+  assert.equal(supervisedRiskState.metrics.decisionSlo.p95Ms >= 0, true);
   assert.equal(supervisedRiskState.metrics.confirmed.total, 2);
   assert.equal(supervisedRiskState.metrics.confirmed.truePositives, 1);
   assert.equal(supervisedRiskState.metrics.confirmed.falsePositives, 1);
@@ -1063,6 +1135,11 @@ try {
     body: JSON.stringify({ event: 'cancel', note: 'Viewer cannot mutate.' }),
   }), 403);
   assert.equal(viewerDisputeDenied.error.code, 'insufficient_role');
+  const viewerStepUpDenied = await json(await request(`/api/v1/risk/evaluations/${watchedEvaluation.evaluation.id}/step-up-challenges`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-viewer-step-up-${runId}` },
+    body: JSON.stringify({ method: 'otp', delivery: 'client_managed' }),
+  }), 403);
+  assert.equal(viewerStepUpDenied.error.code, 'insufficient_role');
   const viewerProgramDenied = await json(await request('/api/v1/card-programs', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-viewer-card-program-${runId}` },
     body: JSON.stringify({ name: 'Viewer denied', product: 'debit', formats: ['virtual'], defaultCurrency: 'ARS' }),
@@ -1085,6 +1162,9 @@ try {
   assert.ok(events.some((event) => event.action === 'operations.evidence_linked'));
   assert.ok(events.some((event) => event.action === 'dispute.start_review'));
   assert.ok(events.some((event) => event.action === 'dispute.resolve_lost'));
+  assert.ok(events.some((event) => event.action === 'risk.step_up_challenge_verified'));
+  assert.ok(events.some((event) => event.action === 'risk.step_up_attempt_failed'));
+  assert.ok(events.some((event) => event.action === 'risk.step_up_challenge_expired'));
   assert.ok(events.every((event) => typeof event.payload === 'object'));
 
   const [integrity] = await sql`
@@ -1103,7 +1183,7 @@ try {
 
   console.log(JSON.stringify({
     ok: true,
-    checks: ['auth', 'landing-session-state', 'console-session-guard', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'viewer-read-only', 'member-invitations', 'dual-control', 'maker-checker', 'transfer-approval', 'approval-replay', 'approval-fail-closed', 'risk-case-approval', 'risk-hold-bypass-guard', 'reconciliation-exception-approval', 'disputes', 'partial-dispute', 'dispute-ledger-credit', 'dispute-compensation', 'dispute-approval', 'dispute-evidence', 'dispute-rbac', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'card-programs', 'card-lifecycle', 'card-controls', 'card-terminal-state', 'card-rbac', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'risk-signals-privacy', 'risk-decision-lists', 'risk-confirmed-outcomes', 'risk-supervised-metrics', 'risk-outcome-revisions', 'reconciliation', 'operations-work-queue', 'operations-idempotency', 'operations-evidence', 'operations-rbac', 'csv-import', 'settlement', 'private-evidence', 'audit'],
+    checks: ['auth', 'landing-session-state', 'console-session-guard', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'viewer-read-only', 'member-invitations', 'dual-control', 'maker-checker', 'transfer-approval', 'approval-replay', 'approval-fail-closed', 'risk-case-approval', 'risk-hold-bypass-guard', 'reconciliation-exception-approval', 'disputes', 'partial-dispute', 'dispute-ledger-credit', 'dispute-compensation', 'dispute-approval', 'dispute-evidence', 'dispute-rbac', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'card-programs', 'card-lifecycle', 'card-controls', 'card-terminal-state', 'card-rbac', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'risk-signals-privacy', 'risk-decision-lists', 'risk-step-up', 'risk-step-up-idempotency', 'risk-step-up-rbac', 'risk-decision-slo', 'risk-confirmed-outcomes', 'risk-supervised-metrics', 'risk-outcome-revisions', 'reconciliation', 'operations-work-queue', 'operations-idempotency', 'operations-evidence', 'operations-rbac', 'csv-import', 'settlement', 'private-evidence', 'audit'],
   }));
 } finally {
   await cleanup();

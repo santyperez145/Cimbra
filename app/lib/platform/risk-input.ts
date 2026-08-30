@@ -72,3 +72,23 @@ export function normalizeRiskSimulationSamples(value: unknown): RiskSimulationSa
   }
   return samples;
 }
+
+export function normalizeRiskStepUpInput(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const body = value as Record<string, unknown>;
+  const method = body.method ?? 'otp';
+  const delivery = body.delivery ?? 'client_managed';
+  const expiresInSeconds = Number(body.expiresInSeconds ?? 300);
+  const maxAttempts = Number(body.maxAttempts ?? 5);
+  if (method !== 'otp' || delivery !== 'client_managed' || !Number.isInteger(expiresInSeconds) ||
+      expiresInSeconds < 60 || expiresInSeconds > 900 || !Number.isInteger(maxAttempts) ||
+      maxAttempts < 1 || maxAttempts > 10) return null;
+  return { expiresInSeconds, maxAttempts };
+}
+
+export function normalizeRiskStepUpCredential(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const credential = typeof (value as Record<string, unknown>).credential === 'string'
+    ? String((value as Record<string, unknown>).credential).trim() : '';
+  return /^\d{6}$/.test(credential) ? credential : null;
+}

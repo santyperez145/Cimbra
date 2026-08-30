@@ -7,13 +7,17 @@ type Rule = { id: string; familyId: string; version: number; deployment: 'champi
 type RiskOutcome = { id: string; label: 'legitimate' | 'fraud'; fraudType: string | null; lossAmountMinor: string; currency: string; note: string; createdAt: string };
 type Evaluation = { id: string; counterparty: string; amount: number; currency: string; score: number; decision: string; reasons: string[];
   matchedListEntryIds: string[]; signals: { deviceReferencePresent: boolean; identityReferencePresent: boolean; deviceTrust?: string; identityVerified?: boolean; countryMismatch?: boolean };
-  outcome: RiskOutcome | null; createdAt: string };
+  decisionLatencyMs: number | null; outcome: RiskOutcome | null; createdAt: string };
+type StepUpChallenge = { id: string; evaluationId: string; method: 'otp'; delivery: 'client_managed'; status: 'pending' | 'verified' | 'failed' | 'expired' | 'cancelled';
+  attemptCount: number; remainingAttempts: number; maxAttempts: number; expiresAt: string; verifiedAt: string | null; failedAt: string | null; createdAt: string; updatedAt: string };
 type RiskListEntry = { id: string; subjectType: 'counterparty' | 'device' | 'identity'; subjectPreview: string; category: 'allow' | 'watch' | 'block'; reason: string; status: 'active' | 'disabled'; expiresAt: string | null; createdAt: string };
 type RiskCase = { id: string; holdId: string | null; status: string; priority: string; counterparty: string; amount: number; currency: string; score: number; decision: string; reasons: string[]; createdAt: string };
 type SystemPolicy = { id: string; name: string; action: string; status: string };
 type Hold = { id: string; counterparty: string; description: string; amount: number; currency: string };
 type RiskMetrics = { windowDays: number; totalEvaluations: number; approvals: number; reviews: number; declines: number; openCases: number; resolvedCases: number; approvedAfterReview: number; falsePositiveProxyRate: number | null;
-  confirmed: { total: number; truePositives: number; falsePositives: number; trueNegatives: number; falseNegatives: number; precision: number | null; recall: number | null; falsePositiveRate: number | null; losses: Array<{ currency: string; amount: number; count: number }> } };
+  confirmed: { total: number; truePositives: number; falsePositives: number; trueNegatives: number; falseNegatives: number; precision: number | null; recall: number | null; falsePositiveRate: number | null; losses: Array<{ currency: string; amount: number; count: number }> };
+  stepUp: { total: number; pending: number; verified: number; unsuccessful: number; verificationRate: number | null };
+  decisionSlo: { targetMs: number; samples: number; p50Ms: number | null; p95Ms: number | null; p99Ms: number | null; complianceRate: number | null } };
 type DecisionSummary = { approve: number; review: number; decline: number; averageScore: number };
 type Simulation = { id: string; candidateRuleId: string; candidateName: string; candidateVersion: number; sampleCount: number; baselineSummary: DecisionSummary; candidateSummary: DecisionSummary; deltaSummary: { decisionsChanged: number; newlyReviewed: number; newlyDeclined: number; newlyApproved: number; averageScoreDelta: number }; createdAt: string };
 
@@ -27,20 +31,25 @@ export default function RiskPanel({ holds, busy: externalBusy, canManageRules, c
   const [rules, setRules] = useState<Rule[]>([]); const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
   const [cases, setCases] = useState<RiskCase[]>([]); const [systemPolicies, setSystemPolicies] = useState<SystemPolicy[]>([]);
   const [simulations, setSimulations] = useState<Simulation[]>([]); const [listEntries, setListEntries] = useState<RiskListEntry[]>([]);
+  const [stepUpChallenges, setStepUpChallenges] = useState<StepUpChallenge[]>([]); const [stepUpSecret, setStepUpSecret] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<RiskMetrics>({ windowDays: 30, totalEvaluations: 0, approvals: 0, reviews: 0, declines: 0, openCases: 0, resolvedCases: 0, approvedAfterReview: 0, falsePositiveProxyRate: null,
-    confirmed: { total: 0, truePositives: 0, falsePositives: 0, trueNegatives: 0, falseNegatives: 0, precision: null, recall: null, falsePositiveRate: null, losses: [] } });
+    confirmed: { total: 0, truePositives: 0, falsePositives: 0, trueNegatives: 0, falseNegatives: 0, precision: null, recall: null, falsePositiveRate: null, losses: [] },
+    stepUp: { total: 0, pending: 0, verified: 0, unsuccessful: 0, verificationRate: null },
+    decisionSlo: { targetMs: 250, samples: 0, p50Ms: null, p95Ms: null, p99Ms: null, complianceRate: null } });
   const [kind, setKind] = useState('amount_threshold'); const [busy, setBusy] = useState(false); const [feedback, setFeedback] = useState('');
   const [outcomeLabel, setOutcomeLabel] = useState<'legitimate' | 'fraud'>('legitimate');
   const openCases = useMemo(() => cases.filter((item) => item.status === 'open'), [cases]);
+  const reviewEvaluations = useMemo(() => evaluations.filter((item) => item.decision === 'review'), [evaluations]);
+  const pendingStepUps = useMemo(() => stepUpChallenges.filter((item) => item.status === 'pending'), [stepUpChallenges]);
   const linkedHolds = useMemo(() => new Set(cases.map((item) => item.holdId).filter(Boolean)), [cases]);
   const unlinkedHolds = holds.filter((hold) => !linkedHolds.has(hold.id));
 
   async function load() {
     const response = await authenticatedFetch('/api/v1/risk', { cache: 'no-store' });
-    const result = await response.json() as { data?: { rules: Rule[]; evaluations: Evaluation[]; cases: RiskCase[]; systemPolicies: SystemPolicy[]; simulations: Simulation[]; listEntries: RiskListEntry[]; metrics: RiskMetrics }; error?: { message?: string } | string };
+    const result = await response.json() as { data?: { rules: Rule[]; evaluations: Evaluation[]; cases: RiskCase[]; systemPolicies: SystemPolicy[]; simulations: Simulation[]; listEntries: RiskListEntry[]; stepUpChallenges: StepUpChallenge[]; metrics: RiskMetrics }; error?: { message?: string } | string };
     if (!response.ok) return setFeedback(typeof result.error === 'string' ? result.error : result.error?.message ?? 'No pudimos cargar riesgo.');
     setRules(result.data?.rules ?? []); setEvaluations(result.data?.evaluations ?? []); setCases(result.data?.cases ?? []); setSystemPolicies(result.data?.systemPolicies ?? []);
-    setSimulations(result.data?.simulations ?? []); setListEntries(result.data?.listEntries ?? []); if (result.data?.metrics) setMetrics(result.data.metrics);
+    setSimulations(result.data?.simulations ?? []); setListEntries(result.data?.listEntries ?? []); setStepUpChallenges(result.data?.stepUpChallenges ?? []); if (result.data?.metrics) setMetrics(result.data.metrics);
   }
 
   useEffect(() => { const task = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(task); }, []);
@@ -127,6 +136,35 @@ export default function RiskPanel({ holds, busy: externalBusy, canManageRules, c
     if (response.ok) { formElement.reset(); setOutcomeLabel('legitimate'); await load(); } setBusy(false);
   }
 
+  async function createStepUp(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); const formElement = event.currentTarget; const form = new FormData(formElement); setBusy(true); setFeedback(''); setStepUpSecret(null);
+    const evaluationId = String(form.get('evaluationId') ?? '');
+    const response = await authenticatedFetch(`/api/v1/risk/evaluations/${evaluationId}/step-up-challenges`, { method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
+      body: JSON.stringify({ method: 'otp', delivery: 'client_managed', expiresInSeconds: Number(form.get('expiresInSeconds')),
+        maxAttempts: Number(form.get('maxAttempts')) }) });
+    const result = await response.json() as { credential?: string | null; challenge?: StepUpChallenge; error?: { message?: string } | string };
+    setFeedback(response.ok ? 'Challenge creado. Entregá el código por un canal aprobado; Cimbra no lo vuelve a mostrar en lecturas.'
+      : typeof result.error === 'string' ? result.error : result.error?.message ?? 'No pudimos crear el challenge.');
+    if (response.ok) { setStepUpSecret(result.credential ?? null); formElement.reset(); await load(); } setBusy(false);
+  }
+
+  async function verifyStepUp(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); const formElement = event.currentTarget; const form = new FormData(formElement); setBusy(true); setFeedback('');
+    const challengeId = String(form.get('challengeId') ?? '');
+    const challenge = stepUpChallenges.find((item) => item.id === challengeId);
+    if (!challenge) { setFeedback('Seleccioná un challenge pendiente.'); setBusy(false); return; }
+    const response = await authenticatedFetch(`/api/v1/risk/evaluations/${challenge.evaluationId}/step-up-challenges/${challenge.id}/verify`, { method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
+      body: JSON.stringify({ credential: form.get('credential') }) });
+    const result = await response.json() as { verified?: boolean; challenge?: StepUpChallenge; attempt?: { result?: string }; error?: { message?: string } | string };
+    setFeedback(response.ok ? result.verified ? 'Identidad reforzada verificada; el resultado quedó como evidencia del caso, sin bypass operativo.'
+      : result.attempt?.result === 'mismatch' ? `Código incorrecto. Quedan ${result.challenge?.remainingAttempts ?? 0} intentos.`
+        : 'El challenge ya no admite verificación.'
+      : typeof result.error === 'string' ? result.error : result.error?.message ?? 'No pudimos verificar el challenge.');
+    if (response.ok) { formElement.reset(); setStepUpSecret(null); await load(); } setBusy(false);
+  }
+
   async function resolveCase(id: string, resolution: 'approved' | 'declined') {
     setBusy(true); setFeedback(''); const response = await authenticatedFetch(`/api/v1/risk/cases/${id}/resolve`, { method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
@@ -144,9 +182,10 @@ export default function RiskPanel({ holds, busy: externalBusy, canManageRules, c
   const activeListEntries = listEntries.filter((entry) => entry.status === 'active');
 
   return <div className="module-view risk-console">
-    <div className="module-view-head"><div><p>RISK DECISION ENGINE</p><h1>Riesgo y fraude</h1><span>Políticas versionadas, señales protegidas, listas tenant, resultados confirmados, casos y holds sincronizados.</span></div><span className="module-health"><i /> {openCases.length} casos abiertos</span></div>
+    <div className="module-view-head"><div><p>RISK DECISION ENGINE</p><h1>Riesgo y fraude</h1><span>Políticas versionadas, señales protegidas, step-up OTP, SLO medido, resultados confirmados, casos y holds sincronizados.</span></div><span className="module-health"><i /> {openCases.length} casos abiertos</span></div>
     {feedback && <div className="form-feedback ledger-feedback">{feedback}</div>}
-    <div className="module-metrics risk-metrics"><article><strong>{systemPolicies.length + championRules.length}</strong><span>champions en vivo</span></article><article><strong>{metrics.totalEvaluations}</strong><span>evaluaciones · {metrics.windowDays} días</span></article><article><strong>{metrics.reviews + metrics.declines}</strong><span>revisión o rechazo · {metrics.windowDays} días</span></article><article><strong>{metrics.falsePositiveProxyRate === null ? '—' : `${metrics.falsePositiveProxyRate}%`}</strong><span>proxy de falsos positivos · {metrics.approvedAfterReview}/{metrics.resolvedCases} casos resueltos</span></article></div>
+    {stepUpSecret && <div className="secret-reveal step-up-secret"><div><strong>Credencial OTP client-managed</strong><span>Entregala por tu canal aprobado. No aparece en listas, eventos ni auditoría.</span></div><code>{stepUpSecret}</code><button type="button" onClick={() => setStepUpSecret(null)}>Ocultar</button></div>}
+    <div className="module-metrics risk-metrics"><article><strong>{systemPolicies.length + championRules.length}</strong><span>champions en vivo</span></article><article><strong>{metrics.totalEvaluations}</strong><span>evaluaciones · {metrics.windowDays} días</span></article><article><strong>{metrics.decisionSlo.p95Ms === null ? '—' : `${metrics.decisionSlo.p95Ms} ms`}</strong><span>p95 de decisión · objetivo {metrics.decisionSlo.targetMs} ms</span></article><article><strong>{metrics.stepUp.verified}</strong><span>step-ups verificados · {metrics.stepUp.pending} pendientes</span></article></div>
     <div className="integration-grid risk-grid">
       {canManageRules ? <article className="integration-card"><div className="card-head"><div><h2>Nueva política o versión</h2><p>Una nueva familia queda champion; una versión queda challenger</p></div><b>IMMUTABLE</b></div>
         <form className="integration-form risk-rule-form" onSubmit={createRule}><label>Familia<select name="baseRuleId" defaultValue=""><option value="">Nueva política champion</option>{championRules.map((rule) => <option key={rule.id} value={rule.id}>Nueva versión de {rule.name} · v{rule.version}</option>)}</select></label><div className="integration-fields"><label>Nombre<input name="name" placeholder="Monto sensible ARS" minLength={2} required /></label><label>Tipo<select name="kind" value={kind} onChange={(event) => setKind(event.target.value)}><option value="amount_threshold">Monto</option><option value="velocity_count">Velocity</option><option value="counterparty_match">Contraparte</option></select></label></div>
@@ -185,6 +224,18 @@ export default function RiskPanel({ holds, busy: externalBusy, canManageRules, c
         {listEntries.length === 0 ? <div><span><strong>Sin entradas</strong><small>El baseline y las reglas champion siguen activos.</small></span><b>—</b></div> : listEntries.map((entry) => <div key={entry.id}><span><strong>{entry.subjectPreview}</strong><small>{entry.subjectType} · {entry.reason}{entry.expiresAt ? ` · vence ${new Date(entry.expiresAt).toLocaleString('es-AR')}` : ''}</small></span><b className={entry.status === 'active' ? 'active' : ''}>{entry.category}</b>{canManageRules && entry.status === 'active' && <span className="policy-actions"><button disabled={busy} onClick={() => void disableListEntry(entry.id)}>Deshabilitar</button></span>}</div>)}
       </div></article>
     </div>
+    <div className="integration-grid risk-grid step-up-grid">
+      {canResolve ? <article className="integration-card"><div className="card-head"><div><h2>Iniciar step-up</h2><p>OTP de un solo uso para evaluaciones en revisión</p></div><b>NATIVE</b></div>
+        <form className="integration-form risk-rule-form" onSubmit={createStepUp}><label>Evaluación<select name="evaluationId" required disabled={reviewEvaluations.length === 0}><option value="">Seleccionar evaluación</option>{reviewEvaluations.map((evaluation) => <option key={evaluation.id} value={evaluation.id}>{evaluation.counterparty} · {money(evaluation.amount, evaluation.currency)} · score {evaluation.score}</option>)}</select></label>
+          <div className="integration-fields"><label>Expiración<select name="expiresInSeconds" defaultValue="300"><option value="180">3 minutos</option><option value="300">5 minutos</option><option value="600">10 minutos</option></select></label><label>Intentos máximos<input name="maxAttempts" type="number" min="1" max="10" defaultValue="5" required /></label></div>
+          <small>Cimbra genera, cifra y hashea la credencial. El cliente la entrega por su canal aprobado; esto no es 3DS ni un ACS certificado.</small><button disabled={busy || reviewEvaluations.length === 0}>Crear challenge</button>
+        </form>
+      </article> : <article className="integration-card role-boundary-card"><div className="card-head"><div><h2>Step-up protegido</h2><p>Tu rol conserva la evidencia, sin acceso a credenciales</p></div><b>READ ONLY</b></div><p>Owner, admin y operator pueden crear y verificar challenges. Viewer sólo consulta lifecycle, expiración y resultado.</p></article>}
+      <article className="integration-card"><div className="card-head"><div><h2>Verificación y lifecycle</h2><p>Intentos append-only, expiración y lock por challenge</p></div><b>{pendingStepUps.length} pendientes</b></div>
+        {canResolve && <form className="integration-form risk-rule-form" onSubmit={verifyStepUp}><label>Challenge<select name="challengeId" required disabled={pendingStepUps.length === 0}><option value="">Seleccionar challenge</option>{pendingStepUps.map((challenge) => { const evaluation = evaluations.find((item) => item.id === challenge.evaluationId); return <option key={challenge.id} value={challenge.id}>{evaluation?.counterparty ?? challenge.evaluationId} · {challenge.remainingAttempts} intentos</option>; })}</select></label><label>Código OTP<input name="credential" inputMode="numeric" pattern="[0-9]{6}" minLength={6} maxLength={6} autoComplete="one-time-code" placeholder="000000" required /></label><button disabled={busy || pendingStepUps.length === 0}>Verificar código</button></form>}
+        <div className="integration-list compact-list">{stepUpChallenges.length === 0 ? <div><span><strong>Sin challenges</strong><small>Las evaluaciones review pueden elevar autenticación sin resolver el caso automáticamente.</small></span><b>—</b></div> : stepUpChallenges.slice(0, 20).map((challenge) => { const evaluation = evaluations.find((item) => item.id === challenge.evaluationId); return <div key={challenge.id}><span><strong>{evaluation?.counterparty ?? challenge.evaluationId}</strong><small>{challenge.method} · {challenge.attemptCount}/{challenge.maxAttempts} intentos · vence {new Date(challenge.expiresAt).toLocaleString('es-AR')}</small></span><b className={challenge.status === 'verified' ? 'active' : ''}>{challenge.status}</b></div>; })}</div>
+      </article>
+    </div>
     <div className="integration-grid risk-grid">
       {canResolve ? <article className="integration-card"><div className="card-head"><div><h2>Resultado confirmado</h2><p>Etiqueta legítima o fraude para medir calidad real</p></div><b>APPEND ONLY</b></div>
         <form className="integration-form risk-rule-form" onSubmit={reportOutcome}><label>Evaluación<select name="evaluationId" required><option value="">Seleccionar evaluación</option>{evaluations.map((evaluation) => <option key={evaluation.id} value={evaluation.id}>{evaluation.counterparty} · {money(evaluation.amount, evaluation.currency)} · {evaluation.decision}{evaluation.outcome ? ` · corrige ${evaluation.outcome.label}` : ''}</option>)}</select></label>
@@ -200,11 +251,11 @@ export default function RiskPanel({ holds, busy: externalBusy, canManageRules, c
         {metrics.confirmed.losses.map((loss) => <div key={loss.currency}><span><strong>Pérdida confirmada · {loss.currency}</strong><small>{loss.count} resultados de fraude</small></span><b>{money(loss.amount, loss.currency)}</b></div>)}
       </div></article>
     </div>
-    <p className="risk-metric-note">El proxy usa resoluciones operativas de casos. Precisión, recall y tasa de falsos positivos sólo usan resultados de fraude o legitimidad confirmados y activos.</p>
+    <p className="risk-metric-note">SLO de decisión: p50 {metrics.decisionSlo.p50Ms ?? '—'} ms · p95 {metrics.decisionSlo.p95Ms ?? '—'} ms · p99 {metrics.decisionSlo.p99Ms ?? '—'} ms · cumplimiento ≤ {metrics.decisionSlo.targetMs} ms: {metrics.decisionSlo.complianceRate === null ? '—' : `${metrics.decisionSlo.complianceRate}%`} sobre {metrics.decisionSlo.samples} muestras. Precisión, recall y falsos positivos usan sólo outcomes confirmados.</p>
     <article className="module-list hold-list"><div className="card-head"><div><h2>Cola de decisión</h2><p>Casos explicables vinculados a evaluaciones y reservas</p></div><b>{openCases.length} abiertos</b></div>
       {openCases.length === 0 ? <div><span className="movement"><i>✓</i><b>Sin casos pendientes<small>Las evaluaciones aprobadas no generan trabajo manual</small></b></span><strong>Al día</strong></div> : openCases.map((riskCase) => <div key={riskCase.id}><span className="movement"><i>!</i><b>{riskCase.counterparty}<small>{money(riskCase.amount, riskCase.currency)} · score {riskCase.score} · {riskCase.reasons.join(', ') || 'política manual'}</small></b></span>{canResolve ? <span className="hold-actions"><button disabled={busy} onClick={() => void resolveCase(riskCase.id, 'declined')}>Rechazar</button><button disabled={busy} onClick={() => void resolveCase(riskCase.id, 'approved')}>Aprobar</button></span> : <strong>Pendiente</strong>}</div>)}
       {unlinkedHolds.map((hold) => <div key={hold.id}><span className="movement"><i>◇</i><b>{hold.counterparty}<small>Reserva anterior sin caso · {hold.description} · {money(hold.amount, hold.currency)}</small></b></span>{canResolve ? <span className="hold-actions"><button disabled={externalBusy} onClick={() => void onHold(hold.id, 'release')}>Liberar</button><button disabled={externalBusy} onClick={() => void onHold(hold.id, 'capture')}>Capturar</button></span> : <strong>Reservado</strong>}</div>)}
     </article>
-    <article className="module-list"><div className="card-head"><div><h2>Evaluaciones recientes</h2><p>Score, decisión, señales derivadas y resultado confirmado</p></div><b>{evaluations.length}</b></div>{evaluations.slice(0, 20).map((evaluation) => <div key={evaluation.id}><span className="movement"><i>{evaluation.decision === 'approve' ? '✓' : '!'}</i><b>{evaluation.counterparty}<small>{money(evaluation.amount, evaluation.currency)} · {evaluation.reasons.join(', ') || 'baseline'}{evaluation.signals.deviceReferencePresent ? ' · dispositivo' : ''}{evaluation.signals.identityReferencePresent ? ' · identidad' : ''}</small></b></span><strong>{evaluation.score} · {evaluation.outcome?.label ?? evaluation.decision}</strong></div>)}</article>
+    <article className="module-list"><div className="card-head"><div><h2>Evaluaciones recientes</h2><p>Score, latencia, señales derivadas y resultado confirmado</p></div><b>{evaluations.length}</b></div>{evaluations.slice(0, 20).map((evaluation) => <div key={evaluation.id}><span className="movement"><i>{evaluation.decision === 'approve' ? '✓' : '!'}</i><b>{evaluation.counterparty}<small>{money(evaluation.amount, evaluation.currency)} · {evaluation.decisionLatencyMs === null ? 'latencia histórica no medida' : `${evaluation.decisionLatencyMs} ms`} · {evaluation.reasons.join(', ') || 'baseline'}{evaluation.signals.deviceReferencePresent ? ' · dispositivo' : ''}{evaluation.signals.identityReferencePresent ? ' · identidad' : ''}</small></b></span><strong>{evaluation.score} · {evaluation.outcome?.label ?? evaluation.decision}</strong></div>)}</article>
   </div>;
 }

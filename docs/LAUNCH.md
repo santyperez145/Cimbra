@@ -4,7 +4,7 @@
 
 - marca y narrativa comercial orientada a compradores, con capacidades y límites verificables;
 - sitio responsive, sesión contextual y captación persistente;
-- portal developer conectado al OpenAPI real, con las 82 operaciones, parámetros, respuestas, búsqueda, quickstart ejecutable, límites del sandbox y changelog;
+- portal developer conectado al OpenAPI real, con las 85 operaciones, parámetros, respuestas, búsqueda, quickstart ejecutable, límites del sandbox y changelog;
 - identidad y consola multi-tenant básica;
 - registro e inicio de sesión propio, sesiones revocables y OAuth Google/Apple;
 - sandbox persistente para customers, accounts, cards y transfers;
@@ -23,7 +23,7 @@
 - verificación de email, recuperación de contraseña con revocación de sesiones y MFA TOTP con recovery codes de un solo uso.
 - miembros e invitaciones verificadas con roles owner/admin/operator/viewer, jerarquía, auditoría, webhooks y consola adaptada al permiso efectivo.
 - matriz canónica de capacidades compartida por API y consola, redirección por sesión vencida y denegaciones de rol normalizadas como `403 insufficient_role`.
-- motor de riesgo propio con políticas regionales, familias versionadas por tenant, champion/challenger, simulación sin impacto en vivo, métricas operativas, velocity, evaluaciones, casos y resolución sincronizada con holds.
+- motor de riesgo propio con políticas regionales, familias versionadas por tenant, champion/challenger, simulación sin impacto en vivo, métricas operativas, velocity, evaluaciones, step-up OTP con secretos protegidos e intentos append-only, p50/p95/p99 y cumplimiento del SLO de decisión, casos y resolución sincronizada con holds.
 - conciliación propia de lotes contra el ledger con matches, diferencias, faltantes, cola de excepciones y resolución idempotente.
 - importación CSV canónica y ciclos de settlement sandbox programables, únicos por conciliación y entregados por webhooks.
 - disputas parciales nativas sobre débitos liquidados, con ventana y máquina de estados explícitas, crédito provisional/final en ledger, compensación contable, auditoría, webhooks, API, SDK y consola por rol; `network_ready` no implica presentación real ante una red.

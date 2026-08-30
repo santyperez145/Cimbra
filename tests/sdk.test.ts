@@ -317,6 +317,31 @@ test('el SDK verifica firma, timestamp, cuerpo crudo y antigüedad del webhook',
   );
 });
 
+test('el SDK cubre el lifecycle de step-up sin exponer secretos en lecturas', async () => {
+  const calls: Array<{ method: string; url: string; idempotencyKey: string | null }> = [];
+  const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async (input, init) => {
+    const url = String(input); const method = init?.method ?? 'GET';
+    calls.push({ method, url, idempotencyKey: new Headers(init?.headers).get('idempotency-key') });
+    if (method === 'GET') return Response.json({ data: [{ id: 'challenge_1', evaluationId: 'evaluation_1', status: 'pending' }] });
+    if (url.endsWith('/verify')) return Response.json({ ok: true, replayed: false, verified: true,
+      challenge: { id: 'challenge_1', evaluationId: 'evaluation_1', status: 'verified' },
+      attempt: { id: 'attempt_1', attemptNumber: 1, result: 'matched' } });
+    return Response.json({ ok: true, replayed: false, credential: '123456',
+      challenge: { id: 'challenge_1', evaluationId: 'evaluation_1', status: 'pending' } }, { status: 201 });
+  } });
+  await client.risk.listStepUpChallenges('evaluation_1');
+  const created = await client.risk.createStepUpChallenge('evaluation_1', { expiresInSeconds: 300, maxAttempts: 5 });
+  await client.risk.verifyStepUpChallenge('evaluation_1', created.data.challenge.id, { credential: created.data.credential! });
+  assert.deepEqual(calls.map((call) => `${call.method} ${call.url}`), [
+    'GET https://api.test/api/v1/risk/evaluations/evaluation_1/step-up-challenges',
+    'POST https://api.test/api/v1/risk/evaluations/evaluation_1/step-up-challenges',
+    'POST https://api.test/api/v1/risk/evaluations/evaluation_1/step-up-challenges/challenge_1/verify',
+  ]);
+  assert.equal(calls[0].idempotencyKey, null);
+  assert.match(calls[1].idempotencyKey ?? '', /^idem_[a-f0-9]{32}$/);
+  assert.match(calls[2].idempotencyKey ?? '', /^idem_[a-f0-9]{32}$/);
+});
+
 test('el SDK cablea programas, emisión, lifecycle y controles de tarjetas con idempotencia', async () => {
   const calls: Array<{ url: string; method: string; idempotencyKey: string | null }> = [];
   const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async (input, init) => {

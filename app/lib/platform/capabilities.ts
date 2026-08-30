@@ -91,8 +91,8 @@ export const PLATFORM_CAPABILITIES: readonly PlatformCapability[] = [
   },
   {
     id: 'risk-fraud', name: 'Risk & Fraud', domain: 'risk', availability: 'sandbox', delivery: 'cimbra_native',
-    summary: 'Rules engine, velocity, scoring explicable, decisiones y casos vinculados a holds.',
-    features: ['rules engine', 'immutable policy versions', 'champion/challenger simulation', 'velocity limits', 'risk scoring', 'case management', 'hold resolution', 'case resolution dual approval'],
+    summary: 'Rules engine, velocity, scoring explicable, step-up OTP, SLO medido y casos vinculados a holds.',
+    features: ['rules engine', 'immutable policy versions', 'champion/challenger simulation', 'velocity limits', 'risk scoring', 'OTP step-up lifecycle', 'decision latency SLO', 'case management', 'hold resolution', 'case resolution dual approval'],
     interfaces: ['rest_api', 'webhooks', 'sdk', 'console'], regulatoryBoundary: 'Los modelos y reglas requieren datos representativos, monitoreo de sesgo y aprobación humana según impacto y regulación.',
   },
   {

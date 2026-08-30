@@ -11,7 +11,7 @@ import { csvObjects, CsvError } from '../app/lib/platform/csv.ts';
 import { ACCESS_POLICY, ROLE_PROFILES, assignableRole, canManageRole, normalizeAccessEmail, roleCan, rolesFor } from '../app/lib/platform/access-policy.ts';
 import { approvalActionType, approvalExpiryMinutes, approvalReason, canDecideApproval } from '../app/lib/platform/approval-policy.ts';
 import { normalizeEvidenceLink, normalizeOperationalNote, normalizeWorkItemUpdate } from '../app/lib/platform/operations-input.ts';
-import { normalizeRiskRuleInput, normalizeRiskSimulationSamples } from '../app/lib/platform/risk-input.ts';
+import { normalizeRiskRuleInput, normalizeRiskSimulationSamples, normalizeRiskStepUpCredential, normalizeRiskStepUpInput } from '../app/lib/platform/risk-input.ts';
 import { normalizeRawRiskSignals, parseProtectedRiskSignals, protectRiskSignals, publicRiskSignals, riskSubjectHash, riskSubjectPreview } from '../app/lib/platform/risk-signals.ts';
 import { initialCardStatus, normalizeCardControlsInput, normalizeCardProgramInput, normalizeCardTransition } from '../app/lib/platform/card-issuing.ts';
 import { authenticatedFetch } from '../app/lib/platform/client-http.ts';
@@ -194,6 +194,19 @@ test('normaliza políticas versionables y acota las muestras de simulación', ()
   assert.equal(samples?.[1].amountMinor, 10n);
   assert.equal(normalizeRiskSimulationSamples([]), null);
   assert.equal(normalizeRiskSimulationSamples(Array.from({ length: 51 }, () => ({ operationType: 'transfer', amount: '1', currency: 'ARS', counterparty: 'QA' }))), null);
+});
+
+test('step-up acota método, expiración, intentos y credenciales', () => {
+  assert.deepEqual(normalizeRiskStepUpInput({}), { expiresInSeconds: 300, maxAttempts: 5 });
+  assert.deepEqual(normalizeRiskStepUpInput({ method: 'otp', delivery: 'client_managed', expiresInSeconds: 60, maxAttempts: 1 }), {
+    expiresInSeconds: 60, maxAttempts: 1,
+  });
+  assert.equal(normalizeRiskStepUpInput({ method: '3ds' }), null);
+  assert.equal(normalizeRiskStepUpInput({ expiresInSeconds: 30 }), null);
+  assert.equal(normalizeRiskStepUpInput({ maxAttempts: 11 }), null);
+  assert.equal(normalizeRiskStepUpCredential({ credential: ' 123456 ' }), '123456');
+  assert.equal(normalizeRiskStepUpCredential({ credential: '12345' }), null);
+  assert.equal(normalizeRiskStepUpCredential({ credential: 123456 }), null);
 });
 
 test('disputes aplica un lifecycle explícito y terminal', () => {

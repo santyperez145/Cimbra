@@ -372,7 +372,7 @@ export const riskEvaluations = pgTable('risk_evaluations', {
   amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(), currency: text('currency').notNull(), counterparty: text('counterparty').notNull(),
   score: integer('score').notNull(), decision: text('decision').notNull(), matchedRuleIds: text('matched_rule_ids').notNull().default('[]'),
   matchedListEntryIds: text('matched_list_entry_ids').notNull().default('[]'), signals: text('signals').notNull().default('{}'),
-  reasons: text('reasons').notNull().default('[]'), createdAt: text('created_at').notNull(),
+  reasons: text('reasons').notNull().default('[]'), decisionLatencyMs: integer('decision_latency_ms'), createdAt: text('created_at').notNull(),
 }, (table) => [
   uniqueIndex('idx_risk_evaluations_org_idempotency').on(table.organizationId, table.idempotencyKey),
   index('idx_risk_evaluations_org_created').on(table.organizationId, table.createdAt),
@@ -380,6 +380,46 @@ export const riskEvaluations = pgTable('risk_evaluations', {
   check('risk_evaluations_operation', sql`${table.operationType} IN ('transfer', 'cash_in', 'cash_out')`),
   check('risk_evaluations_score', sql`${table.score} BETWEEN 0 AND 100`),
   check('risk_evaluations_decision', sql`${table.decision} IN ('approve', 'review', 'decline')`),
+  check('risk_evaluations_latency', sql`${table.decisionLatencyMs} IS NULL OR ${table.decisionLatencyMs} >= 0`),
+]);
+
+export const riskStepUpChallenges = pgTable('risk_step_up_challenges', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  evaluationId: text('evaluation_id').notNull().references(() => riskEvaluations.id, { onDelete: 'cascade' }),
+  idempotencyKey: text('idempotency_key').notNull(), requestFingerprint: text('request_fingerprint').notNull(),
+  method: text('method').notNull().default('otp'), delivery: text('delivery').notNull().default('client_managed'),
+  credentialHash: text('credential_hash').notNull(), credentialSalt: text('credential_salt').notNull(),
+  credentialIterations: integer('credential_iterations').notNull(), credentialCiphertext: text('credential_ciphertext'),
+  status: text('status').notNull().default('pending'), attemptCount: integer('attempt_count').notNull().default(0),
+  maxAttempts: integer('max_attempts').notNull().default(5), expiresAt: text('expires_at').notNull(),
+  verifiedAt: text('verified_at'), failedAt: text('failed_at'),
+  createdBy: text('created_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
+  createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_risk_step_up_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  uniqueIndex('idx_risk_step_up_one_pending_evaluation').on(table.organizationId, table.evaluationId)
+    .where(sql`${table.status} = 'pending'`),
+  index('idx_risk_step_up_org_status_expiry').on(table.organizationId, table.status, table.expiresAt),
+  index('idx_risk_step_up_evaluation_created').on(table.evaluationId, table.createdAt),
+  check('risk_step_up_method', sql`${table.method} IN ('otp')`),
+  check('risk_step_up_delivery', sql`${table.delivery} IN ('client_managed')`),
+  check('risk_step_up_status', sql`${table.status} IN ('pending', 'verified', 'failed', 'expired', 'cancelled')`),
+  check('risk_step_up_attempts', sql`${table.attemptCount} >= 0 AND ${table.attemptCount} <= ${table.maxAttempts}`),
+  check('risk_step_up_max_attempts', sql`${table.maxAttempts} BETWEEN 1 AND 10`),
+]);
+
+export const riskStepUpAttempts = pgTable('risk_step_up_attempts', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  challengeId: text('challenge_id').notNull().references(() => riskStepUpChallenges.id, { onDelete: 'cascade' }),
+  idempotencyKey: text('idempotency_key').notNull(), requestFingerprintCiphertext: text('request_fingerprint_ciphertext').notNull(),
+  attemptNumber: integer('attempt_number').notNull(), result: text('result').notNull(), createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_risk_step_up_attempts_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  index('idx_risk_step_up_attempts_challenge_created').on(table.challengeId, table.createdAt),
+  check('risk_step_up_attempt_number', sql`${table.attemptNumber} > 0`),
+  check('risk_step_up_attempt_result', sql`${table.result} IN ('matched', 'mismatch', 'expired', 'locked')`),
 ]);
 
 export const riskCases = pgTable('risk_cases', {

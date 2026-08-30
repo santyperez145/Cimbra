@@ -1,6 +1,7 @@
-import { sha256 } from '@/app/lib/auth/crypto';
+import { hashPassword, sha256, verifyPassword } from '@/app/lib/auth/crypto';
 import type { AuthUser } from '@/app/lib/auth/types';
 import { minorToMajorNumber, type Currency } from '@/app/lib/ledger/money';
+import { decryptPlatformSecret, encryptPlatformSecret } from '@/app/lib/platform/crypto';
 import { systemAmountRisk } from '@/app/lib/platform/risk-engine';
 import {
   parseProtectedRiskSignals,
@@ -34,7 +35,7 @@ type DecisionSummary = { approve: number; review: number; decline: number; avera
 type StoredEvaluation = {
   id: string; operationType: RiskOperation; resourceType: string; resourceId: string | null; amountMinor: string; currency: Currency;
   counterparty: string; score: number; decision: RiskDecision; matchedRuleIds: string; matchedListEntryIds: string; reasons: string;
-  signals: string; createdAt: string; requestFingerprint: string; outcomeId?: string | null; outcomeLabel?: 'legitimate' | 'fraud' | null;
+  signals: string; decisionLatencyMs: number | null; createdAt: string; requestFingerprint: string; outcomeId?: string | null; outcomeLabel?: 'legitimate' | 'fraud' | null;
   fraudType?: string | null; lossAmountMinor?: string | null; outcomeCurrency?: Currency | null; outcomeNote?: string | null; outcomeCreatedAt?: string | null;
 };
 
@@ -53,6 +54,7 @@ export type RiskAssessment = {
   matchedListEntryIds: string[];
   reasons: string[];
   signals: ReturnType<typeof publicRiskSignals>;
+  decisionLatencyMs: number | null;
   protectedSignals?: ProtectedRiskSignals;
   outcome?: null | {
     id: string; label: 'legitimate' | 'fraud'; fraudType: string | null; lossAmountMinor: string | null;
@@ -61,6 +63,32 @@ export type RiskAssessment = {
   createdAt?: string;
   requestFingerprint: string;
   replayed: boolean;
+};
+
+export type RiskStepUpStatus = 'pending' | 'verified' | 'failed' | 'expired' | 'cancelled';
+export type RiskStepUpAttemptResult = 'matched' | 'mismatch' | 'expired' | 'locked';
+export type RiskStepUpChallenge = {
+  id: string;
+  evaluationId: string;
+  method: 'otp';
+  delivery: 'client_managed';
+  status: RiskStepUpStatus;
+  attemptCount: number;
+  remainingAttempts: number;
+  maxAttempts: number;
+  expiresAt: string;
+  verifiedAt: string | null;
+  failedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type StoredStepUpChallenge = Omit<RiskStepUpChallenge, 'remainingAttempts'> & {
+  requestFingerprint: string;
+  credentialHash: string;
+  credentialSalt: string;
+  credentialIterations: number;
+  credentialCiphertext: string | null;
 };
 
 export class RiskError extends Error {
@@ -84,13 +112,36 @@ function withoutRequestFingerprint(value: Record<string, unknown>) {
   return result;
 }
 
+const STEP_UP_CHALLENGE_COLUMNS = `id, evaluation_id AS "evaluationId", method, delivery, status,
+  attempt_count AS "attemptCount", max_attempts AS "maxAttempts", expires_at AS "expiresAt",
+  verified_at AS "verifiedAt", failed_at AS "failedAt", created_at AS "createdAt", updated_at AS "updatedAt",
+  request_fingerprint AS "requestFingerprint", credential_hash AS "credentialHash", credential_salt AS "credentialSalt",
+  credential_iterations AS "credentialIterations", credential_ciphertext AS "credentialCiphertext"`;
+
+function publicStepUpChallenge(row: StoredStepUpChallenge): RiskStepUpChallenge {
+  return {
+    id: row.id, evaluationId: row.evaluationId, method: row.method, delivery: row.delivery, status: row.status,
+    attemptCount: Number(row.attemptCount), remainingAttempts: Math.max(0, Number(row.maxAttempts) - Number(row.attemptCount)),
+    maxAttempts: Number(row.maxAttempts), expiresAt: row.expiresAt, verifiedAt: row.verifiedAt, failedAt: row.failedAt,
+    createdAt: row.createdAt, updatedAt: row.updatedAt,
+  };
+}
+
+function createNumericCredential() {
+  const maximum = 0x1_0000_0000 - (0x1_0000_0000 % 1_000_000);
+  const values = new Uint32Array(1);
+  do crypto.getRandomValues(values); while (values[0] >= maximum);
+  return String(values[0] % 1_000_000).padStart(6, '0');
+}
+
 function serializeEvaluation(row: StoredEvaluation, replayed: boolean): RiskAssessment {
   return {
     id: row.id, operationType: row.operationType, resourceType: row.resourceType, resourceId: row.resourceId,
     amountMinor: row.amountMinor, amount: minorToMajorNumber(row.amountMinor, row.currency), currency: row.currency,
     counterparty: row.counterparty, score: row.score, decision: row.decision,
     matchedRuleIds: parseStringArray(row.matchedRuleIds), matchedListEntryIds: parseStringArray(row.matchedListEntryIds),
-    reasons: parseStringArray(row.reasons), signals: publicRiskSignals(parseProtectedRiskSignals(row.signals) ?? {}), createdAt: row.createdAt,
+    reasons: parseStringArray(row.reasons), signals: publicRiskSignals(parseProtectedRiskSignals(row.signals) ?? {}),
+    decisionLatencyMs: row.decisionLatencyMs, createdAt: row.createdAt,
     requestFingerprint: row.requestFingerprint, replayed,
     outcome: row.outcomeId && row.outcomeLabel && row.outcomeCreatedAt ? {
       id: row.outcomeId, label: row.outcomeLabel, fraudType: row.fraudType ?? null, lossAmountMinor: row.lossAmountMinor ?? null,
@@ -209,7 +260,7 @@ async function evaluateDecision(input: {
     operationType: input.operationType, resourceType: 'transaction', resourceId: null,
     amountMinor: input.amountMinor.toString(), amount: minorToMajorNumber(input.amountMinor, input.currency), currency: input.currency,
     counterparty: input.counterparty, score, decision, matchedRuleIds, matchedListEntryIds, reasons,
-    signals: publicRiskSignals(input.signals ?? {}), protectedSignals: input.signals ?? {}, outcome: null,
+    signals: publicRiskSignals(input.signals ?? {}), protectedSignals: input.signals ?? {}, decisionLatencyMs: null, outcome: null,
   };
 }
 
@@ -227,7 +278,8 @@ export async function assessRisk(input: {
     `SELECT e.id, e.operation_type AS "operationType", e.resource_type AS "resourceType", e.resource_id AS "resourceId",
       e.amount_minor::text AS "amountMinor", e.currency, e.counterparty, e.score, e.decision,
       e.matched_rule_ids AS "matchedRuleIds", e.matched_list_entry_ids AS "matchedListEntryIds", e.reasons, e.signals,
-      e.created_at AS "createdAt", e.request_fingerprint AS "requestFingerprint", o.id AS "outcomeId", o.label AS "outcomeLabel",
+      e.decision_latency_ms AS "decisionLatencyMs", e.created_at AS "createdAt", e.request_fingerprint AS "requestFingerprint",
+      o.id AS "outcomeId", o.label AS "outcomeLabel",
       o.fraud_type AS "fraudType", o.loss_amount_minor::text AS "lossAmountMinor", o.currency AS "outcomeCurrency",
       o.note AS "outcomeNote", o.created_at AS "outcomeCreatedAt"
      FROM risk_evaluations e LEFT JOIN risk_outcomes o ON o.evaluation_id = e.id AND o.status = 'active'
@@ -262,14 +314,15 @@ export async function persistRiskAssessment(input: {
   await database.prepare(
     `INSERT INTO risk_evaluations
       (id, organization_id, idempotency_key, request_fingerprint, operation_type, resource_type, resource_id,
-       amount_minor, currency, counterparty, score, decision, matched_rule_ids, matched_list_entry_ids, reasons, signals, created_at)
-     VALUES (?, ?, ?, ?, ?, 'transaction', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       amount_minor, currency, counterparty, score, decision, matched_rule_ids, matched_list_entry_ids, reasons, signals,
+       decision_latency_ms, created_at)
+     VALUES (?, ?, ?, ?, ?, 'transaction', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (organization_id, idempotency_key) DO NOTHING`,
   ).bind(id, input.organizationId, input.idempotencyKey, input.assessment.requestFingerprint, input.assessment.operationType,
     input.resourceId ?? null, input.assessment.amountMinor, input.assessment.currency, input.assessment.counterparty,
     input.assessment.score, input.assessment.decision, JSON.stringify(input.assessment.matchedRuleIds),
     JSON.stringify(input.assessment.matchedListEntryIds), JSON.stringify(input.assessment.reasons),
-    JSON.stringify(input.assessment.protectedSignals ?? {}), now).run();
+    JSON.stringify(input.assessment.protectedSignals ?? {}), input.assessment.decisionLatencyMs, now).run();
   if (input.assessment.decision !== 'approve') {
     const caseId = crypto.randomUUID();
     const priority = input.assessment.decision === 'decline' || input.assessment.score >= 85 ? 'critical' : input.assessment.score >= 70 ? 'high' : 'medium';
@@ -293,10 +346,236 @@ export async function evaluateAndPersistRisk(input: {
   counterparty: string; signals?: ProtectedRiskSignals;
 }) {
   return getDatabaseClient().transaction(async (database) => {
+    const startedAt = performance.now();
     await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
       .bind(`${input.organizationId}:risk:${input.idempotencyKey}`).first();
     const assessment = await assessRisk(input, database);
+    if (!assessment.replayed) assessment.decisionLatencyMs = Math.max(0, Math.round(performance.now() - startedAt));
     return persistRiskAssessment({ organizationId: input.organizationId, actor: input.actor, idempotencyKey: input.idempotencyKey, assessment }, database);
+  });
+}
+
+export async function expireRiskStepUpChallenges(limit = 100, organizationId?: string) {
+  return getDatabaseClient().transaction(async (database) => {
+    const now = new Date().toISOString();
+    const organizationFilter = organizationId ? ' AND organization_id = ?' : '';
+    const parameters: Array<string | number> = [now];
+    if (organizationId) parameters.push(organizationId);
+    parameters.push(Math.min(Math.max(limit, 1), 500), now);
+    const expired = await database.prepare(
+      `WITH candidates AS (
+         SELECT id FROM risk_step_up_challenges
+         WHERE status = 'pending' AND expires_at <= ?${organizationFilter}
+         ORDER BY expires_at FOR UPDATE SKIP LOCKED LIMIT ?
+       )
+       UPDATE risk_step_up_challenges c SET status = 'expired', credential_ciphertext = NULL, updated_at = ?
+       FROM candidates WHERE c.id = candidates.id
+       RETURNING c.id, c.organization_id AS "organizationId", c.evaluation_id AS "evaluationId", c.created_by AS "createdBy"`,
+    ).bind(...parameters).all<{ id: string; organizationId: string; evaluationId: string; createdBy: string }>();
+    for (const challenge of expired.results) {
+      await audit(database, { organizationId: challenge.organizationId, actorId: challenge.createdBy,
+        action: 'risk.step_up_challenge_expired', resourceType: 'risk_step_up_challenge', resourceId: challenge.id,
+        payload: { evaluationId: challenge.evaluationId, automatic: true } });
+    }
+    return expired.results.length;
+  });
+}
+
+export async function listRiskStepUpChallenges(organizationId: string, evaluationId?: string) {
+  await expireRiskStepUpChallenges(100, organizationId);
+  if (evaluationId) {
+    const evaluation = await getDatabaseClient().prepare(
+      `SELECT id FROM risk_evaluations WHERE id = ? AND organization_id = ? LIMIT 1`,
+    ).bind(evaluationId, organizationId).first<{ id: string }>();
+    if (!evaluation) throw new RiskError('Evaluación de riesgo no encontrada.', 404, 'risk_evaluation_not_found');
+  }
+  const now = new Date().toISOString();
+  const parameters: string[] = [now, organizationId];
+  const evaluationFilter = evaluationId ? ' AND evaluation_id = ?' : '';
+  if (evaluationId) parameters.push(evaluationId);
+  const rows = await getDatabaseClient().prepare(
+    `SELECT id, evaluation_id AS "evaluationId", method, delivery,
+      CASE WHEN status = 'pending' AND expires_at <= ? THEN 'expired' ELSE status END AS status,
+      attempt_count AS "attemptCount", max_attempts AS "maxAttempts", expires_at AS "expiresAt",
+      verified_at AS "verifiedAt", failed_at AS "failedAt", created_at AS "createdAt", updated_at AS "updatedAt"
+     FROM risk_step_up_challenges WHERE organization_id = ?${evaluationFilter}
+     ORDER BY created_at DESC LIMIT 100`,
+  ).bind(...parameters).all<Omit<StoredStepUpChallenge, 'requestFingerprint' | 'credentialHash' | 'credentialSalt' | 'credentialIterations' | 'credentialCiphertext'>>();
+  return rows.results.map((row) => publicStepUpChallenge(row as StoredStepUpChallenge));
+}
+
+export async function createRiskStepUpChallenge(input: {
+  organizationId: string;
+  actor: AuthUser;
+  evaluationId: string;
+  idempotencyKey: string;
+  expiresInSeconds: number;
+  maxAttempts: number;
+}) {
+  const fingerprint = await sha256(JSON.stringify({ evaluationId: input.evaluationId, method: 'otp', delivery: 'client_managed',
+    expiresInSeconds: input.expiresInSeconds, maxAttempts: input.maxAttempts }));
+  return getDatabaseClient().transaction(async (database) => {
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:risk-step-up:${input.evaluationId}`).first();
+    const existing = await database.prepare(
+      `SELECT ${STEP_UP_CHALLENGE_COLUMNS} FROM risk_step_up_challenges
+       WHERE organization_id = ? AND idempotency_key = ? LIMIT 1`,
+    ).bind(input.organizationId, input.idempotencyKey).first<StoredStepUpChallenge>();
+    if (existing) {
+      if (existing.requestFingerprint !== fingerprint) throw new RiskError('La Idempotency-Key ya fue usada con otro challenge.', 409, 'idempotency_mismatch');
+      const now = new Date().toISOString();
+      if (existing.status === 'pending' && existing.expiresAt <= now) {
+        await database.prepare(
+          `UPDATE risk_step_up_challenges SET status = 'expired', credential_ciphertext = NULL, updated_at = ? WHERE id = ?`,
+        ).bind(now, existing.id).run();
+        existing.status = 'expired'; existing.credentialCiphertext = null; existing.updatedAt = now;
+        await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId,
+          action: 'risk.step_up_challenge_expired', resourceType: 'risk_step_up_challenge', resourceId: existing.id,
+          payload: { evaluationId: existing.evaluationId } });
+      }
+      return {
+        challenge: publicStepUpChallenge(existing),
+        credential: existing.status === 'pending' && existing.credentialCiphertext
+          ? await decryptPlatformSecret(existing.credentialCiphertext) : null,
+        replayed: true,
+      };
+    }
+    const evaluation = await database.prepare(
+      `SELECT id, decision FROM risk_evaluations WHERE id = ? AND organization_id = ? FOR UPDATE`,
+    ).bind(input.evaluationId, input.organizationId).first<{ id: string; decision: RiskDecision }>();
+    if (!evaluation) throw new RiskError('Evaluación de riesgo no encontrada.', 404, 'risk_evaluation_not_found');
+    if (evaluation.decision !== 'review') {
+      throw new RiskError('El step-up sólo se inicia para evaluaciones en revisión.', 409, 'risk_evaluation_not_review');
+    }
+    const now = new Date().toISOString();
+    const expired = await database.prepare(
+      `UPDATE risk_step_up_challenges SET status = 'expired', credential_ciphertext = NULL, updated_at = ?
+       WHERE organization_id = ? AND evaluation_id = ? AND status = 'pending' AND expires_at <= ? RETURNING id`,
+    ).bind(now, input.organizationId, input.evaluationId, now).all<{ id: string }>();
+    for (const row of expired.results) {
+      await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId,
+        action: 'risk.step_up_challenge_expired', resourceType: 'risk_step_up_challenge', resourceId: row.id,
+        payload: { evaluationId: input.evaluationId } });
+    }
+    const pending = await database.prepare(
+      `SELECT id FROM risk_step_up_challenges WHERE organization_id = ? AND evaluation_id = ? AND status = 'pending' LIMIT 1`,
+    ).bind(input.organizationId, input.evaluationId).first<{ id: string }>();
+    if (pending) throw new RiskError('La evaluación ya tiene un challenge pendiente.', 409, 'risk_step_up_challenge_pending');
+    const credential = createNumericCredential();
+    const protectedCredential = await hashPassword(credential);
+    const id = crypto.randomUUID();
+    const expiresAt = new Date(Date.parse(now) + input.expiresInSeconds * 1000).toISOString();
+    const credentialCiphertext = await encryptPlatformSecret(credential);
+    await database.prepare(
+      `INSERT INTO risk_step_up_challenges
+        (id, organization_id, evaluation_id, idempotency_key, request_fingerprint, method, delivery,
+         credential_hash, credential_salt, credential_iterations, credential_ciphertext, status, attempt_count,
+         max_attempts, expires_at, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 'otp', 'client_managed', ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?)`,
+    ).bind(id, input.organizationId, input.evaluationId, input.idempotencyKey, fingerprint,
+      protectedCredential.hash, protectedCredential.salt, protectedCredential.iterations, credentialCiphertext,
+      input.maxAttempts, expiresAt, input.actor.userId, now, now).run();
+    const challenge: RiskStepUpChallenge = {
+      id, evaluationId: input.evaluationId, method: 'otp', delivery: 'client_managed', status: 'pending', attemptCount: 0,
+      remainingAttempts: input.maxAttempts, maxAttempts: input.maxAttempts, expiresAt, verifiedAt: null, failedAt: null,
+      createdAt: now, updatedAt: now,
+    };
+    await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId,
+      action: 'risk.step_up_challenge_created', resourceType: 'risk_step_up_challenge', resourceId: id,
+      payload: { evaluationId: input.evaluationId, method: 'otp', delivery: 'client_managed', expiresAt,
+        maxAttempts: input.maxAttempts } });
+    return { challenge, credential, replayed: false };
+  });
+}
+
+export async function verifyRiskStepUpChallenge(input: {
+  organizationId: string;
+  actor: AuthUser;
+  evaluationId: string;
+  challengeId: string;
+  credential: string;
+  idempotencyKey: string;
+}) {
+  const fingerprint = await sha256(JSON.stringify({ evaluationId: input.evaluationId,
+    challengeId: input.challengeId, credential: input.credential }));
+  return getDatabaseClient().transaction(async (database) => {
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:risk-step-up-attempt:${input.challengeId}`).first();
+    const existingAttempt = await database.prepare(
+      `SELECT id, challenge_id AS "challengeId", request_fingerprint_ciphertext AS "requestFingerprintCiphertext",
+        attempt_number AS "attemptNumber", result, created_at AS "createdAt"
+       FROM risk_step_up_attempts WHERE organization_id = ? AND idempotency_key = ? LIMIT 1`,
+    ).bind(input.organizationId, input.idempotencyKey).first<{
+      id: string; challengeId: string; requestFingerprintCiphertext: string; attemptNumber: number;
+      result: RiskStepUpAttemptResult; createdAt: string;
+    }>();
+    if (existingAttempt) {
+      if (existingAttempt.challengeId !== input.challengeId ||
+          await decryptPlatformSecret(existingAttempt.requestFingerprintCiphertext) !== fingerprint) {
+        throw new RiskError('La Idempotency-Key ya fue usada con otro intento.', 409, 'idempotency_mismatch');
+      }
+      const replayChallenge = await database.prepare(
+        `SELECT ${STEP_UP_CHALLENGE_COLUMNS} FROM risk_step_up_challenges
+         WHERE id = ? AND organization_id = ? AND evaluation_id = ? LIMIT 1`,
+      ).bind(input.challengeId, input.organizationId, input.evaluationId).first<StoredStepUpChallenge>();
+      if (!replayChallenge) throw new RiskError('Challenge no encontrado.', 404, 'risk_step_up_challenge_not_found');
+      return { challenge: publicStepUpChallenge(replayChallenge), attempt: {
+        id: existingAttempt.id, attemptNumber: existingAttempt.attemptNumber, result: existingAttempt.result,
+        createdAt: existingAttempt.createdAt,
+      }, verified: existingAttempt.result === 'matched', replayed: true };
+    }
+    const current = await database.prepare(
+      `SELECT ${STEP_UP_CHALLENGE_COLUMNS} FROM risk_step_up_challenges
+       WHERE id = ? AND organization_id = ? AND evaluation_id = ? FOR UPDATE`,
+    ).bind(input.challengeId, input.organizationId, input.evaluationId).first<StoredStepUpChallenge>();
+    if (!current) throw new RiskError('Challenge no encontrado.', 404, 'risk_step_up_challenge_not_found');
+    const now = new Date().toISOString();
+    let result: RiskStepUpAttemptResult = 'locked';
+    let status = current.status;
+    let attemptCount = Number(current.attemptCount);
+    let attemptNumber = attemptCount + 1;
+    let verifiedAt = current.verifiedAt;
+    let failedAt = current.failedAt;
+    if (current.status === 'pending' && current.expiresAt <= now) {
+      result = 'expired'; status = 'expired'; attemptCount += 1;
+      attemptNumber = attemptCount;
+      await database.prepare(
+        `UPDATE risk_step_up_challenges SET status = 'expired', attempt_count = ?, credential_ciphertext = NULL,
+          updated_at = ? WHERE id = ?`,
+      ).bind(attemptCount, now, current.id).run();
+    } else if (current.status === 'pending') {
+      const matched = await verifyPassword(input.credential, current.credentialHash, current.credentialSalt, current.credentialIterations);
+      attemptCount += 1;
+      attemptNumber = attemptCount;
+      result = matched ? 'matched' : 'mismatch';
+      status = matched ? 'verified' : attemptCount >= current.maxAttempts ? 'failed' : 'pending';
+      verifiedAt = matched ? now : null;
+      failedAt = status === 'failed' ? now : null;
+      await database.prepare(
+        `UPDATE risk_step_up_challenges SET status = ?, attempt_count = ?, verified_at = ?, failed_at = ?,
+          credential_ciphertext = CASE WHEN ? = 'pending' THEN credential_ciphertext ELSE NULL END, updated_at = ? WHERE id = ?`,
+      ).bind(status, attemptCount, verifiedAt, failedAt, status, now, current.id).run();
+    }
+    const attemptId = crypto.randomUUID();
+    await database.prepare(
+      `INSERT INTO risk_step_up_attempts
+        (id, organization_id, challenge_id, idempotency_key, request_fingerprint_ciphertext, attempt_number, result, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).bind(attemptId, input.organizationId, current.id, input.idempotencyKey,
+      await encryptPlatformSecret(fingerprint), attemptNumber, result, now).run();
+    const eventType = result === 'matched' ? 'risk.step_up_challenge_verified'
+      : status === 'failed' ? 'risk.step_up_challenge_failed'
+        : status === 'expired' ? 'risk.step_up_challenge_expired' : 'risk.step_up_attempt_failed';
+    await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId, action: eventType,
+      resourceType: 'risk_step_up_challenge', resourceId: current.id,
+      payload: { evaluationId: current.evaluationId, attemptNumber, result,
+        remainingAttempts: Math.max(0, current.maxAttempts - attemptCount), status } });
+    const challenge: RiskStepUpChallenge = {
+      ...publicStepUpChallenge(current), status, attemptCount,
+      remainingAttempts: Math.max(0, current.maxAttempts - attemptCount), verifiedAt, failedAt, updatedAt: now,
+    };
+    return { challenge, attempt: { id: attemptId, attemptNumber, result, createdAt: now },
+      verified: result === 'matched', replayed: false };
   });
 }
 
@@ -636,10 +915,12 @@ export async function reportRiskOutcome(input: {
 }
 
 export async function listRiskState(organizationId: string) {
+  await expireRiskStepUpChallenges(100, organizationId);
   const database = getDatabaseClient();
   const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
   const now = new Date().toISOString();
-  const [rules, evaluations, cases, simulations, listEntries, evaluationMetrics, resolutionMetrics, confirmedMetrics, losses] = await Promise.all([
+  const [rules, evaluations, cases, simulations, listEntries, stepUpChallenges, evaluationMetrics, resolutionMetrics,
+    confirmedMetrics, losses, stepUpMetrics, decisionSlo] = await Promise.all([
     database.prepare(
       `SELECT id, family_id AS "familyId", version, deployment, name, kind, operation_type AS "operationType", score_delta AS "scoreDelta", action, configuration,
         priority, status, created_at AS "createdAt", updated_at AS "updatedAt"
@@ -649,7 +930,8 @@ export async function listRiskState(organizationId: string) {
       `SELECT e.id, e.operation_type AS "operationType", e.resource_type AS "resourceType", e.resource_id AS "resourceId",
         e.amount_minor::text AS "amountMinor", e.currency, e.counterparty, e.score, e.decision, e.matched_rule_ids AS "matchedRuleIds",
         e.matched_list_entry_ids AS "matchedListEntryIds", e.reasons, e.signals, e.created_at AS "createdAt",
-        e.request_fingerprint AS "requestFingerprint", o.id AS "outcomeId", o.label AS "outcomeLabel", o.fraud_type AS "fraudType",
+        e.decision_latency_ms AS "decisionLatencyMs", e.request_fingerprint AS "requestFingerprint",
+        o.id AS "outcomeId", o.label AS "outcomeLabel", o.fraud_type AS "fraudType",
         o.loss_amount_minor::text AS "lossAmountMinor", o.currency AS "outcomeCurrency", o.note AS "outcomeNote", o.created_at AS "outcomeCreatedAt"
        FROM risk_evaluations e LEFT JOIN risk_outcomes o ON o.evaluation_id = e.id AND o.status = 'active'
        WHERE e.organization_id = ? ORDER BY e.created_at DESC LIMIT 100`,
@@ -674,6 +956,13 @@ export async function listRiskState(organizationId: string) {
         expires_at AS "expiresAt", created_at AS "createdAt", updated_at AS "updatedAt"
        FROM risk_list_entries WHERE organization_id = ? ORDER BY created_at DESC LIMIT 100`,
     ).bind(now, organizationId).all<Record<string, unknown>>(),
+    database.prepare(
+      `SELECT id, evaluation_id AS "evaluationId", method, delivery,
+        CASE WHEN status = 'pending' AND expires_at <= ? THEN 'expired' ELSE status END AS status,
+        attempt_count AS "attemptCount", max_attempts AS "maxAttempts", expires_at AS "expiresAt",
+        verified_at AS "verifiedAt", failed_at AS "failedAt", created_at AS "createdAt", updated_at AS "updatedAt"
+       FROM risk_step_up_challenges WHERE organization_id = ? ORDER BY created_at DESC LIMIT 100`,
+    ).bind(now, organizationId).all<Omit<StoredStepUpChallenge, 'requestFingerprint' | 'credentialHash' | 'credentialSalt' | 'credentialIterations' | 'credentialCiphertext'>>(),
     database.prepare(
       `SELECT COUNT(*)::int AS total,
         COUNT(*) FILTER (WHERE decision = 'approve')::int AS approve,
@@ -701,6 +990,21 @@ export async function listRiskState(organizationId: string) {
        FROM risk_outcomes WHERE organization_id = ? AND status = 'active' AND label = 'fraud'
        GROUP BY currency ORDER BY currency`,
     ).bind(organizationId).all<{ currency: Currency; amountMinor: string; count: number }>(),
+    database.prepare(
+      `SELECT COUNT(*)::int AS total,
+        COUNT(*) FILTER (WHERE status = 'pending' AND expires_at > ?)::int AS pending,
+        COUNT(*) FILTER (WHERE status = 'verified')::int AS verified,
+        COUNT(*) FILTER (WHERE status IN ('failed', 'expired'))::int AS unsuccessful
+       FROM risk_step_up_challenges WHERE organization_id = ? AND created_at >= ?`,
+    ).bind(now, organizationId, since).first<{ total: number; pending: number; verified: number; unsuccessful: number }>(),
+    database.prepare(
+      `SELECT COUNT(decision_latency_ms)::int AS samples,
+        ROUND((percentile_cont(0.50) WITHIN GROUP (ORDER BY decision_latency_ms))::numeric, 2)::float8 AS "p50Ms",
+        ROUND((percentile_cont(0.95) WITHIN GROUP (ORDER BY decision_latency_ms))::numeric, 2)::float8 AS "p95Ms",
+        ROUND((percentile_cont(0.99) WITHIN GROUP (ORDER BY decision_latency_ms))::numeric, 2)::float8 AS "p99Ms",
+        ROUND((100 * AVG(CASE WHEN decision_latency_ms <= 250 THEN 1.0 ELSE 0.0 END))::numeric, 2)::float8 AS "complianceRate"
+       FROM risk_evaluations WHERE organization_id = ? AND created_at >= ? AND decision_latency_ms IS NOT NULL`,
+    ).bind(organizationId, since).first<{ samples: number; p50Ms: number | null; p95Ms: number | null; p99Ms: number | null; complianceRate: number | null }>(),
   ]);
   const resolved = Number(resolutionMetrics?.resolved ?? 0);
   const approvedAfterReview = Number(resolutionMetrics?.approved ?? 0);
@@ -714,9 +1018,11 @@ export async function listRiskState(organizationId: string) {
       { id: 'sys_velocity_counterparty', name: 'Velocity por contraparte', action: 'review', status: 'active' },
       { id: 'sys_decision_lists', name: 'Listas tenant de contraparte, dispositivo e identidad', action: 'allow/watch/block', status: 'active' },
       { id: 'sys_device_identity', name: 'Confianza de dispositivo, identidad y país', action: 'score/review', status: 'active' },
+      { id: 'sys_step_up_otp', name: 'Challenge OTP reforzado con expiración e intentos limitados', action: 'step_up', status: 'active' },
     ],
     rules: rules.results.map((rule) => ({ ...rule, configuration: parseConfiguration(rule.configuration) })),
     listEntries: listEntries.results,
+    stepUpChallenges: stepUpChallenges.results.map((challenge) => publicStepUpChallenge(challenge as StoredStepUpChallenge)),
     evaluations: evaluations.results.map((evaluation) => serializeEvaluation(evaluation, false)),
     cases: cases.results.map((riskCase) => ({ ...riskCase, amount: minorToMajorNumber(riskCase.amountMinor, riskCase.currency), reasons: parseStringArray(riskCase.reasons) })),
     simulations: simulations.results.map((simulation) => ({ ...simulation,
@@ -731,6 +1037,17 @@ export async function listRiskState(organizationId: string) {
         total: Number(confirmedMetrics?.total ?? 0), truePositives: tp, falsePositives: fp, trueNegatives: tn, falseNegatives: fn,
         precision: percentage(tp, tp + fp), recall: percentage(tp, tp + fn), falsePositiveRate: percentage(fp, fp + tn),
         losses: losses.results.map((loss) => ({ ...loss, amount: minorToMajorNumber(loss.amountMinor, loss.currency) })),
+      },
+      stepUp: {
+        total: Number(stepUpMetrics?.total ?? 0), pending: Number(stepUpMetrics?.pending ?? 0),
+        verified: Number(stepUpMetrics?.verified ?? 0), unsuccessful: Number(stepUpMetrics?.unsuccessful ?? 0),
+        verificationRate: percentage(Number(stepUpMetrics?.verified ?? 0),
+          Number(stepUpMetrics?.verified ?? 0) + Number(stepUpMetrics?.unsuccessful ?? 0)),
+      },
+      decisionSlo: {
+        targetMs: 250, samples: Number(decisionSlo?.samples ?? 0), p50Ms: decisionSlo?.p50Ms ?? null,
+        p95Ms: decisionSlo?.p95Ms ?? null, p99Ms: decisionSlo?.p99Ms ?? null,
+        complianceRate: decisionSlo?.complianceRate ?? null,
       },
     },
   };

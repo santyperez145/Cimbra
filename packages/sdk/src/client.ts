@@ -3,12 +3,14 @@ import type {
   Account, ApprovalRequest, AuditEvent, Card, CardControls, CardLifecycleEvent, CardProgram, CimbraResult, CreateAccountInput,
   CreateCardInput, CreateCardProgramInput, CreateCustomerInput, CreateDisputeInput, CreatePaymentInput,
   CreateReconciliationCsvImportInput, CreateReconciliationRunInput, CreateRiskEvaluationInput, CreateRiskListEntryInput, CreateRiskRuleInput, CreateRiskSimulationInput,
+  CreateRiskStepUpChallengeInput,
   CreateSettlementCycleInput, CreateTransferInput, CreateWebhookInput,
   Customer, Dispute, DisputeEventName, DisputeTimelineEvent, DisputeTransitionResult, Hold, HoldResolution, LedgerBalance, LedgerJournal, ListOptions, Page, PlatformCapability,
   OperationalEvidence, OperationalNote, OperationalState, OperationalWorkItem, TransitionCardInput, UpdateCardControlsInput,
   UpdateOperationalWorkItemInput, WorkItemType,
   ReconciliationException, ReconciliationExceptionResolutionResult, ReconciliationRun, RequestOptions, RiskCase,
-  ReportRiskOutcomeInput, RiskCaseResolutionResult, RiskEvaluation, RiskListEntry, RiskMetrics, RiskOutcome, RiskRule, RiskSimulation, SettlementCycle, SettlementExecutionResult,
+  ReportRiskOutcomeInput, RiskCaseResolutionResult, RiskEvaluation, RiskListEntry, RiskMetrics, RiskOutcome, RiskRule, RiskSimulation,
+  RiskStepUpAttempt, RiskStepUpChallenge, SettlementCycle, SettlementExecutionResult, VerifyRiskStepUpChallengeInput,
   Transaction, TransferCreationResult, WebhookOperationalState,
 } from './types.ts';
 
@@ -130,7 +132,7 @@ export class Cimbra {
   };
 
   readonly risk = {
-    state: (options?: RequestOptions) => this.request<{ data: { systemPolicies: Array<{ id: string; name: string; action: string; status: string }>; rules: RiskRule[]; listEntries: RiskListEntry[]; evaluations: RiskEvaluation[]; cases: RiskCase[]; simulations: RiskSimulation[]; metrics: RiskMetrics } }>('GET', '/api/v1/risk', undefined, options),
+    state: (options?: RequestOptions) => this.request<{ data: { systemPolicies: Array<{ id: string; name: string; action: string; status: string }>; rules: RiskRule[]; listEntries: RiskListEntry[]; stepUpChallenges: RiskStepUpChallenge[]; evaluations: RiskEvaluation[]; cases: RiskCase[]; simulations: RiskSimulation[]; metrics: RiskMetrics } }>('GET', '/api/v1/risk', undefined, options),
     evaluate: (input: CreateRiskEvaluationInput, options?: RequestOptions) =>
       this.post<{ ok: true; evaluation: RiskEvaluation; replayed: boolean }>('/api/v1/risk/evaluations', input, options, true),
     createRule: (input: CreateRiskRuleInput, options?: RequestOptions) =>
@@ -151,6 +153,15 @@ export class Cimbra {
     reportOutcome: (evaluationId: string, input: ReportRiskOutcomeInput, options?: RequestOptions) =>
       this.post<{ ok: true; outcome: RiskOutcome; replayed: boolean }>(
         `/api/v1/risk/evaluations/${encodeURIComponent(evaluationId)}/outcomes`, input, options, true),
+    listStepUpChallenges: (evaluationId: string, options?: RequestOptions) =>
+      this.request<{ data: RiskStepUpChallenge[] }>('GET',
+        `/api/v1/risk/evaluations/${encodeURIComponent(evaluationId)}/step-up-challenges`, undefined, options),
+    createStepUpChallenge: (evaluationId: string, input: CreateRiskStepUpChallengeInput = {}, options?: RequestOptions) =>
+      this.post<{ ok: true; challenge: RiskStepUpChallenge; credential: string | null; replayed: boolean }>(
+        `/api/v1/risk/evaluations/${encodeURIComponent(evaluationId)}/step-up-challenges`, input, options, true),
+    verifyStepUpChallenge: (evaluationId: string, challengeId: string, input: VerifyRiskStepUpChallengeInput, options?: RequestOptions) =>
+      this.post<{ ok: true; challenge: RiskStepUpChallenge; attempt: RiskStepUpAttempt; verified: boolean; replayed: boolean }>(
+        `/api/v1/risk/evaluations/${encodeURIComponent(evaluationId)}/step-up-challenges/${encodeURIComponent(challengeId)}/verify`, input, options, true),
     resolveCase: (id: string, input: { resolution: 'approved' | 'declined'; note: string }, options?: RequestOptions) =>
       this.post<RiskCaseResolutionResult>(`/api/v1/risk/cases/${encodeURIComponent(id)}/resolve`, input, options, true),
   };

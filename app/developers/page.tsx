@@ -29,6 +29,11 @@ const errorResponses = [
 const changelog = [
   {
     date: '29 AGO 2026',
+    title: 'Step-up OTP y SLO de decisión',
+    detail: 'Challenges client-managed con secreto cifrado y hasheado, expiración, intentos append-only, idempotencia, RBAC, auditoría y SDK. Riesgo publica p50/p95/p99 y cumplimiento medido; no se presenta como 3DS o ACS.',
+  },
+  {
+    date: '29 AGO 2026',
     title: 'Disputas y chargebacks nativos',
     detail: 'Disputas parciales con lifecycle explícito, créditos provisionales o definitivos en doble partida, compensaciones, evidencia, cola operativa, maker/checker, API, SDK y permisos por rol. network_ready no implica conexión a una red real.',
   },
@@ -150,6 +155,22 @@ return new Response(null, { status: 204 });`;
     "requestId": "req_<id>"
   }
 }`;
+  const riskStepUpExample = `const evaluationId = '<evaluation_in_review_uuid>';
+const created = await cimbra.risk.createStepUpChallenge(evaluationId, {
+  expiresInSeconds: 300,
+  maxAttempts: 5,
+});
+
+// Entregá esta credencial desde tu backend por un canal aprobado.
+const credential = created.data.credential!;
+
+const result = await cimbra.risk.verifyStepUpChallenge(
+  evaluationId,
+  created.data.challenge.id,
+  { credential },
+);
+
+console.log(result.data.verified, result.data.challenge.status);`;
 
   return <main className="docs-shell docs-shell-expanded">
     <header className="docs-topbar">
@@ -175,6 +196,7 @@ return new Response(null, { status: 204 });`;
         <a href="#errors">Errores y rate limits</a>
         <strong>INTEGRACIÓN</strong>
         <a href="#sdk">SDK TypeScript</a>
+        <a href="#risk-step-up">Step-up y SLO</a>
         <a href="#webhooks">Webhooks y eventos</a>
         <a href="#reference">Referencia completa</a>
         <a href="#changelog">Changelog</a>
@@ -185,7 +207,7 @@ return new Response(null, { status: 204 });`;
     <article className="docs-content docs-content-expanded">
       <details className="docs-mobile-nav">
         <summary>Índice de documentación</summary>
-        <nav><a href="#overview">Overview</a><a href="#quickstart">Quickstart</a><a href="#authentication">Auth</a><a href="#sdk">SDK</a><a href="#webhooks">Webhooks</a><a href="#reference">API reference</a></nav>
+        <nav><a href="#overview">Overview</a><a href="#quickstart">Quickstart</a><a href="#authentication">Auth</a><a href="#sdk">SDK</a><a href="#risk-step-up">Step-up</a><a href="#webhooks">Webhooks</a><a href="#reference">API reference</a></nav>
       </details>
 
       <section id="overview" className="docs-hero">
@@ -293,6 +315,18 @@ return new Response(null, { status: 204 });`;
         <CodeBlock language="TYPESCRIPT" value={sdkQuickstart} />
       </section>
 
+      <section id="risk-step-up" className="docs-section">
+        <p className="docs-kicker">RISK STEP-UP</p><h2>Autenticación reforzada, sin confundirla con una red.</h2>
+        <p className="docs-section-lede">Una evaluación <code>review</code> puede abrir un challenge OTP. Cimbra genera la credencial, conserva hash y ciphertext, limita intentos, expira el challenge y registra cada intento sin guardar el código en claro. El integrador recibe la credencial sólo en el create/replay pendiente y la entrega desde backend por su canal aprobado.</p>
+        <div className="webhook-contract-grid">
+          <article><strong>Lifecycle</strong><p><code>pending → verified | failed | expired</code>. Un challenge terminal no se reabre.</p></article>
+          <article><strong>Interconexión</strong><p>La verificación queda vinculada a la evaluación y al caso; no resuelve fondos ni evita maker/checker.</p></article>
+          <article><strong>SLO medido</strong><p>El estado de riesgo publica muestras, p50, p95, p99 y porcentaje ≤ 250 ms de decisiones nuevas.</p></article>
+          <article><strong>Límite real</strong><p>No implementa EMV 3DS, ACS, liability shift, SMS, push ni biometría. Esas capas requieren canal, riel y certificación directos.</p></article>
+        </div>
+        <CodeBlock language="TYPESCRIPT · SDK REAL" value={riskStepUpExample} />
+      </section>
+
       <section id="webhooks" className="docs-section">
         <p className="docs-kicker">WEBHOOKS</p><h2>Outbox durable, firma y replay operativo.</h2>
         <div className="webhook-contract-grid">
@@ -321,7 +355,7 @@ return new Response(null, { status: 204 });`;
 
     <aside className="docs-toc">
       <strong>EN ESTA PÁGINA</strong>
-      <a href="#overview">Overview</a><a href="#environments">Entornos</a><a href="#quickstart">Quickstart</a><a href="#authentication">Autenticación</a><a href="#idempotency">Idempotencia</a><a href="#errors">Errores</a><a href="#sdk">SDK</a><a href="#webhooks">Webhooks</a><a href="#reference">API reference</a><a href="#changelog">Changelog</a>
+      <a href="#overview">Overview</a><a href="#environments">Entornos</a><a href="#quickstart">Quickstart</a><a href="#authentication">Autenticación</a><a href="#idempotency">Idempotencia</a><a href="#errors">Errores</a><a href="#sdk">SDK</a><a href="#risk-step-up">Step-up</a><a href="#webhooks">Webhooks</a><a href="#reference">API reference</a><a href="#changelog">Changelog</a>
       <div><span>{user ? `Sesión activa · ${user.displayName.split(' ')[0]}` : '¿Necesitás credenciales?'}</span><Link href={user ? '/console' : '/login?return_to=%2Fconsole'}>{user ? 'Abrir Developers' : 'Ingresar al sandbox'} →</Link></div>
     </aside>
   </main>;

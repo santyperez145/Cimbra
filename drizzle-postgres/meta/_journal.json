@@ -155,6 +155,13 @@
       "when": 1788033276214,
       "tag": "0021_clumsy_mauler",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1788046733094,
+      "tag": "0022_careless_the_liberteens",
+      "breakpoints": true
     }
   ]
 }
