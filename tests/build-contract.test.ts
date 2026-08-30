@@ -58,3 +58,12 @@ test('el selector de período gobierna métricas y actividad persistidas', () =>
   assert.match(consoleClient, /data\.periodSummaries\[overviewPeriod\]/);
   assert.doesNotMatch(consoleClient, /<select aria-label="Período"><option>/);
 });
+
+test('el estado de cuenta conserva layout de formulario y métricas responsive', () => {
+  const panel = readFileSync(join(root, 'app', 'console', 'book-transfers-panel.tsx'), 'utf8');
+  const styles = readFileSync(join(root, 'app', 'globals.css'), 'utf8');
+  assert.match(panel, /className="book-statement-body"/);
+  assert.match(styles, /\.book-statement-body>label select\{[^}]*width:100%[^}]*height:40px/);
+  assert.match(styles, /\.book-statement-body \.module-metrics\{grid-template-columns:1fr 1fr/);
+  assert.match(styles, /@media\(max-width:620px\).*\.book-statement-body \.module-metrics\{grid-template-columns:1fr\}/);
+});
