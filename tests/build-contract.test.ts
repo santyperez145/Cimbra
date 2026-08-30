@@ -65,5 +65,7 @@ test('el estado de cuenta conserva layout de formulario y métricas responsive',
   assert.match(panel, /className="book-statement-body"/);
   assert.match(styles, /\.book-statement-body>label select\{[^}]*width:100%[^}]*height:40px/);
   assert.match(styles, /\.book-statement-body \.module-metrics\{grid-template-columns:1fr 1fr/);
+  assert.match(styles, /\.book-transfers-console \.integration-card>\.danger-link\{[^}]*border:1px solid[^}]*font:650/);
   assert.match(styles, /@media\(max-width:620px\).*\.book-statement-body \.module-metrics\{grid-template-columns:1fr\}/);
+  assert.match(styles, /@media\(max-width:620px\).*\.book-transfers-console>\.module-list>div:not\(\.card-head\)\{[^}]*flex-direction:column/);
 });
