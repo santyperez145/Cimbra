@@ -622,6 +622,133 @@ paths:
         '200': { description: Mandate lifecycle updated or replayed }
         '404': { description: Mandate not found in tenant }
         '409': { description: Invalid lifecycle transition or idempotency mismatch }
+  /api/v1/payout-beneficiaries:
+    get:
+      operationId: listPayoutBeneficiaries
+      summary: List tenant-scoped payout beneficiaries
+      description: Returns only a protected destination type and last four characters; the original destination is never returned.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      responses:
+        '200':
+          description: Beneficiary catalog
+          content: { application/json: { schema: { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/PayoutBeneficiary' } } } } } }
+        '403': { description: Missing payouts:read scope or console role }
+    post:
+      operationId: createPayoutBeneficiary
+      summary: Create a protected payout beneficiary
+      description: Owner/Admin only for sessions. Cimbra persists a tenant-scoped digest and last four characters, not the raw destination.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreatePayoutBeneficiaryInput' } } }
+      responses:
+        '201': { description: Beneficiary created }
+        '200': { description: Idempotent replay }
+        '403': { description: Missing payouts:write scope or payouts.beneficiaries.manage permission }
+        '409': { description: Duplicate reference/destination or idempotency mismatch }
+  /api/v1/payout-beneficiaries/{id}:
+    get:
+      operationId: retrievePayoutBeneficiary
+      summary: Retrieve one payout beneficiary
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses:
+        '200': { description: Protected beneficiary, content: { application/json: { schema: { $ref: '#/components/schemas/PayoutBeneficiary' } } } }
+        '404': { description: Beneficiary not found in tenant }
+  /api/v1/payout-beneficiaries/{id}/status:
+    post:
+      operationId: updatePayoutBeneficiaryStatus
+      summary: Activate or suspend a payout beneficiary
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [action]
+              properties: { action: { type: string, enum: [activate, suspend] } }
+      responses:
+        '200': { description: Beneficiary lifecycle updated or replayed }
+        '403': { description: Missing payouts:write scope or beneficiary-management permission }
+        '409': { description: Idempotency mismatch }
+  /api/v1/payout-batches:
+    get:
+      operationId: listPayoutBatches
+      summary: List payout batches with per-item results
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      responses:
+        '200':
+          description: Tenant payout batches
+          content: { application/json: { schema: { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/PayoutBatch' } } } } } }
+        '403': { description: Missing payouts:read scope or console role }
+    post:
+      operationId: createPayoutBatch
+      summary: Create an immutable payout batch draft
+      description: Accepts 1-100 items. Every beneficiary, account and currency is validated inside the tenant before persistence.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreatePayoutBatchInput' } } }
+      responses:
+        '201': { description: Immutable draft created }
+        '200': { description: Idempotent replay }
+        '403': { description: Missing payouts:write scope or finance.write permission }
+        '409': { description: Account, beneficiary, currency, reference or idempotency conflict }
+  /api/v1/payout-batches/{id}:
+    get:
+      operationId: retrievePayoutBatch
+      summary: Retrieve a payout batch and all item results
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses:
+        '200': { description: Payout batch, content: { application/json: { schema: { $ref: '#/components/schemas/PayoutBatch' } } } }
+        '404': { description: Batch not found in tenant }
+  /api/v1/payout-batches/{id}/submit:
+    post:
+      operationId: submitPayoutBatch
+      summary: Submit a payout batch for approval, scheduling or execution
+      description: Returns 202. When dual control is enabled, a different Owner/Admin with MFA must authorize the batch. Otherwise a leased worker processes each item independently through risk and the ledger.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '202': { description: Approval pending, scheduled or processing }
+        '200': { description: Idempotent replay of a terminal result }
+        '403': { description: Missing payouts:write scope or finance.write permission }
+        '409': { description: Invalid state, expired processing window or idempotency conflict }
+  /api/v1/payout-batches/{id}/cancel:
+    post:
+      operationId: cancelPayoutBatch
+      summary: Cancel a draft or scheduled payout batch
+      description: Pending approvals are cancelled through the approval request. Processing and terminal batches cannot be cancelled destructively.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200': { description: Batch cancelled or idempotently replayed }
+        '409': { description: Batch is no longer directly cancellable }
+  /api/v1/payout-batches/{id}/result:
+    get:
+      operationId: downloadPayoutBatchResult
+      summary: Download the real per-item payout result file
+      description: CSV contains protected beneficiary data, amounts, transaction links, terminal/current states and failure codes from the sandbox worker.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses:
+        '200':
+          description: UTF-8 CSV result file
+          content: { text/csv: { schema: { type: string } } }
+        '403': { description: Missing payouts:read scope or console role }
+        '404': { description: Batch not found in tenant }
   /api/v1/capabilities:
     get:
       operationId: listPlatformCapabilities
@@ -1750,7 +1877,7 @@ paths:
               type: object
               required: [enabled, expiresInMinutes]
               properties:
-                actionType: { type: string, enum: [settlement.execute, transfer.create, risk.case.resolve, reconciliation.exception.resolve], default: settlement.execute }
+                actionType: { type: string, enum: [settlement.execute, transfer.create, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve], default: settlement.execute }
                 enabled: { type: boolean }
                 expiresInMinutes: { type: integer, minimum: 15, maximum: 10080 }
       responses:
@@ -1781,7 +1908,7 @@ paths:
                   type: array
                   minItems: 1
                   uniqueItems: true
-                  items: { type: string, enum: ['customers:read', 'customers:write', 'accounts:read', 'accounts:write', 'cards:read', 'cards:write', 'transfers:read', 'transfers:write', 'payments:read', 'payments:write', 'billers:read', 'billers:write', 'risk:read', 'risk:write', 'disputes:read', 'disputes:write', 'reconciliation:read', 'reconciliation:write', 'settlements:read', 'settlements:write', 'approvals:read', 'operations:read', 'operations:write', 'platform:read', 'ledger:read', 'events:read', 'compliance:read', 'compliance:write', 'webhooks:manage'] }
+                  items: { type: string, enum: ['customers:read', 'customers:write', 'accounts:read', 'accounts:write', 'cards:read', 'cards:write', 'transfers:read', 'transfers:write', 'payments:read', 'payments:write', 'payouts:read', 'payouts:write', 'billers:read', 'billers:write', 'risk:read', 'risk:write', 'disputes:read', 'disputes:write', 'reconciliation:read', 'reconciliation:write', 'settlements:read', 'settlements:write', 'approvals:read', 'operations:read', 'operations:write', 'platform:read', 'ledger:read', 'events:read', 'compliance:read', 'compliance:write', 'webhooks:manage'] }
                 expiresInDays: { type: integer, minimum: 1, maximum: 365 }
       responses:
         '201': { description: API key created and secret returned once }
@@ -2036,6 +2163,113 @@ components:
               size: { type: integer, minimum: 0 }
               status: { type: string }
               createdAt: { type: string, format: date-time }
+    PayoutBeneficiary:
+      type: object
+      additionalProperties: false
+      required: [id, externalReference, name, entityType, country, currency, destinationType, destinationLast4, bankCode, status, createdBy, createdByName, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        externalReference: { type: string }
+        name: { type: string }
+        entityType: { type: string, enum: [individual, business] }
+        country: { type: string, pattern: '^[A-Z]{2}$' }
+        currency: { type: string, enum: [ARS, USD, MXN, COP, BRL, CLP, PEN] }
+        destinationType: { type: string, enum: [local_account, alias, iban, clabe, pix_key] }
+        destinationLast4: { type: string, minLength: 4, maxLength: 4 }
+        bankCode: { type: [string, 'null'] }
+        status: { type: string, enum: [active, suspended] }
+        createdBy: { type: string, format: uuid }
+        createdByName: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    CreatePayoutBeneficiaryInput:
+      type: object
+      additionalProperties: false
+      required: [externalReference, name, entityType, country, currency, destinationType, destination]
+      properties:
+        externalReference: { type: string, minLength: 2, maxLength: 100 }
+        name: { type: string, minLength: 2, maxLength: 160 }
+        entityType: { type: string, enum: [individual, business] }
+        country: { type: string, pattern: '^[A-Za-z]{2}$' }
+        currency: { type: string, enum: [ARS, USD, MXN, COP, BRL, CLP, PEN] }
+        destinationType: { type: string, enum: [local_account, alias, iban, clabe, pix_key] }
+        destination: { type: string, minLength: 4, maxLength: 160, writeOnly: true, description: Converted to a tenant-scoped one-way digest before persistence. }
+        bankCode: { type: string, minLength: 2, maxLength: 40 }
+    PayoutItem:
+      type: object
+      additionalProperties: false
+      required: [id, batchId, beneficiaryId, beneficiaryName, beneficiaryReference, destinationType, destinationLast4, externalReference, amountMinor, amount, currency, description, status, transactionId, failureCode, failureMessage, attemptCount, processedAt, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        batchId: { type: string, format: uuid }
+        beneficiaryId: { type: string, format: uuid }
+        beneficiaryName: { type: string }
+        beneficiaryReference: { type: string }
+        destinationType: { type: string, enum: [local_account, alias, iban, clabe, pix_key] }
+        destinationLast4: { type: string, minLength: 4, maxLength: 4 }
+        externalReference: { type: string }
+        amountMinor: { type: string, pattern: '^\d+$' }
+        amount: { type: number }
+        currency: { type: string, enum: [ARS, USD, MXN, COP, BRL, CLP, PEN] }
+        description: { type: string }
+        status: { type: string, enum: [pending, processing, review, settled, failed, cancelled] }
+        transactionId: { type: [string, 'null'], format: uuid }
+        failureCode: { type: [string, 'null'] }
+        failureMessage: { type: [string, 'null'] }
+        attemptCount: { type: integer, minimum: 0, maximum: 3 }
+        processedAt: { type: [string, 'null'], format: date-time }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    PayoutBatch:
+      type: object
+      additionalProperties: false
+      required: [id, sourceAccountId, sourceAccountReference, externalReference, description, currency, status, totalAmountMinor, totalAmount, itemCount, scheduledFor, processBefore, submittedAt, startedAt, completedAt, cancelledAt, createdBy, createdByName, createdAt, updatedAt, items]
+      properties:
+        id: { type: string, format: uuid }
+        sourceAccountId: { type: string, format: uuid }
+        sourceAccountReference: { type: string }
+        externalReference: { type: string }
+        description: { type: string }
+        currency: { type: string, enum: [ARS, USD, MXN, COP, BRL, CLP, PEN] }
+        status: { type: string, enum: [draft, pending_approval, scheduled, processing, requires_attention, completed, partially_failed, failed, cancelled] }
+        totalAmountMinor: { type: string, pattern: '^\d+$' }
+        totalAmount: { type: number }
+        itemCount: { type: integer, minimum: 1, maximum: 100 }
+        scheduledFor: { type: [string, 'null'], format: date-time }
+        processBefore: { type: [string, 'null'], format: date-time }
+        submittedAt: { type: [string, 'null'], format: date-time }
+        startedAt: { type: [string, 'null'], format: date-time }
+        completedAt: { type: [string, 'null'], format: date-time }
+        cancelledAt: { type: [string, 'null'], format: date-time }
+        createdBy: { type: string, format: uuid }
+        createdByName: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        items: { type: array, minItems: 1, maxItems: 100, items: { $ref: '#/components/schemas/PayoutItem' } }
+    CreatePayoutBatchInput:
+      type: object
+      additionalProperties: false
+      required: [sourceAccountId, externalReference, description, currency, items]
+      properties:
+        sourceAccountId: { type: string, format: uuid }
+        externalReference: { type: string, minLength: 2, maxLength: 100 }
+        description: { type: string, minLength: 2, maxLength: 240 }
+        currency: { type: string, enum: [ARS, USD, MXN, COP, BRL, CLP, PEN] }
+        scheduledFor: { type: string, format: date-time, description: Optional start time, at most 365 days ahead. }
+        processBefore: { type: string, format: date-time, description: Optional processing deadline strictly after the effective start. }
+        items:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            type: object
+            additionalProperties: false
+            required: [externalReference, beneficiaryId, amount, description]
+            properties:
+              externalReference: { type: string, minLength: 2, maxLength: 100 }
+              beneficiaryId: { type: string, format: uuid }
+              amount: { type: string, pattern: '^\d+(?:\.\d+)?$' }
+              description: { type: string, minLength: 2, maxLength: 240 }
     Biller:
       type: object
       additionalProperties: false
@@ -2329,8 +2563,8 @@ components:
       required: [id, actionType, resourceType, resourceId, status, requestPayload, requestedBy, requestedByName, expiresAt, createdAt, updatedAt]
       properties:
         id: { type: string, format: uuid }
-        actionType: { type: string, enum: [settlement.execute, transfer.create, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve] }
-        resourceType: { type: string, enum: [settlement_cycle, transfer, risk_case, reconciliation_exception, dispute] }
+        actionType: { type: string, enum: [settlement.execute, transfer.create, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve] }
+        resourceType: { type: string, enum: [settlement_cycle, transfer, payout_batch, risk_case, reconciliation_exception, dispute] }
         resourceId: { type: string, format: uuid }
         status: { type: string, enum: [pending, executed, rejected, cancelled, expired, failed] }
         requestPayload: { type: object, additionalProperties: true }

@@ -24,7 +24,10 @@ export async function GET() {
         AND to_regclass('public.ledger_journals') IS NOT NULL
         AND to_regclass('public.billers') IS NOT NULL
         AND to_regclass('public.bill_payment_orders') IS NOT NULL
-        AND to_regclass('public.recurring_payment_mandates') IS NOT NULL AS ready`,
+        AND to_regclass('public.recurring_payment_mandates') IS NOT NULL
+        AND to_regclass('public.payout_beneficiaries') IS NOT NULL
+        AND to_regclass('public.payout_batches') IS NOT NULL
+        AND to_regclass('public.payout_items') IS NOT NULL AS ready`,
     ).first<{ ready: boolean }>();
     if (!readiness?.ready) throw new Error('schema_not_ready');
   } catch (error) {

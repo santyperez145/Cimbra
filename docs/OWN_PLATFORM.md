@@ -14,13 +14,14 @@ La independencia tecnológica no elimina la realidad de los rieles. Para mover f
 | Customers, KYC & KYB | personas/empresas, partes relacionadas, evidencia, checks, casos, vencimiento y decisión maker/checker | API, webhooks, SDK, consola | Sandbox operativo; sin verificación externa certificada |
 | Financial Core | cuentas, ledger, holds, límites, fees, reversas | API, webhooks, SDK, consola | Sandbox operativo |
 | Payment Orchestration | intents, cash-in/out, transfers, routing, estados y doble aprobación | API, webhooks, SDK, consola | Sandbox operativo |
+| Beneficiaries & Payout Batches | destinos protegidos, lotes inmutables, agenda/deadline, doble aprobación, ejecución y resultado por ítem | API, webhooks, SDK, archivos, consola | Sandbox operativo; sin riel de dinero real |
 | Instant Payments | transferencias, alias, QR, request-to-pay, returns | API, webhooks, archivos | Roadmap |
 | Card Issuing | programas, lifecycle, límites y controles por canal/MCC; tokenización futura | API, webhooks, SDK, consola | Sandbox operativo sin PAN/CVV ni red |
 | Disputes & Chargebacks | disputas parciales, lifecycle, evidencia, créditos compensables, SLA | API, SDK, eventos, consola | Sandbox |
 | Card Processing | autorización, stand-in, clearing, presentments, 3DS | API, ISO 8583, eventos, archivos | Roadmap |
 | Acquiring | checkout, links, QR, POS, Tap to Phone, split | API, webhooks, SDK, ISO 8583 | Roadmap |
 | Bill Payments & Top-ups | catálogo tenant, deuda emitida, pago, recargas, gift cards, reversas y mandatos recurrentes | API, webhooks, SDK, consola | Sandbox operativo; sin cobertura, biller externo ni débito homologado |
-| Wallets | white-label, balances, pockets y payouts | API, webhooks, SDK, consola | Base técnica |
+| Wallets | white-label, balances, pockets y configuración de programa | API, webhooks, SDK, consola | Base técnica |
 | Lending | originación, líneas, schedules, intereses y cobranza | API, webhooks, SDK, consola | Roadmap |
 | Risk & Fraud | reglas, velocity, señales protegidas, listas tenant, scoring, step-up OTP, SLO p50/p95/p99, casos, outcomes confirmados, métricas supervisadas, ownership, SLA, evidencia y decisiones con doble aprobación | API, webhooks, SDK, consola | Sandbox operativo; no 3DS/ACS |
 | Reconciliation & Settlement | ingestión API/CSV, matches, work queue, SLA, evidencia, ciclos programables y doble aprobación de settlement/excepciones | API, webhooks, SDK, archivos, consola | Sandbox operativo |
@@ -47,7 +48,7 @@ El ledger permanece autoritativo y separado de conectores de red. Un fallo de ba
 
 La amplitud es objetivo de plataforma, pero el capital se asigna por gates:
 
-1. cerrar financial core, payments, developer platform, reconciliación y controles de riesgo;
+1. cerrar financial core, payments, payouts, developer platform, reconciliación y controles de riesgo;
 2. obtener design partners y elegir un solo país/riel inicial;
 3. construir el conector directo, operación y certificación de ese riel;
 4. completar issuing/processing o acquiring según demanda contractual;

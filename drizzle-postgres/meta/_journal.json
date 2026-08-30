@@ -176,6 +176,13 @@
       "when": 1788061445909,
       "tag": "0024_hesitant_marvex",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1788080473008,
+      "tag": "0025_wise_starfox",
+      "breakpoints": true
     }
   ]
 }

@@ -90,6 +90,25 @@ export type RecurringPaymentMandate = {
   lastExecutedAt: string | null; retryCount: number; maxRetries: number; cancelledAt: string | null;
   createdBy: string; createdByName: string; createdAt: string; updatedAt: string;
 };
+export type PayoutBeneficiary = {
+  id: string; externalReference: string; name: string; entityType: 'individual' | 'business'; country: string; currency: Currency;
+  destinationType: 'local_account' | 'alias' | 'iban' | 'clabe' | 'pix_key'; destinationLast4: string; bankCode: string | null;
+  status: 'active' | 'suspended'; createdBy: string; createdByName: string; createdAt: string; updatedAt: string;
+};
+export type PayoutItem = {
+  id: string; batchId: string; beneficiaryId: string; beneficiaryName: string; beneficiaryReference: string;
+  destinationType: PayoutBeneficiary['destinationType']; destinationLast4: string; externalReference: string;
+  amountMinor: string; amount: number; currency: Currency; description: string;
+  status: 'pending' | 'processing' | 'review' | 'settled' | 'failed' | 'cancelled'; transactionId: string | null;
+  failureCode: string | null; failureMessage: string | null; attemptCount: number; processedAt: string | null; createdAt: string; updatedAt: string;
+};
+export type PayoutBatch = {
+  id: string; sourceAccountId: string; sourceAccountReference: string; externalReference: string; description: string; currency: Currency;
+  status: 'draft' | 'pending_approval' | 'scheduled' | 'processing' | 'requires_attention' | 'completed' | 'partially_failed' | 'failed' | 'cancelled';
+  totalAmountMinor: string; totalAmount: number; itemCount: number; scheduledFor: string | null; processBefore: string | null;
+  submittedAt: string | null; startedAt: string | null; completedAt: string | null; cancelledAt: string | null;
+  createdBy: string; createdByName: string; createdAt: string; updatedAt: string; items: PayoutItem[];
+};
 export type PlatformCapability = {
   id: string; name: string; domain: 'core' | 'payments' | 'cards' | 'commerce' | 'credit' | 'risk' | 'operations' | 'platform';
   summary: string; features: string[]; interfaces: Array<'rest_api' | 'webhooks' | 'sdk' | 'console' | 'iso8583' | 'files' | 'streaming'>;
@@ -148,15 +167,16 @@ export type SettlementCycle = {
   status: 'ready' | 'scheduled' | 'settled'; scheduledFor: string | null; settledAt: string | null; createdAt: string; updatedAt: string;
 };
 export type ApprovalRequest = {
-  id: string; actionType: 'settlement.execute' | 'transfer.create' | 'risk.case.resolve' | 'reconciliation.exception.resolve' | 'dispute.resolve';
-  resourceType: 'settlement_cycle' | 'transfer' | 'risk_case' | 'reconciliation_exception' | 'dispute'; resourceId: string;
+  id: string; actionType: 'settlement.execute' | 'transfer.create' | 'payout_batch.execute' | 'risk.case.resolve' | 'reconciliation.exception.resolve' | 'dispute.resolve';
+  resourceType: 'settlement_cycle' | 'transfer' | 'payout_batch' | 'risk_case' | 'reconciliation_exception' | 'dispute'; resourceId: string;
   status: 'pending' | 'executed' | 'rejected' | 'cancelled' | 'expired' | 'failed'; requestPayload: {
     name?: string; rail?: ReconciliationRun['source']; currency?: Currency; netMinor?: string; differenceMinor?: string;
     scheduledFor?: string | null; executionMode?: 'manual' | 'scheduled'; counterparty?: string; description?: string;
     amountMinor?: string; origin?: 'session' | 'api_key'; apiKeyId?: string | null; sandbox?: boolean;
     signals?: RiskSignals;
     resolution?: 'approved' | 'declined' | 'corrected' | 'accepted' | DisputeEventName; note?: string; priority?: RiskCase['priority']; score?: number;
-    externalReference?: string; runName?: string; reason?: DisputeReason; creditStatus?: Dispute['creditStatus'];
+    externalReference?: string; sourceAccountId?: string; totalAmountMinor?: string; itemCount?: number; processBefore?: string | null;
+    runName?: string; reason?: DisputeReason; creditStatus?: Dispute['creditStatus'];
   };
   requestedBy: string; requestedByName: string; resolvedBy: string | null; resolvedByName: string | null;
   resolutionReason: string | null; expiresAt: string; resolvedAt: string | null; executedAt: string | null;
@@ -284,6 +304,15 @@ export type CreateBillPaymentInput = {
 export type CreateRecurringPaymentMandateInput = {
   accountId: string; billerId: string; subscriberReference: string; frequency: RecurringPaymentMandate['frequency'];
   amount?: string; amountLimit: string; consentReference: string; consentedAt: string; nextChargeAt: string; maxRetries?: number;
+};
+export type CreatePayoutBeneficiaryInput = {
+  externalReference: string; name: string; entityType: PayoutBeneficiary['entityType']; country: string; currency: Currency;
+  destinationType: PayoutBeneficiary['destinationType']; destination: string; bankCode?: string;
+};
+export type CreatePayoutBatchInput = {
+  sourceAccountId: string; externalReference: string; description: string; currency: Currency;
+  scheduledFor?: string; processBefore?: string;
+  items: Array<{ externalReference: string; beneficiaryId: string; amount: string; description: string }>;
 };
 export type CreateRiskEvaluationInput = { operationType: 'transfer' | 'cash_in' | 'cash_out'; amount: string; currency: Currency; counterparty: string; signals?: RiskSignalsInput };
 export type CreateRiskStepUpChallengeInput = { method?: 'otp'; delivery?: 'client_managed'; expiresInSeconds?: number; maxAttempts?: number };

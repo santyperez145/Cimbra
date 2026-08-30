@@ -90,7 +90,7 @@ resource "aws_cloudwatch_log_metric_filter" "dispatcher_errors" {
 
 resource "aws_cloudwatch_metric_alarm" "dispatcher_errors" {
   alarm_name          = "${local.name}-dispatcher-errors"
-  alarm_description   = "Webhook recovery dispatcher emitted errors"
+  alarm_description   = "Outbox and financial-work recovery dispatcher emitted errors"
   namespace           = "Cimbra/${var.environment}"
   metric_name         = "WebhookDispatcherErrors"
   statistic           = "Sum"

@@ -42,6 +42,12 @@ export const PLATFORM_CAPABILITIES: readonly PlatformCapability[] = [
     interfaces: ['rest_api', 'webhooks', 'sdk', 'console'], regulatoryBoundary: 'Para liquidar dinero real Cimbra debe conectarse directamente a bancos, cámaras, esquemas o sponsors autorizados; no a plataformas competidoras.',
   },
   {
+    id: 'native-payouts', name: 'Beneficiaries & Payout Batches', domain: 'payments', availability: 'sandbox', delivery: 'cimbra_native',
+    summary: 'Beneficiarios protegidos y lotes de payouts asíncronos, trazables por ítem y conectados al core financiero.',
+    features: ['protected beneficiaries', 'immutable batches up to 100 items', 'maker/checker', 'scheduling and deadline', 'leased execution', 'per-item risk and ledger', 'result files'],
+    interfaces: ['rest_api', 'webhooks', 'sdk', 'files', 'console'], regulatoryBoundary: 'El sandbox ejecuta y contabiliza el dominio propio de Cimbra. El envío y settlement de dinero real requiere conexión directa y homologada con bancos, cámaras o sponsors regulados por país.',
+  },
+  {
     id: 'instant-payments', name: 'Instant Payments & Transfers', domain: 'payments', availability: 'roadmap', delivery: 'cimbra_native',
     summary: 'Transferencias inmediatas, alias, QR interoperable, solicitudes de pago y devoluciones.',
     features: ['account-to-account', 'aliases', 'QR interoperable', 'request to pay', 'returns'],
@@ -79,8 +85,8 @@ export const PLATFORM_CAPABILITIES: readonly PlatformCapability[] = [
   },
   {
     id: 'wallets', name: 'Wallets & Embedded Finance', domain: 'core', availability: 'foundation', delivery: 'cimbra_native',
-    summary: 'Wallet white-label, saldos, bolsillos, payouts y experiencias embebidas configurables.',
-    features: ['white-label wallet', 'balances y pockets', 'payouts', 'program configuration', 'tenant branding'],
+    summary: 'Wallet white-label, saldos, bolsillos y experiencias embebidas configurables.',
+    features: ['white-label wallet', 'balances y pockets', 'program configuration', 'tenant branding'],
     interfaces: ['rest_api', 'webhooks', 'sdk', 'console'], regulatoryBoundary: 'Una wallet con fondos reales debe operar bajo el marco PSP, entidad financiera o equivalente de cada país.',
   },
   {

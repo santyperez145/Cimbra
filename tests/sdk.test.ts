@@ -427,3 +427,49 @@ test('el SDK cablea programas, emisión, lifecycle y controles de tarjetas con i
   ]);
   for (const call of calls) assert.match(call.idempotencyKey ?? '', /^idem_[a-f0-9]{32}$/);
 });
+
+test('el SDK cablea beneficiarios, lotes asíncronos y archivo de resultados de payouts', async () => {
+  const calls: Array<{ url: string; method: string; idempotencyKey: string | null; body: unknown }> = [];
+  const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async (input, init) => {
+    const url = String(input); const method = init?.method ?? 'GET';
+    const body = typeof init?.body === 'string' ? JSON.parse(init.body) : null;
+    calls.push({ url, method, idempotencyKey: new Headers(init?.headers).get('idempotency-key'), body });
+    if (url.endsWith('/result')) return new Response('"item_reference","status"\r\n"item_1","settled"\r\n', { headers: { 'Content-Type': 'text/csv' } });
+    if (url.endsWith('/status')) return Response.json({ ok: true, replayed: false, beneficiary: { id: 'beneficiary_1', status: 'suspended' } });
+    if (url.endsWith('/submit')) return Response.json({ ok: true, replayed: false, requiresApproval: false, approval: null,
+      batch: { id: 'batch_1', status: 'processing', items: [] } }, { status: 202 });
+    if (url.endsWith('/cancel')) return Response.json({ ok: true, replayed: false, batch: { id: 'batch_1', status: 'cancelled', items: [] } });
+    if (url.endsWith('/payout-beneficiaries') && method === 'POST') return Response.json({ ok: true, replayed: false,
+      beneficiary: { id: 'beneficiary_1', status: 'active', destinationLast4: '3456' } }, { status: 201 });
+    if (url.endsWith('/payout-batches') && method === 'POST') return Response.json({ ok: true, replayed: false,
+      batch: { id: 'batch_1', status: 'draft', items: [] } }, { status: 201 });
+    return Response.json({ data: [] });
+  } });
+  const beneficiary = await client.payoutBeneficiaries.create({ externalReference: 'supplier_1', name: 'Proveedor Uno', entityType: 'business',
+    country: 'AR', currency: 'ARS', destinationType: 'alias', destination: 'proveedor.uno' });
+  await client.payoutBeneficiaries.list();
+  await client.payoutBeneficiaries.setStatus(beneficiary.data.beneficiary.id, 'suspend');
+  const batch = await client.payoutBatches.create({ sourceAccountId: 'account_1', externalReference: 'payroll_1', description: 'Lote QA', currency: 'ARS',
+    items: [{ externalReference: 'item_1', beneficiaryId: beneficiary.data.beneficiary.id, amount: '25.00', description: 'Factura 1' }] });
+  await client.payoutBatches.list();
+  await client.payoutBatches.retrieve(batch.data.batch.id);
+  await client.payoutBatches.submit(batch.data.batch.id);
+  await client.payoutBatches.cancel(batch.data.batch.id);
+  const result = await client.payoutBatches.resultCsv(batch.data.batch.id);
+  assert.match(result.data, /item_1/);
+  assert.deepEqual(calls.map(({ method, url }) => `${method} ${url}`), [
+    'POST https://api.test/api/v1/payout-beneficiaries',
+    'GET https://api.test/api/v1/payout-beneficiaries',
+    'POST https://api.test/api/v1/payout-beneficiaries/beneficiary_1/status',
+    'POST https://api.test/api/v1/payout-batches',
+    'GET https://api.test/api/v1/payout-batches',
+    'GET https://api.test/api/v1/payout-batches/batch_1',
+    'POST https://api.test/api/v1/payout-batches/batch_1/submit',
+    'POST https://api.test/api/v1/payout-batches/batch_1/cancel',
+    'GET https://api.test/api/v1/payout-batches/batch_1/result',
+  ]);
+  assert.equal(calls[1].idempotencyKey, null); assert.equal(calls[4].idempotencyKey, null);
+  assert.equal(calls[5].idempotencyKey, null); assert.equal(calls[8].idempotencyKey, null);
+  for (const index of [0, 2, 3, 6, 7]) assert.match(calls[index].idempotencyKey ?? '', /^idem_[a-f0-9]{32}$/);
+  assert.deepEqual(calls[6].body, {});
+});

@@ -9,7 +9,7 @@ La aplicación pública actual corre en Vercel con PostgreSQL administrado. `ter
 - ALB público con TLS y AWS WAF; las tareas Fargate no reciben tráfico directo.
 - Dos o más instancias de la API en tres subredes privadas y despliegues con circuit breaker.
 - PostgreSQL 16 Multi-AZ privado, cifrado con una CMK propia, backups de 35 días, PITR, Performance Insights y deletion protection.
-- Outbox transaccional y leases en PostgreSQL como cola durable de webhooks y trabajos financieros vencidos. EventBridge inicia el recovery dispatcher cada minuto; el mismo entrypoint reclama mandatos recurrentes con lease, conserva su fecha lógica entre reintentos y procesa settlement programado sin eludir idempotencia o doble control. Webhooks mantienen entrega al menos una vez, backoff, DLQ lógica (`exhausted`) y replay.
+- Outbox transaccional y leases en PostgreSQL como cola durable de webhooks y trabajos financieros vencidos. EventBridge inicia el recovery dispatcher cada minuto; el mismo entrypoint reclama mandatos recurrentes y lotes de payouts con lease, conserva fechas lógicas, respeta deadlines y procesa settlement programado sin eludir idempotencia o doble control. Webhooks mantienen entrega al menos una vez, backoff, DLQ lógica (`exhausted`) y replay.
 - Secretos de aplicación y conectividad regulada en Secrets Manager, cifrados con KMS e inyectados sólo en runtime.
 - Bucket privado, versionado y cifrado conectado mediante el adaptador S3 de evidencia de compliance. El despliegue Vercel conserva su adapter de Blob.
 - Logs y alarmas en CloudWatch, flow logs de VPC y autoscaling por CPU y cantidad de requests.
@@ -17,7 +17,7 @@ La aplicación pública actual corre en Vercel con PostgreSQL administrado. `ter
 
 Esta topología evita incorporar Kafka, Temporal, Redis o Kubernetes antes de tener carga que los justifique. Se agregan cuando aparecen workflows multi-servicio, partición del throughput, consumidores independientes o límites operativos que no pueda resolver el outbox de PostgreSQL.
 
-El runtime actual de Vercel ejecuta ese recovery sweep diariamente a las 03:00 UTC. Es suficiente para demostrar agendas por fecha sin prometer puntualidad horaria. El piloto AWS declara cadencia de un minuto, pero no se aprovisiona hasta autorizar costo; producción deberá medir atraso, reintentos y volumen antes de ofrecer un SLA.
+El runtime actual de Vercel ejecuta ese recovery sweep diariamente a las 03:00 UTC y cada envío inmediato también solicita procesamiento post-response; el sweep sigue siendo la garantía de recuperación. Esto demuestra agendas por fecha sin prometer puntualidad horaria. El piloto AWS declara cadencia de un minuto, pero no se aprovisiona hasta autorizar costo; producción deberá medir atraso, reintentos, lotes parciales y volumen antes de ofrecer un SLA.
 
 ## Aplicación controlada
 

@@ -12,6 +12,7 @@ import { ReconciliationError, resolveReconciliationException } from './reconcili
 import { getRiskCaseForResolution, resolveRiskCase, RiskError } from './risk';
 import { executeSettlementCycle, executeSettlementCycleInTransaction, SettlementError } from './settlements';
 import { DisputeError, transitionDispute } from './disputes';
+import { authorizePayoutBatchInTransaction, closePayoutBatchApprovalInTransaction, PayoutError } from './payouts';
 
 export class ApprovalError extends Error {
   constructor(message: string, readonly status = 400, readonly code = 'approval_error') { super(message); }
@@ -19,7 +20,7 @@ export class ApprovalError extends Error {
 
 type ApprovalRow = {
   id: string; actionType: ApprovalActionType;
-  resourceType: 'settlement_cycle' | 'transfer' | 'risk_case' | 'reconciliation_exception' | 'dispute'; resourceId: string;
+  resourceType: 'settlement_cycle' | 'transfer' | 'payout_batch' | 'risk_case' | 'reconciliation_exception' | 'dispute'; resourceId: string;
   status: ApprovalStatus; requestFingerprint: string; requestPayload: string; requestedBy: string; requestedByName: string;
   resolvedBy: string | null; resolvedByName: string | null; resolutionReason: string | null;
   expiresAt: string; resolvedAt: string | null; executedAt: string | null; createdAt: string; updatedAt: string;
@@ -108,7 +109,7 @@ export async function getApprovalPolicies(organizationId: string) {
        WHERE m.organization_id = ? AND m.role IN ('owner', 'admin') AND u.mfa_enabled = 1`,
     ).bind(organizationId).first<{ count: number }>(),
   ]);
-  return (['settlement.execute', 'transfer.create', 'risk.case.resolve', 'reconciliation.exception.resolve', 'dispute.resolve'] as const).map((actionType) => {
+  return (['settlement.execute', 'transfer.create', 'payout_batch.execute', 'risk.case.resolve', 'reconciliation.exception.resolve', 'dispute.resolve'] as const).map((actionType) => {
     const policy = policies.results.find((item) => item.actionType === actionType);
     return { id: policy?.id ?? null, actionType, enabled: policy?.enabled === 1,
       expiresInMinutes: policy?.expiresInMinutes ?? 1440, eligibleApprovers: approvers?.count ?? 0,
@@ -176,6 +177,9 @@ async function expireApproval(database: DatabaseClient, organizationId: string, 
   ).bind(now, now, row.id).run();
   await audit(database, { organizationId, actorId: row.requestedBy, action: 'approval.request_expired',
     resourceType: 'approval_request', resourceId: row.id, payload: { actionType: row.actionType, resourceId: row.resourceId } });
+  if (row.actionType === 'payout_batch.execute') await closePayoutBatchApprovalInTransaction(database, {
+    organizationId, actorId: row.requestedBy, batchId: row.resourceId, approvalRequestId: row.id, outcome: 'expired',
+  });
 }
 
 export async function listApprovalRequests(organizationId: string) {
@@ -559,6 +563,7 @@ export async function decideApprovalRequest(input: {
     }
     let executedCycle: Awaited<ReturnType<typeof executeSettlementCycleInTransaction>>['cycle'] | undefined;
     let executedTransfer: Awaited<ReturnType<typeof findTransferByIdempotency>> | undefined;
+    let executedPayoutBatch: Awaited<ReturnType<typeof authorizePayoutBatchInTransaction>> | undefined;
     let executedRiskCase: Awaited<ReturnType<typeof resolveRiskCase>> | undefined;
     let executedException: Awaited<ReturnType<typeof resolveReconciliationException>> | undefined;
     let executedDispute: Awaited<ReturnType<typeof transitionDispute>>['dispute'] | undefined;
@@ -570,6 +575,10 @@ export async function decideApprovalRequest(input: {
       await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId, action: 'approval.request_rejected',
         resourceType: 'approval_request', resourceId: row.id, payload: { actionType: row.actionType, resourceId: row.resourceId,
           reason: input.reason, decision: input.decision, idempotencyKey: input.idempotencyKey } });
+      if (row.actionType === 'payout_batch.execute') await closePayoutBatchApprovalInTransaction(database, {
+        organizationId: input.organizationId, actorId: input.actor.userId, batchId: row.resourceId,
+        approvalRequestId: row.id, outcome: 'rejected',
+      });
     } else {
       if (row.actionType === 'settlement.execute') {
         const execution = await executeSettlementCycleInTransaction(database, { organizationId: input.organizationId, actorId: input.actor.userId,
@@ -587,6 +596,14 @@ export async function decideApprovalRequest(input: {
           } else executedTransfer = execution.transaction;
         } catch (error) {
           if (error instanceof LedgerError && error.status === 422) failure = { message: error.message, code: error.code, status: error.status };
+          else throw error;
+        }
+      } else if (row.actionType === 'payout_batch.execute') {
+        try {
+          executedPayoutBatch = await authorizePayoutBatchInTransaction(database, { organizationId: input.organizationId,
+            actorId: input.actor.userId, batchId: row.resourceId, approvalRequestId: row.id });
+        } catch (error) {
+          if (error instanceof PayoutError && error.status < 500) failure = { message: error.message, code: error.code, status: error.status };
           else throw error;
         }
       } else if (row.actionType === 'risk.case.resolve') {
@@ -639,6 +656,10 @@ export async function decideApprovalRequest(input: {
         await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId, action: 'approval.request_failed',
           resourceType: 'approval_request', resourceId: row.id, payload: { actionType: row.actionType, resourceId: row.resourceId,
             requesterId: row.requestedBy, reason: input.reason, decision: input.decision, idempotencyKey: input.idempotencyKey, failure } });
+        if (row.actionType === 'payout_batch.execute') await closePayoutBatchApprovalInTransaction(database, {
+          organizationId: input.organizationId, actorId: input.actor.userId, batchId: row.resourceId,
+          approvalRequestId: row.id, outcome: 'failed',
+        });
       } else {
         await database.prepare(
           `UPDATE approval_requests SET status = 'executed', resolved_by = ?, resolution_reason = ?, resolved_at = ?, executed_at = ?, updated_at = ? WHERE id = ?`,
@@ -650,7 +671,7 @@ export async function decideApprovalRequest(input: {
     }
     const approval = await approvalById(database, input.organizationId, row.id);
     if (!approval) throw new ApprovalError('No pudimos recuperar la decisión.', 500, 'approval_decision_failed');
-    return { approval, cycle: executedCycle, transaction: executedTransfer, case: executedRiskCase,
+    return { approval, cycle: executedCycle, transaction: executedTransfer, payoutBatch: executedPayoutBatch, case: executedRiskCase,
       exception: executedException, dispute: executedDispute, failed: failure, replayed: false, expired: false };
   });
 }
@@ -686,6 +707,10 @@ export async function cancelApprovalRequest(input: {
     await audit(database, { organizationId: input.organizationId, actorId: input.actorId, action: 'approval.request_cancelled',
       resourceType: 'approval_request', resourceId: row.id, payload: { actionType: row.actionType, resourceId: row.resourceId,
         reason: input.reason || null, decision: 'cancel', idempotencyKey: input.idempotencyKey } });
+    if (row.actionType === 'payout_batch.execute') await closePayoutBatchApprovalInTransaction(database, {
+      organizationId: input.organizationId, actorId: input.actorId, batchId: row.resourceId,
+      approvalRequestId: row.id, outcome: 'cancelled',
+    });
     return { approval: await approvalById(database, input.organizationId, row.id), replayed: false, expired: false };
   });
 }

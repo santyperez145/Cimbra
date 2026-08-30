@@ -40,6 +40,16 @@ async function json(response, status) {
   return body;
 }
 
+async function waitForPayoutBatch(batchId, expectedStatuses, attempts = 40) {
+  let last = null;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    last = await json(await request(`/api/v1/payout-batches/${batchId}`), 200);
+    if (expectedStatuses.includes(last.status)) return last;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  assert.fail(`El lote ${batchId} no llegó a ${expectedStatuses.join('/')} (último estado: ${last?.status ?? 'desconocido'}).`);
+}
+
 function authTokenHash(type, token) {
   return createHash('sha256').update(`cimbra-auth-token:${type}:${token}`).digest('base64url');
 }
@@ -103,6 +113,9 @@ async function cleanup() {
       await transaction`DELETE FROM recurring_payment_mandates WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM biller_obligations WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM billers WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM payout_items WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM payout_batches WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM payout_beneficiaries WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM holds WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM ledger_postings WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM ledger_journals WHERE organization_id = ${organizationId} AND reversal_of IS NOT NULL`;
@@ -403,8 +416,130 @@ try {
 
   const servicesKey = await json(await request('/api/platform/api-keys', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: 'QA native billers', scopes: ['billers:read', 'billers:write', 'payments:read', 'payments:write'], expiresInDays: 1 }),
+    body: JSON.stringify({ name: 'QA native services', scopes: ['billers:read', 'billers:write', 'payments:read', 'payments:write', 'payouts:read', 'payouts:write'], expiresInDays: 1 }),
   }), 201);
+
+  const payoutDestination = `qa.payout.${runId}`;
+  const payoutBeneficiaryKey = `qa-payout-beneficiary-${runId}`;
+  const payoutBeneficiaryPayload = { externalReference: `BEN-${runId}`, name: 'QA Proveedor Regional', entityType: 'business',
+    country: 'AR', currency: 'ARS', destinationType: 'alias', destination: payoutDestination, bankCode: 'QA01' };
+  const payoutBeneficiaryCreated = await json(await fetch(new URL('/api/v1/payout-beneficiaries', target), {
+    method: 'POST', headers: { Authorization: `Bearer ${servicesKey.secret}`, 'Content-Type': 'application/json', 'Idempotency-Key': payoutBeneficiaryKey },
+    body: JSON.stringify(payoutBeneficiaryPayload),
+  }), 201);
+  const payoutBeneficiary = payoutBeneficiaryCreated.beneficiary;
+  assert.equal(payoutBeneficiary.status, 'active'); assert.equal(payoutBeneficiary.destinationLast4.length, 4);
+  assert.equal(JSON.stringify(payoutBeneficiaryCreated).includes(payoutDestination), false);
+  const payoutBeneficiaryReplay = await json(await fetch(new URL('/api/v1/payout-beneficiaries', target), {
+    method: 'POST', headers: { Authorization: `Bearer ${servicesKey.secret}`, 'Content-Type': 'application/json', 'Idempotency-Key': payoutBeneficiaryKey },
+    body: JSON.stringify(payoutBeneficiaryPayload),
+  }), 200);
+  assert.equal(payoutBeneficiaryReplay.replayed, true); assert.equal(payoutBeneficiaryReplay.beneficiary.id, payoutBeneficiary.id);
+  const payoutBeneficiaryMismatch = await json(await fetch(new URL('/api/v1/payout-beneficiaries', target), {
+    method: 'POST', headers: { Authorization: `Bearer ${servicesKey.secret}`, 'Content-Type': 'application/json', 'Idempotency-Key': payoutBeneficiaryKey },
+    body: JSON.stringify({ ...payoutBeneficiaryPayload, name: 'QA Otro proveedor' }),
+  }), 409);
+  assert.equal(payoutBeneficiaryMismatch.error.code, 'idempotency_mismatch');
+  assert.ok((await json(await fetch(new URL('/api/v1/payout-beneficiaries', target), {
+    headers: { Authorization: `Bearer ${servicesKey.secret}` },
+  }), 200)).data.some((item) => item.id === payoutBeneficiary.id));
+
+  const payoutBatchKey = `qa-payout-batch-${runId}`;
+  const payoutBatchPayload = { sourceAccountId: account.id, externalReference: `PAY-${runId}`, description: 'Nómina de proveedores QA', currency: 'ARS',
+    items: [{ externalReference: `PAY-ITEM-${runId}`, beneficiaryId: payoutBeneficiary.id, amount: '25.00', description: 'Factura QA 001' }] };
+  const payoutBatchCreated = await json(await fetch(new URL('/api/v1/payout-batches', target), {
+    method: 'POST', headers: { Authorization: `Bearer ${servicesKey.secret}`, 'Content-Type': 'application/json', 'Idempotency-Key': payoutBatchKey },
+    body: JSON.stringify(payoutBatchPayload),
+  }), 201);
+  const payoutBatch = payoutBatchCreated.batch;
+  assert.equal(payoutBatch.status, 'draft'); assert.equal(payoutBatch.itemCount, 1); assert.equal(payoutBatch.totalAmountMinor, '2500');
+  const payoutBatchReplay = await json(await fetch(new URL('/api/v1/payout-batches', target), {
+    method: 'POST', headers: { Authorization: `Bearer ${servicesKey.secret}`, 'Content-Type': 'application/json', 'Idempotency-Key': payoutBatchKey },
+    body: JSON.stringify(payoutBatchPayload),
+  }), 200);
+  assert.equal(payoutBatchReplay.replayed, true); assert.equal(payoutBatchReplay.batch.id, payoutBatch.id);
+  const payoutBatchMismatch = await json(await fetch(new URL('/api/v1/payout-batches', target), {
+    method: 'POST', headers: { Authorization: `Bearer ${servicesKey.secret}`, 'Content-Type': 'application/json', 'Idempotency-Key': payoutBatchKey },
+    body: JSON.stringify({ ...payoutBatchPayload, description: 'Contenido distinto' }),
+  }), 409);
+  assert.equal(payoutBatchMismatch.error.code, 'idempotency_mismatch');
+  const payoutSubmitted = await json(await fetch(new URL(`/api/v1/payout-batches/${payoutBatch.id}/submit`, target), {
+    method: 'POST', headers: { Authorization: `Bearer ${servicesKey.secret}`, 'Content-Type': 'application/json', 'Idempotency-Key': `qa-payout-submit-${runId}` },
+    body: '{}',
+  }), 202);
+  assert.equal(payoutSubmitted.requiresApproval, false);
+  const completedPayout = await waitForPayoutBatch(payoutBatch.id, ['completed']);
+  assert.equal(completedPayout.items[0].status, 'settled'); assert.ok(completedPayout.items[0].transactionId);
+  const payoutResult = await fetch(new URL(`/api/v1/payout-batches/${payoutBatch.id}/result`, target), {
+    headers: { Authorization: `Bearer ${servicesKey.secret}` },
+  });
+  assert.equal(payoutResult.status, 200); assert.match(payoutResult.headers.get('content-type') ?? '', /^text\/csv/);
+  const payoutCsv = await payoutResult.text(); assert.match(payoutCsv, new RegExp(`PAY-ITEM-${runId}`)); assert.match(payoutCsv, /settled/);
+  assert.equal(payoutCsv.includes(payoutDestination), false);
+  await json(await request(`/api/v1/transfers/${completedPayout.items[0].transactionId}/reverse`, {
+    method: 'POST', headers: { 'Idempotency-Key': `qa-payout-reverse-${runId}` },
+  }), 201);
+  const compensatedPayout = await json(await request(`/api/v1/payout-batches/${payoutBatch.id}`), 200);
+  assert.equal(compensatedPayout.status, 'failed'); assert.equal(compensatedPayout.items[0].failureCode, 'payout_reversed');
+
+  const scheduledPayoutPayload = { ...payoutBatchPayload, externalReference: `PAY-SCHEDULED-${runId}`, description: 'Payout programado QA',
+    scheduledFor: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    items: [{ ...payoutBatchPayload.items[0], externalReference: `PAY-SCHEDULED-ITEM-${runId}` }] };
+  const scheduledPayout = (await json(await request('/api/v1/payout-batches', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-payout-scheduled-${runId}` }, body: JSON.stringify(scheduledPayoutPayload),
+  }), 201)).batch;
+  const scheduledPayoutSubmit = await json(await request(`/api/v1/payout-batches/${scheduledPayout.id}/submit`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-payout-scheduled-submit-${runId}` }, body: '{}',
+  }), 202);
+  assert.equal(scheduledPayoutSubmit.batch.status, 'scheduled');
+  const cancelledPayout = await json(await request(`/api/v1/payout-batches/${scheduledPayout.id}/cancel`, {
+    method: 'POST', headers: { 'Idempotency-Key': `qa-payout-cancel-${runId}` },
+  }), 200);
+  assert.equal(cancelledPayout.batch.status, 'cancelled'); assert.equal(cancelledPayout.batch.items[0].status, 'cancelled');
+
+  const payoutPolicy = await json(await request('/api/platform/approval-policy', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actionType: 'payout_batch.execute', enabled: true, expiresInMinutes: 60 }),
+  }), 200);
+  assert.equal(payoutPolicy.policy.enabled, true);
+  const approvedPayoutPayload = { ...payoutBatchPayload, externalReference: `PAY-APPROVAL-${runId}`, description: 'Payout con doble control QA',
+    items: [{ ...payoutBatchPayload.items[0], externalReference: `PAY-APPROVAL-ITEM-${runId}`, amount: '15.00' }] };
+  const approvedPayout = (await json(await request('/api/v1/payout-batches', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-payout-approval-${runId}` }, body: JSON.stringify(approvedPayoutPayload),
+  }), 201)).batch;
+  const payoutApprovalRequired = await json(await request(`/api/v1/payout-batches/${approvedPayout.id}/submit`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-payout-approval-submit-${runId}` }, body: '{}',
+  }), 202);
+  assert.equal(payoutApprovalRequired.requiresApproval, true); assert.equal(payoutApprovalRequired.approval.actionType, 'payout_batch.execute');
+  const payoutSelfApproval = await json(await request(`/api/v1/approvals/${payoutApprovalRequired.approval.id}/approve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-payout-self-${runId}` },
+    body: JSON.stringify({ reason: 'El maker no puede aprobar su propio lote.' }),
+  }), 409);
+  assert.equal(payoutSelfApproval.error.code, 'approval_self_decision');
+  cookie = checkerCookie;
+  const payoutApproved = await json(await request(`/api/v1/approvals/${payoutApprovalRequired.approval.id}/approve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-payout-checker-${runId}` },
+    body: JSON.stringify({ reason: 'QA checker autoriza el lote verificado.' }),
+  }), 200);
+  assert.equal(payoutApproved.approval.status, 'executed'); assert.ok(['processing', 'scheduled'].includes(payoutApproved.payoutBatch.status));
+  cookie = ownerCookie;
+  const completedApprovedPayout = await waitForPayoutBatch(approvedPayout.id, ['completed']);
+  assert.equal(completedApprovedPayout.items[0].status, 'settled');
+
+  const suspendedPayoutBeneficiary = await json(await request(`/api/v1/payout-beneficiaries/${payoutBeneficiary.id}/status`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-payout-beneficiary-suspend-${runId}` }, body: JSON.stringify({ action: 'suspend' }),
+  }), 200);
+  assert.equal(suspendedPayoutBeneficiary.beneficiary.status, 'suspended');
+  const suspendedBeneficiaryBatch = await json(await request('/api/v1/payout-batches', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-payout-suspended-${runId}` },
+    body: JSON.stringify({ ...payoutBatchPayload, externalReference: `PAY-SUSPENDED-${runId}`,
+      items: [{ ...payoutBatchPayload.items[0], externalReference: `PAY-SUSPENDED-ITEM-${runId}` }] }),
+  }), 409);
+  assert.equal(suspendedBeneficiaryBatch.error.code, 'payout_beneficiary_suspended');
+  await json(await request(`/api/v1/payout-beneficiaries/${payoutBeneficiary.id}/status`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-payout-beneficiary-activate-${runId}` }, body: JSON.stringify({ action: 'activate' }),
+  }), 200);
+
   const billerKey = `qa-biller-${runId}`;
   const billerPayload = { code: `QA_ENERGY_${runId.slice(0, 8)}`, name: 'QA Energía Regional', country: 'AR', category: 'utilities',
     serviceType: 'bill_payment', currency: 'ARS', amountMode: 'exact', contractReference: `DIRECT-${runId.slice(0, 8)}` };
@@ -1359,6 +1494,8 @@ try {
   await json(await request('/api/v1/billers'), 200);
   await json(await request('/api/v1/bill-payments'), 200);
   await json(await request('/api/v1/recurring-mandates'), 200);
+  await json(await request('/api/v1/payout-beneficiaries'), 200);
+  await json(await request('/api/v1/payout-batches'), 200);
   await json(await request(`/api/v1/cards/${card.id}/lifecycle`), 200);
   assert.equal((await request('/console')).status, 200);
   const viewerWriteDenied = await json(await request('/api/v1/transfers', {
@@ -1403,6 +1540,17 @@ try {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-viewer-mandate-${runId}` }, body: JSON.stringify(mandatePayload),
   }), 403);
   assert.equal(viewerMandateDenied.error.code, 'insufficient_role');
+  const viewerPayoutBeneficiaryDenied = await json(await request('/api/v1/payout-beneficiaries', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-viewer-payout-beneficiary-${runId}` },
+    body: JSON.stringify({ ...payoutBeneficiaryPayload, externalReference: `VIEWER-BEN-${runId}`, destination: `viewer.${runId}` }),
+  }), 403);
+  assert.equal(viewerPayoutBeneficiaryDenied.error.code, 'insufficient_role');
+  const viewerPayoutBatchDenied = await json(await request('/api/v1/payout-batches', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-viewer-payout-batch-${runId}` },
+    body: JSON.stringify({ ...payoutBatchPayload, externalReference: `VIEWER-PAY-${runId}`,
+      items: [{ ...payoutBatchPayload.items[0], externalReference: `VIEWER-PAY-ITEM-${runId}` }] }),
+  }), 403);
+  assert.equal(viewerPayoutBatchDenied.error.code, 'insufficient_role');
   const viewerCredentialsDenied = await json(await request('/api/platform/api-keys'), 403);
   assert.equal(viewerCredentialsDenied.code, 'insufficient_role');
   cookie = ownerCookieAfterRequest;
@@ -1428,6 +1576,11 @@ try {
   assert.ok(events.some((event) => event.action === 'biller.created'));
   assert.ok(events.some((event) => event.action === 'bill_payment.order_reversed'));
   assert.ok(events.some((event) => event.action === 'recurring_mandate.cancelled'));
+  assert.ok(events.some((event) => event.action === 'payout.beneficiary_created'));
+  assert.ok(events.some((event) => event.action === 'payout.batch_completed'));
+  assert.ok(events.some((event) => event.action === 'payout.batch_cancelled'));
+  assert.ok(events.some((event) => event.action === 'payout.item_settled'));
+  assert.ok(events.some((event) => event.action === 'payout.item_failed' && event.payload.failureCode === 'payout_reversed'));
   assert.ok(events.every((event) => typeof event.payload === 'object'));
 
   const [integrity] = await sql`
@@ -1446,7 +1599,7 @@ try {
 
   console.log(JSON.stringify({
     ok: true,
-    checks: ['auth', 'landing-session-state', 'console-session-guard', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'viewer-read-only', 'member-invitations', 'dual-control', 'maker-checker', 'transfer-approval', 'approval-replay', 'approval-fail-closed', 'risk-case-approval', 'risk-hold-bypass-guard', 'reconciliation-exception-approval', 'disputes', 'partial-dispute', 'dispute-ledger-credit', 'dispute-compensation', 'dispute-approval', 'dispute-evidence', 'dispute-rbac', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'billers', 'biller-obligations', 'protected-subscriber-reference', 'bill-payments', 'mobile-topups', 'gift-cards', 'recurring-mandates', 'mandate-consent', 'biller-rbac', 'biller-s2s', 'bill-payment-compensation', 'cdd-kyb', 'cdd-evidence', 'cdd-idempotency', 'cdd-maker-checker', 'cdd-s2s-orchestration', 'cdd-session-only-decision', 'cdd-expiry', 'cdd-rbac', 'card-programs', 'card-lifecycle', 'card-controls', 'card-terminal-state', 'card-rbac', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'risk-signals-privacy', 'risk-decision-lists', 'risk-step-up', 'risk-step-up-idempotency', 'risk-step-up-rbac', 'risk-decision-slo', 'risk-confirmed-outcomes', 'risk-supervised-metrics', 'risk-outcome-revisions', 'reconciliation', 'operations-work-queue', 'operations-idempotency', 'operations-evidence', 'operations-rbac', 'csv-import', 'settlement', 'private-evidence', 'audit'],
+    checks: ['auth', 'landing-session-state', 'console-session-guard', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'viewer-read-only', 'member-invitations', 'dual-control', 'maker-checker', 'transfer-approval', 'approval-replay', 'approval-fail-closed', 'payout-approval', 'risk-case-approval', 'risk-hold-bypass-guard', 'reconciliation-exception-approval', 'disputes', 'partial-dispute', 'dispute-ledger-credit', 'dispute-compensation', 'dispute-approval', 'dispute-evidence', 'dispute-rbac', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'payout-beneficiaries', 'protected-payout-destination', 'payout-batches', 'payout-scheduling', 'payout-result-file', 'payout-compensation', 'payout-rbac', 'payout-s2s', 'billers', 'biller-obligations', 'protected-subscriber-reference', 'bill-payments', 'mobile-topups', 'gift-cards', 'recurring-mandates', 'mandate-consent', 'biller-rbac', 'biller-s2s', 'bill-payment-compensation', 'cdd-kyb', 'cdd-evidence', 'cdd-idempotency', 'cdd-maker-checker', 'cdd-s2s-orchestration', 'cdd-session-only-decision', 'cdd-expiry', 'cdd-rbac', 'card-programs', 'card-lifecycle', 'card-controls', 'card-terminal-state', 'card-rbac', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'risk-signals-privacy', 'risk-decision-lists', 'risk-step-up', 'risk-step-up-idempotency', 'risk-step-up-rbac', 'risk-decision-slo', 'risk-confirmed-outcomes', 'risk-supervised-metrics', 'risk-outcome-revisions', 'reconciliation', 'operations-work-queue', 'operations-idempotency', 'operations-evidence', 'operations-rbac', 'csv-import', 'settlement', 'private-evidence', 'audit'],
   }));
 } finally {
   await cleanup();

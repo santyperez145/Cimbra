@@ -190,6 +190,70 @@ export const accounts = pgTable('accounts', {
   uniqueIndex('idx_accounts_org_idempotency').on(table.organizationId, table.idempotencyKey),
 ]);
 
+export const payoutBeneficiaries = pgTable('payout_beneficiaries', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  idempotencyKey: text('idempotency_key').notNull(), requestFingerprint: text('request_fingerprint').notNull(),
+  externalReference: text('external_reference').notNull(), name: text('name').notNull(), entityType: text('entity_type').notNull(),
+  country: text('country').notNull(), currency: text('currency').notNull(), destinationType: text('destination_type').notNull(),
+  destinationHash: text('destination_hash').notNull(), destinationLast4: text('destination_last4').notNull(), bankCode: text('bank_code'),
+  status: text('status').notNull().default('active'),
+  createdBy: text('created_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
+  createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_payout_beneficiaries_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  uniqueIndex('idx_payout_beneficiaries_org_reference').on(table.organizationId, table.externalReference),
+  uniqueIndex('idx_payout_beneficiaries_org_destination').on(table.organizationId, table.destinationHash),
+  index('idx_payout_beneficiaries_org_status').on(table.organizationId, table.status, table.createdAt),
+  check('payout_beneficiaries_entity_type', sql`${table.entityType} IN ('individual', 'business')`),
+  check('payout_beneficiaries_destination_type', sql`${table.destinationType} IN ('local_account', 'alias', 'iban', 'clabe', 'pix_key')`),
+  check('payout_beneficiaries_status', sql`${table.status} IN ('active', 'suspended')`),
+  check('payout_beneficiaries_currency', sql`${table.currency} IN ('ARS', 'USD', 'MXN', 'COP', 'BRL', 'CLP', 'PEN')`),
+]);
+
+export const payoutBatches = pgTable('payout_batches', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  sourceAccountId: text('source_account_id').notNull().references(() => accounts.id, { onDelete: 'restrict' }),
+  idempotencyKey: text('idempotency_key').notNull(), requestFingerprint: text('request_fingerprint').notNull(),
+  externalReference: text('external_reference').notNull(), description: text('description').notNull(), currency: text('currency').notNull(),
+  status: text('status').notNull().default('draft'), totalAmountMinor: bigint('total_amount_minor', { mode: 'bigint' }).notNull(),
+  itemCount: integer('item_count').notNull(), scheduledFor: text('scheduled_for'), processBefore: text('process_before'),
+  processingLeaseUntil: text('processing_lease_until'), submittedAt: text('submitted_at'), startedAt: text('started_at'),
+  completedAt: text('completed_at'), cancelledAt: text('cancelled_at'),
+  createdBy: text('created_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
+  createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_payout_batches_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  uniqueIndex('idx_payout_batches_org_reference').on(table.organizationId, table.externalReference),
+  index('idx_payout_batches_org_status_schedule').on(table.organizationId, table.status, table.scheduledFor),
+  check('payout_batches_status', sql`${table.status} IN ('draft', 'pending_approval', 'scheduled', 'processing', 'requires_attention', 'completed', 'partially_failed', 'failed', 'cancelled')`),
+  check('payout_batches_currency', sql`${table.currency} IN ('ARS', 'USD', 'MXN', 'COP', 'BRL', 'CLP', 'PEN')`),
+  check('payout_batches_total_positive', sql`${table.totalAmountMinor} > 0`),
+  check('payout_batches_item_count', sql`${table.itemCount} BETWEEN 1 AND 100`),
+]);
+
+export const payoutItems = pgTable('payout_items', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  batchId: text('batch_id').notNull().references(() => payoutBatches.id, { onDelete: 'cascade' }),
+  beneficiaryId: text('beneficiary_id').notNull().references(() => payoutBeneficiaries.id, { onDelete: 'restrict' }),
+  externalReference: text('external_reference').notNull(), amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(),
+  currency: text('currency').notNull(), description: text('description').notNull(), status: text('status').notNull().default('pending'),
+  transactionId: text('transaction_id').references(() => transactions.id, { onDelete: 'restrict' }),
+  failureCode: text('failure_code'), failureMessage: text('failure_message'), attemptCount: integer('attempt_count').notNull().default(0),
+  processedAt: text('processed_at'), createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_payout_items_batch_reference').on(table.batchId, table.externalReference),
+  uniqueIndex('idx_payout_items_transaction').on(table.transactionId),
+  index('idx_payout_items_batch_status').on(table.batchId, table.status, table.createdAt),
+  index('idx_payout_items_org_created').on(table.organizationId, table.createdAt),
+  check('payout_items_status', sql`${table.status} IN ('pending', 'processing', 'review', 'settled', 'failed', 'cancelled')`),
+  check('payout_items_currency', sql`${table.currency} IN ('ARS', 'USD', 'MXN', 'COP', 'BRL', 'CLP', 'PEN')`),
+  check('payout_items_amount_positive', sql`${table.amountMinor} > 0`),
+  check('payout_items_attempts', sql`${table.attemptCount} BETWEEN 0 AND 3`),
+]);
+
 export const cardPrograms = pgTable('card_programs', {
   id: text('id').primaryKey(),
   organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
@@ -728,7 +792,7 @@ export const approvalPolicies = pgTable('approval_policies', {
   createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
 }, (table) => [
   uniqueIndex('idx_approval_policies_org_action').on(table.organizationId, table.actionType),
-  check('approval_policies_action', sql`${table.actionType} IN ('settlement.execute', 'transfer.create', 'risk.case.resolve', 'reconciliation.exception.resolve', 'dispute.resolve')`),
+  check('approval_policies_action', sql`${table.actionType} IN ('settlement.execute', 'transfer.create', 'payout_batch.execute', 'risk.case.resolve', 'reconciliation.exception.resolve', 'dispute.resolve')`),
   check('approval_policies_enabled', sql`${table.enabled} IN (0, 1)`),
   check('approval_policies_expiry', sql`${table.expiresInMinutes} BETWEEN 15 AND 10080`),
 ]);
@@ -750,6 +814,7 @@ export const approvalRequests = pgTable('approval_requests', {
   check('approval_requests_action_resource', sql`(
     (${table.actionType} = 'settlement.execute' AND ${table.resourceType} = 'settlement_cycle') OR
     (${table.actionType} = 'transfer.create' AND ${table.resourceType} = 'transfer') OR
+    (${table.actionType} = 'payout_batch.execute' AND ${table.resourceType} = 'payout_batch') OR
     (${table.actionType} = 'risk.case.resolve' AND ${table.resourceType} = 'risk_case') OR
     (${table.actionType} = 'reconciliation.exception.resolve' AND ${table.resourceType} = 'reconciliation_exception') OR
     (${table.actionType} = 'dispute.resolve' AND ${table.resourceType} = 'dispute')

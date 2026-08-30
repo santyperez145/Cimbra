@@ -3,8 +3,9 @@ import { processDueSettlementCycles } from '@/db/approvals';
 import { expireRiskStepUpChallenges } from '@/db/risk';
 import { expireDueDiligenceCases } from '@/db/due-diligence';
 import { processDueRecurringMandates } from '@/db/billers';
+import { processDuePayoutBatches } from '@/db/payouts';
 
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET;
@@ -14,7 +15,8 @@ export async function GET(request: Request) {
   const expiredStepUps = await expireRiskStepUpChallenges(250);
   const expiredDueDiligence = await expireDueDiligenceCases(250);
   const recurringMandates = await processDueRecurringMandates(50);
+  const payoutBatches = await processDuePayoutBatches(2);
   const settlements = await processDueSettlementCycles(25);
   const results = await dispatchWebhookDeliveries({ limit: 25 });
-  return Response.json({ ok: true, processed: results.length, results, settlements, recurringMandates, expiredStepUps, expiredDueDiligence }, { headers: { 'Cache-Control': 'no-store' } });
+  return Response.json({ ok: true, processed: results.length, results, settlements, recurringMandates, payoutBatches, expiredStepUps, expiredDueDiligence }, { headers: { 'Cache-Control': 'no-store' } });
 }

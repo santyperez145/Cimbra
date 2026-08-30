@@ -561,6 +561,44 @@ export async function reverseTransactionInTransaction(input: ReverseTransactionI
     }, transaction);
     await transaction.prepare("UPDATE transactions SET status = 'reversed', updated_at = ? WHERE id = ?").bind(now, original.id).run();
     await transaction.prepare("UPDATE ledger_journals SET status = 'reversed' WHERE id = ?").bind(originalJournal.id).run();
+    const payoutItem = await transaction.prepare(`SELECT id, batch_id AS "batchId", external_reference AS "externalReference", status
+      FROM payout_items WHERE organization_id = ? AND transaction_id = ? LIMIT 1 FOR UPDATE`)
+      .bind(input.organizationId, original.id).first<{ id: string; batchId: string; externalReference: string; status: string }>();
+    if (payoutItem && payoutItem.status === 'settled') {
+      await transaction.prepare(`UPDATE payout_items SET status = 'failed', failure_code = 'payout_reversed',
+        failure_message = 'El payout fue compensado mediante una reversa contable.', processed_at = ?, updated_at = ? WHERE id = ?`)
+        .bind(now, now, payoutItem.id).run();
+      await insertAudit(transaction, {
+        organizationId: input.organizationId,
+        actorId: input.actor.userId,
+        action: 'payout.item_failed',
+        resourceType: 'payout_item',
+        resourceId: payoutItem.id,
+        payload: { batchId: payoutItem.batchId, externalReference: payoutItem.externalReference,
+          transactionId: original.id, reversalId: id, failureCode: 'payout_reversed' },
+      });
+      const batch = await transaction.prepare('SELECT status FROM payout_batches WHERE organization_id = ? AND id = ? FOR UPDATE')
+        .bind(input.organizationId, payoutItem.batchId).first<{ status: string }>();
+      const countsRows = await transaction.prepare(`SELECT status, COUNT(*)::int AS count FROM payout_items
+        WHERE organization_id = ? AND batch_id = ? GROUP BY status`).bind(input.organizationId, payoutItem.batchId)
+        .all<{ status: string; count: number }>();
+      const counts = { pending: 0, processing: 0, review: 0, settled: 0, failed: 0, cancelled: 0 };
+      for (const count of countsRows.results) if (count.status in counts) counts[count.status as keyof typeof counts] = Number(count.count);
+      const batchStatus = counts.review > 0 ? 'requires_attention'
+        : counts.pending + counts.processing > 0 ? 'processing'
+          : counts.settled > 0 && counts.failed + counts.cancelled > 0 ? 'partially_failed'
+            : counts.settled > 0 ? 'completed' : 'failed';
+      await transaction.prepare('UPDATE payout_batches SET status = ?, completed_at = ?, processing_lease_until = NULL, updated_at = ? WHERE id = ?')
+        .bind(batchStatus, ['completed', 'partially_failed', 'failed'].includes(batchStatus) ? now : null, now, payoutItem.batchId).run();
+      if (batch && batch.status !== batchStatus) await insertAudit(transaction, {
+        organizationId: input.organizationId,
+        actorId: input.actor.userId,
+        action: `payout.batch_${batchStatus}`,
+        resourceType: 'payout_batch',
+        resourceId: payoutItem.batchId,
+        payload: { status: batchStatus, counts, reversalId: id },
+      });
+    }
     await insertAudit(transaction, {
       organizationId: input.organizationId,
       actorId: input.actor.userId,
@@ -684,6 +722,37 @@ export async function resolveHold(input: {
         resourceId: billPayment.id,
         payload: { transactionId: hold.transactionId, holdId: hold.id, status: orderStatus },
       });
+    }
+    const payoutItem = await transaction.prepare(`SELECT id, batch_id AS "batchId", external_reference AS "externalReference", status
+      FROM payout_items WHERE organization_id = ? AND transaction_id = ? LIMIT 1 FOR UPDATE`)
+      .bind(input.organizationId, hold.transactionId).first<{ id: string; batchId: string; externalReference: string; status: string }>();
+    if (payoutItem && payoutItem.status === 'review') {
+      const itemStatus = input.action === 'capture' ? 'settled' : 'failed';
+      await transaction.prepare(`UPDATE payout_items SET status = ?, failure_code = ?, failure_message = ?, processed_at = ?, updated_at = ? WHERE id = ?`)
+        .bind(itemStatus, input.action === 'capture' ? null : 'risk_released',
+          input.action === 'capture' ? null : 'La revisión de riesgo liberó la reserva.', now, now, payoutItem.id).run();
+      await insertAudit(transaction, { organizationId: input.organizationId, actorId: input.actor.userId,
+        action: `payout.item_${itemStatus}`, resourceType: 'payout_item', resourceId: payoutItem.id,
+        payload: { batchId: payoutItem.batchId, externalReference: payoutItem.externalReference,
+          transactionId: hold.transactionId, holdId: hold.id, status: itemStatus,
+          ...(itemStatus === 'failed' ? { failureCode: 'risk_released' } : {}) } });
+      const batch = await transaction.prepare('SELECT status, created_by AS "createdBy" FROM payout_batches WHERE organization_id = ? AND id = ? FOR UPDATE')
+        .bind(input.organizationId, payoutItem.batchId).first<{ status: string; createdBy: string }>();
+      const countsRows = await transaction.prepare(`SELECT status, COUNT(*)::int AS count FROM payout_items
+        WHERE organization_id = ? AND batch_id = ? GROUP BY status`).bind(input.organizationId, payoutItem.batchId)
+        .all<{ status: string; count: number }>();
+      const counts = { pending: 0, processing: 0, review: 0, settled: 0, failed: 0, cancelled: 0 };
+      for (const count of countsRows.results) if (count.status in counts) counts[count.status as keyof typeof counts] = Number(count.count);
+      const batchStatus = counts.review > 0 ? 'requires_attention'
+        : counts.pending + counts.processing > 0 ? 'processing'
+          : counts.settled > 0 && counts.failed + counts.cancelled > 0 ? 'partially_failed'
+            : counts.settled > 0 ? 'completed' : 'failed';
+      const completedAt = ['completed', 'partially_failed', 'failed'].includes(batchStatus) ? now : null;
+      await transaction.prepare('UPDATE payout_batches SET status = ?, completed_at = ?, processing_lease_until = NULL, updated_at = ? WHERE id = ?')
+        .bind(batchStatus, completedAt, now, payoutItem.batchId).run();
+      if (batch && batch.status !== batchStatus) await insertAudit(transaction, { organizationId: input.organizationId,
+        actorId: input.actor.userId, action: `payout.batch_${batchStatus}`, resourceType: 'payout_batch', resourceId: payoutItem.batchId,
+        payload: { status: batchStatus, counts } });
     }
     await insertAudit(transaction, {
       organizationId: input.organizationId,

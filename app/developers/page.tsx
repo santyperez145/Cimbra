@@ -29,6 +29,11 @@ const errorResponses = [
 const changelog = [
   {
     date: '30 AGO 2026',
+    title: 'Beneficiarios y payouts masivos nativos',
+    detail: 'Destinos protegidos por tenant, lotes inmutables de hasta 100 ítems, programación/deadline, maker-checker, worker con lease, riesgo/ledger por ítem, CSV de resultados, scopes, SDK y consola por rol.',
+  },
+  {
+    date: '30 AGO 2026',
     title: 'Servicios, recargas y mandatos recurrentes nativos',
     detail: 'Catálogo por tenant, obligaciones emitidas con referencia protegida, pagos y recargas conectados a ledger/riesgo/holds, reversas compensatorias, mandatos con consentimiento, límites, reintentos, scopes S2S, SDK, eventos y consola por rol.',
   },
@@ -229,6 +234,33 @@ const payment = await cimbra.billPayments.create({
 });
 
 console.log(payment.data.order.status);`;
+  const payoutExample = `const beneficiary = await cimbra.payoutBeneficiaries.create({
+  externalReference: 'PROVIDER-001',
+  name: 'Proveedor Regional',
+  entityType: 'business',
+  country: 'AR',
+  currency: 'ARS',
+  destinationType: 'alias',
+  destination: 'proveedor.cimbra',
+});
+
+const batch = await cimbra.payoutBatches.create({
+  sourceAccountId: '<account_uuid>',
+  externalReference: 'PAYOUT-2026-09-001',
+  description: 'Liquidación de proveedores',
+  currency: 'ARS',
+  processBefore: '2026-09-01T21:00:00.000Z',
+  items: [{
+    externalReference: 'ITEM-001',
+    beneficiaryId: beneficiary.data.beneficiary.id,
+    amount: '125000.00',
+    description: 'Liquidación agosto',
+  }],
+});
+
+const submitted = await cimbra.payoutBatches.submit(batch.data.batch.id);
+const csv = await cimbra.payoutBatches.resultCsv(batch.data.batch.id);
+console.log(submitted.data.batch.status, csv.data);`;
 
   return <main className="docs-shell docs-shell-expanded">
     <header className="docs-topbar">
@@ -254,6 +286,7 @@ console.log(payment.data.order.status);`;
         <a href="#errors">Errores y rate limits</a>
         <strong>INTEGRACIÓN</strong>
         <a href="#sdk">SDK TypeScript</a>
+        <a href="#payouts">Payouts masivos</a>
         <a href="#billers">Servicios y recargas</a>
         <a href="#due-diligence">KYC/KYB</a>
         <a href="#risk-step-up">Step-up y SLO</a>
@@ -267,7 +300,7 @@ console.log(payment.data.order.status);`;
     <article className="docs-content docs-content-expanded">
       <details className="docs-mobile-nav">
         <summary>Índice de documentación</summary>
-        <nav><a href="#overview">Overview</a><a href="#quickstart">Quickstart</a><a href="#authentication">Auth</a><a href="#sdk">SDK</a><a href="#billers">Servicios</a><a href="#due-diligence">KYC/KYB</a><a href="#risk-step-up">Step-up</a><a href="#webhooks">Webhooks</a><a href="#reference">API reference</a></nav>
+        <nav><a href="#overview">Overview</a><a href="#quickstart">Quickstart</a><a href="#authentication">Auth</a><a href="#sdk">SDK</a><a href="#payouts">Payouts</a><a href="#billers">Servicios</a><a href="#due-diligence">KYC/KYB</a><a href="#risk-step-up">Step-up</a><a href="#webhooks">Webhooks</a><a href="#reference">API reference</a></nav>
       </details>
 
       <section id="overview" className="docs-hero">
@@ -281,7 +314,7 @@ console.log(payment.data.order.status);`;
           <article><strong>{API_SCOPES.length}</strong><span>Scopes S2S canónicos</span></article>
           <article><strong>{WEBHOOK_EVENT_TYPES.length}</strong><span>Tipos de evento emitidos</span></article>
         </div>
-        <div className="docs-callout"><i>i</i><div><strong>Sandbox persistente, no dinero real</strong><p>Customers, KYC/KYB, cuentas, tarjetas sandbox, servicios, obligaciones, recargas, mandatos, movimientos, ledger, riesgo, conciliación, disputas, operaciones, aprobaciones y webhooks se persisten. No existen fuentes de identidad, cobertura comercial o rieles homologados, PAN/CVV ni instrumentos emitidos en redes de pago.</p></div></div>
+        <div className="docs-callout"><i>i</i><div><strong>Sandbox persistente, no dinero real</strong><p>Customers, KYC/KYB, cuentas, tarjetas sandbox, beneficiarios, lotes de payouts, servicios, obligaciones, recargas, mandatos, movimientos, ledger, riesgo, conciliación, disputas, operaciones, aprobaciones y webhooks se persisten. No existen fuentes de identidad, cobertura comercial o rieles homologados, PAN/CVV ni instrumentos emitidos en redes de pago.</p></div></div>
       </section>
 
       <section id="environments" className="docs-section">
@@ -387,6 +420,19 @@ console.log(payment.data.order.status);`;
         <CodeBlock language="TYPESCRIPT · SDK REAL" value={billerPaymentsExample} />
       </section>
 
+      <section id="payouts" className="docs-section">
+        <p className="docs-kicker">PAYOUT INFRASTRUCTURE</p><h2>De un beneficiario protegido a un resultado conciliable.</h2>
+        <p className="docs-section-lede">Cimbra acepta un lote como borrador inmutable, lo somete a doble control si el tenant lo exige y procesa cada ítem por separado. Un fallo funcional no duplica ni bloquea los payouts ya resueltos; el estado y el archivo se derivan de datos persistidos.</p>
+        <div className="docs-callout"><i>i</i><div><strong>Scheduling del entorno actual</strong><p>Los lotes inmediatos se despachan al responder. En el deployment gratuito actual, el recovery sweep de lotes programados corre diariamente y no promete precisión horaria; la infraestructura AWS preparada usa EventBridge cada minuto, pero no se activa hasta autorizar presupuesto.</p></div></div>
+        <div className="webhook-contract-grid">
+          <article><strong>Scopes y roles</strong><p><code>payouts:read/write</code> protege S2S. Owner/Admin administra destinos, Operator puede crear/enviar lotes y Viewer sólo consulta.</p></article>
+          <article><strong>Privacidad</strong><p>El destino completo es write-only: se normaliza, se convierte en digest tenant-scoped y sólo vuelven tipo y últimos cuatro.</p></article>
+          <article><strong>Ejecución durable</strong><p>De 1 a 100 ítems, programación y deadline, lease recuperable, tres intentos transitorios, riesgo, saldo, holds y ledger por ítem.</p></article>
+          <article><strong>Límite real</strong><p>El sandbox contabiliza contra settlement interno. Producción requiere riel bancario/cámara directo, reason codes, returns, conciliación y homologación.</p></article>
+        </div>
+        <CodeBlock language="TYPESCRIPT · SDK REAL" value={payoutExample} />
+      </section>
+
       <section id="due-diligence" className="docs-section">
         <p className="docs-kicker">CUSTOMER DUE DILIGENCE</p><h2>KYC/KYB orquestado, con decisión humana independiente.</h2>
         <p className="docs-section-lede">El tipo del customer determina KYC o KYB. Cada caso congela jurisdicción, versión de política y checks requeridos; partes, evidencia y observaciones se conservan append-only y el vencimiento es terminal.</p>
@@ -439,7 +485,7 @@ console.log(payment.data.order.status);`;
 
     <aside className="docs-toc">
       <strong>EN ESTA PÁGINA</strong>
-      <a href="#overview">Overview</a><a href="#environments">Entornos</a><a href="#quickstart">Quickstart</a><a href="#authentication">Autenticación</a><a href="#idempotency">Idempotencia</a><a href="#errors">Errores</a><a href="#sdk">SDK</a><a href="#billers">Servicios</a><a href="#due-diligence">KYC/KYB</a><a href="#risk-step-up">Step-up</a><a href="#webhooks">Webhooks</a><a href="#reference">API reference</a><a href="#changelog">Changelog</a>
+      <a href="#overview">Overview</a><a href="#environments">Entornos</a><a href="#quickstart">Quickstart</a><a href="#authentication">Autenticación</a><a href="#idempotency">Idempotencia</a><a href="#errors">Errores</a><a href="#sdk">SDK</a><a href="#payouts">Payouts</a><a href="#billers">Servicios</a><a href="#due-diligence">KYC/KYB</a><a href="#risk-step-up">Step-up</a><a href="#webhooks">Webhooks</a><a href="#reference">API reference</a><a href="#changelog">Changelog</a>
       <div><span>{user ? `Sesión activa · ${user.displayName.split(' ')[0]}` : '¿Necesitás credenciales?'}</span><Link href={user ? '/console' : '/login?return_to=%2Fconsole'}>{user ? 'Abrir Developers' : 'Ingresar al sandbox'} →</Link></div>
     </aside>
   </main>;

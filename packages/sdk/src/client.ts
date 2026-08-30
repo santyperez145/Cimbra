@@ -6,6 +6,7 @@ import type {
   CreateReconciliationCsvImportInput, CreateReconciliationRunInput, CreateRiskEvaluationInput, CreateRiskListEntryInput, CreateRiskRuleInput, CreateRiskSimulationInput,
   CreateRiskStepUpChallengeInput,
   CreateRecurringPaymentMandateInput, CreateSettlementCycleInput, CreateTransferInput, CreateWebhookInput,
+  CreatePayoutBatchInput, CreatePayoutBeneficiaryInput, PayoutBatch, PayoutBeneficiary,
   Customer, DueDiligenceCase, DueDiligenceCheck, DueDiligenceParty, DueDiligenceState,
   Dispute, DisputeEventName, DisputeTimelineEvent, DisputeTransitionResult, Hold, HoldResolution, LedgerBalance, LedgerJournal, ListOptions, Page, PlatformCapability,
   OperationalEvidence, OperationalNote, OperationalState, OperationalWorkItem, TransitionCardInput, UpdateCardControlsInput,
@@ -241,6 +242,33 @@ export class Cimbra {
       `/api/v1/recurring-mandates/${encodeURIComponent(id)}/status`, { action: 'cancel' }, options, true),
   };
 
+  readonly payoutBeneficiaries = {
+    list: (options?: RequestOptions) => this.request<{ data: PayoutBeneficiary[] }>('GET', '/api/v1/payout-beneficiaries', undefined, options),
+    retrieve: (id: string, options?: RequestOptions) =>
+      this.request<PayoutBeneficiary>('GET', `/api/v1/payout-beneficiaries/${encodeURIComponent(id)}`, undefined, options),
+    create: (input: CreatePayoutBeneficiaryInput, options?: RequestOptions) =>
+      this.post<{ ok: true; beneficiary: PayoutBeneficiary; replayed: boolean }>('/api/v1/payout-beneficiaries', input, options, true),
+    setStatus: (id: string, action: 'activate' | 'suspend', options?: RequestOptions) =>
+      this.post<{ ok: true; beneficiary: PayoutBeneficiary; replayed: boolean }>(
+        `/api/v1/payout-beneficiaries/${encodeURIComponent(id)}/status`, { action }, options, true),
+  };
+
+  readonly payoutBatches = {
+    list: (options?: RequestOptions) => this.request<{ data: PayoutBatch[] }>('GET', '/api/v1/payout-batches', undefined, options),
+    retrieve: (id: string, options?: RequestOptions) =>
+      this.request<PayoutBatch>('GET', `/api/v1/payout-batches/${encodeURIComponent(id)}`, undefined, options),
+    create: (input: CreatePayoutBatchInput, options?: RequestOptions) =>
+      this.post<{ ok: true; batch: PayoutBatch; replayed: boolean }>('/api/v1/payout-batches', input, options, true),
+    submit: (id: string, options?: RequestOptions) =>
+      this.post<{ ok: true; batch: PayoutBatch; approval: ApprovalRequest | null; requiresApproval: boolean; replayed: boolean }>(
+        `/api/v1/payout-batches/${encodeURIComponent(id)}/submit`, {}, options, true),
+    cancel: (id: string, options?: RequestOptions) =>
+      this.post<{ ok: true; batch: PayoutBatch; replayed: boolean }>(
+        `/api/v1/payout-batches/${encodeURIComponent(id)}/cancel`, undefined, options, true),
+    resultCsv: (id: string, options?: RequestOptions) =>
+      this.request<string>('GET', `/api/v1/payout-batches/${encodeURIComponent(id)}/result`, undefined, options),
+  };
+
   readonly disputes = {
     list: (options?: RequestOptions) => this.request<{ data: { disputes: Dispute[]; eligibleTransactions: Array<Dispute['originalTransaction'] & { disputableAmountMinor: string; disputableAmount: number }> } }>(
       'GET', '/api/v1/disputes', undefined, options),
@@ -375,7 +403,8 @@ export class Cimbra {
           signal: controller.signal,
         });
         if (response.ok) {
-          const payload = await response.json() as T;
+          const contentType = response.headers.get('content-type') ?? '';
+          const payload = (contentType.includes('json') ? await response.json() : await response.text()) as T;
           return { data: payload, requestId: response.headers.get('x-request-id') ?? requestId };
         }
         const error = await this.apiError(response, requestId);

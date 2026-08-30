@@ -162,6 +162,24 @@ await cimbra.recurringMandates.pause(mandate.data.mandate.id);
 
 Estas órdenes reutilizan cuentas, ledger de doble partida, riesgo, holds, auditoría y webhooks; una reversa crea postings compensatorios. El sandbox no inventa consultas de deuda ni cobertura comercial y no debita dinero real: cada país requiere contratos directos, consentimiento exigible y homologación del riel.
 
+## Beneficiarios y payouts masivos
+
+```ts
+const beneficiary = await cimbra.payoutBeneficiaries.create({
+  externalReference: 'PROVIDER-001', name: 'Proveedor Regional', entityType: 'business',
+  country: 'AR', currency: 'ARS', destinationType: 'alias', destination: 'proveedor.cimbra',
+});
+const batch = await cimbra.payoutBatches.create({
+  sourceAccountId: '00000000-0000-4000-8000-000000000001', externalReference: 'PAYROLL-2026-09-01',
+  description: 'Liquidación de proveedores', currency: 'ARS',
+  items: [{ externalReference: 'ITEM-001', beneficiaryId: beneficiary.data.beneficiary.id, amount: '125000.00', description: 'Liquidación agosto' }],
+});
+await cimbra.payoutBatches.submit(batch.data.batch.id);
+const result = await cimbra.payoutBatches.resultCsv(batch.data.batch.id);
+```
+
+El destino completo se transforma en un digest tenant-scoped y nunca vuelve en respuestas o archivos. El envío devuelve `202`, se ejecuta por ítem con lease, riesgo y ledger, y puede exigir doble aprobación. El CSV contiene resultados reales del sandbox. Para mover dinero real se requiere un riel bancario o cámara conectado directamente y homologado.
+
 ## Riesgo y fraude
 
 ```ts

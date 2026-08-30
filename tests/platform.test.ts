@@ -18,6 +18,7 @@ import { initialCardStatus, normalizeCardControlsInput, normalizeCardProgramInpu
 import { authenticatedFetch } from '../app/lib/platform/client-http.ts';
 import { disputeEvent, disputeNextStatus, disputePossibleEvents, disputeReason, isOpenDispute } from '../app/lib/platform/disputes.ts';
 import { normalizeBillerInput, normalizeBillPaymentInput, normalizeLifecycleAction, normalizeMandateInput, normalizeObligationInput, normalizeProtectedReference } from '../app/lib/platform/billers-input.ts';
+import { normalizePayoutBatchInput, normalizePayoutBeneficiaryInput, normalizePayoutBeneficiaryStatus, normalizePayoutDestination } from '../app/lib/platform/payouts-input.ts';
 
 process.env.CIMBRA_ENCRYPTION_KEY = '3ea72fc13c567057870342c6ebd34d88f58f6d80b1dba61c4be4e1c2f1406afb';
 
@@ -121,6 +122,8 @@ test('una matriz canónica gobierna capacidades de API y consola', () => {
   assert.equal(roleCan('operator', 'cards.program.manage'), false);
   assert.equal(roleCan('admin', 'billers.manage'), true);
   assert.equal(roleCan('operator', 'billers.manage'), false);
+  assert.equal(roleCan('admin', 'payouts.beneficiaries.manage'), true);
+  assert.equal(roleCan('operator', 'payouts.beneficiaries.manage'), false);
   assert.equal(roleCan('operator', 'credentials.manage'), false);
   assert.equal(roleCan('viewer', 'console.read'), true);
   assert.equal(roleCan('viewer', 'disputes.read'), true);
@@ -129,6 +132,26 @@ test('una matriz canónica gobierna capacidades de API y consola', () => {
     if (!['console.read', 'disputes.read', 'operations.read', 'approvals.read', 'security.manage_self'].includes(capability)) assert.equal(roleCan('viewer', capability), false, capability);
   }
   assert.equal(ROLE_PROFILES.viewer.posture, 'Sólo lectura');
+});
+
+test('payouts protegen destinos y acotan lotes inmutables a 100 ítems', () => {
+  assert.equal(normalizePayoutDestination(' proveedor.cimbra '), 'PROVEEDOR.CIMBRA');
+  assert.equal(normalizePayoutDestination('x'), null);
+  assert.deepEqual(normalizePayoutBeneficiaryInput({ externalReference: ' PROVIDER-001 ', name: ' Proveedor Regional ', entityType: 'business',
+    country: 'ar', currency: 'ars', destinationType: 'alias', destination: 'proveedor.cimbra', bankCode: ' bank-01 ' }), {
+    externalReference: 'PROVIDER-001', name: 'Proveedor Regional', entityType: 'business', country: 'AR', currency: 'ARS',
+    destinationType: 'alias', destination: 'PROVEEDOR.CIMBRA', bankCode: 'bank-01',
+  });
+  assert.equal(normalizePayoutBeneficiaryInput({ externalReference: 'P-1', name: 'Proveedor', entityType: 'business', country: 'AR',
+    currency: 'ARS', destinationType: 'competitor', destination: 'provider-1234' }), null);
+  const batch = normalizePayoutBatchInput({ sourceAccountId: 'account-1', externalReference: 'BATCH-001', description: 'Liquidación mensual',
+    currency: 'ARS', items: [{ externalReference: 'ITEM-001', beneficiaryId: 'beneficiary-1', amount: '1250.50', description: 'Liquidación' }] });
+  assert.ok(batch); assert.equal(batch.items[0].amountMinor, 125050n);
+  assert.equal(normalizePayoutBatchInput({ sourceAccountId: 'account-1', externalReference: 'BATCH-001', description: 'Liquidación mensual',
+    currency: 'ARS', items: [{ externalReference: 'DUP', beneficiaryId: 'beneficiary-1', amount: '1', description: 'Uno' },
+      { externalReference: 'DUP', beneficiaryId: 'beneficiary-2', amount: '2', description: 'Dos' }] }), null);
+  assert.equal(normalizePayoutBeneficiaryStatus({ action: 'suspend' }), 'suspend');
+  assert.equal(normalizePayoutBeneficiaryStatus({ action: 'delete' }), null);
 });
 
 test('servicios y mandatos validan catálogo, referencias protegidas, importes y consentimiento', () => {
@@ -196,6 +219,7 @@ test('la cola operativa valida cambios, SLA, comentarios y evidencia', () => {
 test('maker/checker exige otro actor privilegiado con MFA y políticas acotadas', () => {
   assert.equal(approvalActionType('settlement.execute'), 'settlement.execute');
   assert.equal(approvalActionType('transfer.create'), 'transfer.create');
+  assert.equal(approvalActionType('payout_batch.execute'), 'payout_batch.execute');
   assert.equal(approvalActionType('risk.case.resolve'), 'risk.case.resolve');
   assert.equal(approvalActionType('reconciliation.exception.resolve'), 'reconciliation.exception.resolve');
   assert.equal(approvalActionType('dispute.resolve'), 'dispute.resolve');

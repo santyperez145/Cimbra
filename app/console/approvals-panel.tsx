@@ -5,14 +5,14 @@ import { roleCan, type OrganizationRole } from '@/app/lib/platform/access-policy
 import { authenticatedFetch } from '@/app/lib/platform/client-http';
 
 type Role = OrganizationRole;
-type ApprovalActionType = 'settlement.execute' | 'transfer.create' | 'risk.case.resolve' | 'reconciliation.exception.resolve' | 'dispute.resolve';
+type ApprovalActionType = 'settlement.execute' | 'transfer.create' | 'payout_batch.execute' | 'risk.case.resolve' | 'reconciliation.exception.resolve' | 'dispute.resolve';
 type ApprovalStatus = 'pending' | 'executed' | 'rejected' | 'cancelled' | 'expired' | 'failed';
 type Approval = {
   id: string; actionType: ApprovalActionType;
-  resourceType: 'settlement_cycle' | 'transfer' | 'risk_case' | 'reconciliation_exception' | 'dispute'; resourceId: string; status: ApprovalStatus;
+  resourceType: 'settlement_cycle' | 'transfer' | 'payout_batch' | 'risk_case' | 'reconciliation_exception' | 'dispute'; resourceId: string; status: ApprovalStatus;
   requestPayload: { name?: string; rail?: string; currency?: string; netMinor?: string; amountMinor?: string; differenceMinor?: string;
     executionMode?: string; counterparty?: string; description?: string; origin?: string; resolution?: string; note?: string;
-    externalReference?: string; runName?: string; priority?: string; score?: number; reason?: string; creditStatus?: string };
+    externalReference?: string; itemCount?: number; runName?: string; priority?: string; score?: number; reason?: string; creditStatus?: string };
   requestedBy: string; requestedByName: string; resolvedBy: string | null; resolvedByName: string | null;
   resolutionReason: string | null; expiresAt: string; resolvedAt: string | null; executedAt: string | null; createdAt: string;
 };
@@ -25,6 +25,7 @@ const statusLabels: Record<ApprovalStatus, string> = {
 const policyLabels: Record<ApprovalActionType, { title: string; direct: string }> = {
   'settlement.execute': { title: 'Ejecución de settlement', direct: 'Ejecución directa sandbox' },
   'transfer.create': { title: 'Transferencias salientes', direct: 'Transferencia directa según riesgo' },
+  'payout_batch.execute': { title: 'Ejecución de lotes de payouts', direct: 'Envío asíncrono por ítem' },
   'risk.case.resolve': { title: 'Resolución de casos de riesgo', direct: 'Resolución directa por operador' },
   'reconciliation.exception.resolve': { title: 'Resolución de excepciones', direct: 'Resolución directa por operador' },
   'dispute.resolve': { title: 'Lifecycle de disputas', direct: 'Transición directa por operador' },
@@ -44,6 +45,7 @@ function amountLabel(payload: Approval['requestPayload']) {
 
 function approvalTitle(item: Approval) {
   if (item.actionType === 'transfer.create') return item.requestPayload.counterparty ?? 'Nueva transferencia';
+  if (item.actionType === 'payout_batch.execute') return item.requestPayload.externalReference ?? 'Lote de payouts';
   if (item.actionType === 'risk.case.resolve') return item.requestPayload.counterparty ?? 'Caso de riesgo';
   if (item.actionType === 'reconciliation.exception.resolve') return item.requestPayload.externalReference ?? 'Excepción de conciliación';
   if (item.actionType === 'dispute.resolve') return item.requestPayload.counterparty ?? 'Disputa';
@@ -52,6 +54,7 @@ function approvalTitle(item: Approval) {
 
 function approvalChannel(item: Approval) {
   if (item.actionType === 'transfer.create') return `${item.requestPayload.description ?? 'Sin concepto'} · ${item.requestPayload.origin === 'api_key' ? 'API key' : 'consola'}`;
+  if (item.actionType === 'payout_batch.execute') return `${item.requestPayload.itemCount ?? 0} ítems · ejecución asíncrona`;
   if (item.actionType === 'risk.case.resolve') return `${item.requestPayload.resolution === 'approved' ? 'aprobar' : 'rechazar'} · score ${item.requestPayload.score ?? '—'} · ${item.requestPayload.priority ?? 'sin prioridad'}`;
   if (item.actionType === 'reconciliation.exception.resolve') return `${item.requestPayload.resolution === 'accepted' ? 'aceptar diferencia' : 'marcar corregida'} · ${item.requestPayload.runName ?? 'corrida'}`;
   if (item.actionType === 'dispute.resolve') return `${item.requestPayload.resolution ?? 'transición'} · ${item.requestPayload.reason ?? 'disputa'} · ${item.requestPayload.creditStatus ?? 'sin crédito'}`;
@@ -60,6 +63,7 @@ function approvalChannel(item: Approval) {
 
 function approvalIcon(item: Approval) {
   if (item.actionType === 'transfer.create') return '↗';
+  if (item.actionType === 'payout_batch.execute') return '≡';
   if (item.actionType === 'risk.case.resolve') return '!';
   if (item.actionType === 'reconciliation.exception.resolve') return '≠';
   if (item.actionType === 'dispute.resolve') return '◫';
@@ -120,13 +124,13 @@ export default function ApprovalsPanel({ actorRole, mfaEnabled }: { actorRole: R
   }
 
   return <div className="module-view approvals-console">
-    <div className="module-view-head"><div><p>MAKER / CHECKER</p><h1>Solicitudes y aprobaciones</h1><span>Doble control para operaciones sensibles, con ejecución atómica y trazabilidad.</span></div><span className="module-health"><i /> {pending.length} pendientes</span></div>
+    <div className="module-view-head"><div><p>MAKER / CHECKER</p><h1>Solicitudes y aprobaciones</h1><span>Doble control para operaciones sensibles, con autorización atómica y trazabilidad.</span></div><span className="module-health"><i /> {pending.length} pendientes</span></div>
     {feedback && <div className="form-feedback ledger-feedback" role="status">{feedback}</div>}
     <div className="module-metrics"><article><strong>{pending.length}</strong><span>pendientes</span></article><article><strong>{approvals.filter((item) => item.status === 'executed').length}</strong><span>ejecutadas</span></article><article><strong>{approvals.filter((item) => item.status === 'rejected').length}</strong><span>rechazadas</span></article></div>
     <div className="approval-layout">{policies.map((policy) => <article className="integration-card" key={policy.actionType}><div className="card-head"><div><h2>{policyLabels[policy.actionType].title}</h2><p>El maker solicita; otro owner/admin con MFA decide</p></div><b>{policy.enabled ? 'ACTIVA' : 'OPT-IN'}</b></div>
       {roleCan(actorRole, 'approvals.decide') ? <div className="approval-policy-body"><div><span>Estado efectivo</span><strong>{policy.enabled ? 'Doble aprobación obligatoria' : policyLabels[policy.actionType].direct}</strong></div><div><span>Vencimiento</span><strong>{Math.round(policy.expiresInMinutes / 60)} horas</strong></div><div><span>Aprobadores elegibles</span><strong>{policy.eligibleApprovers} con MFA</strong></div>{roleCan(actorRole, 'approvals.policy.manage') ? <button disabled={busy || !mfaEnabled} onClick={() => void updatePolicy(policy, !policy.enabled)}>{!mfaEnabled ? 'Activá MFA para administrar' : policy.enabled ? 'Deshabilitar política' : 'Habilitar doble aprobación'}</button> : <small>Sólo el owner puede cambiar esta política.</small>}</div>
         : <p className="role-boundary-copy">La política es gobernada por el owner. Tu rol puede consultar la cola y originar solicitudes desde las superficies habilitadas.</p>}
-    </article>)}<article className="integration-card role-boundary-card"><div className="card-head"><div><h2>Separación efectiva</h2><p>Controles activos del workflow</p></div><b>4-EYES</b></div><div className="approval-guardrails"><span>✓ Maker y checker siempre distintos</span><span>✓ Aprobación reservada a owner/admin con MFA</span><span>✓ Decisión y operación en una sola transacción</span><span>✓ Transferencias, casos y diferencias se revalidan al aprobar</span><span>✓ Holds vinculados no permiten saltear la política de riesgo</span><span>✓ Rechazo, cancelación, fallo y vencimiento auditados</span></div></article></div>
+    </article>)}<article className="integration-card role-boundary-card"><div className="card-head"><div><h2>Separación efectiva</h2><p>Controles activos del workflow</p></div><b>4-EYES</b></div><div className="approval-guardrails"><span>✓ Maker y checker siempre distintos</span><span>✓ Aprobación reservada a owner/admin con MFA</span><span>✓ Decisión y autorización en una sola transacción</span><span>✓ Transferencias, lotes, casos y diferencias se revalidan al aprobar</span><span>✓ Holds vinculados no permiten saltear la política de riesgo</span><span>✓ Rechazo, cancelación, fallo y vencimiento auditados</span></div></article></div>
     <article className="module-list approval-list"><div className="card-head"><div><h2>Historial de solicitudes</h2><p>Estados persistidos y contexto de la operación</p></div><b>{approvals.length}</b></div>{approvals.length === 0 ? <div><span className="movement"><i>✓</i><b>Sin solicitudes<small>Las operaciones y decisiones protegidas aparecerán aquí</small></b></span><strong>Vacío</strong></div> : approvals.map((item) => {
       const canDecide = item.status === 'pending' && item.requestedBy !== currentUserId && roleCan(actorRole, 'approvals.decide') && mfaEnabled;
       const canCancel = item.status === 'pending' && item.requestedBy === currentUserId && roleCan(actorRole, 'approvals.request');
