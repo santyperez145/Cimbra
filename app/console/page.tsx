@@ -16,5 +16,5 @@ export default async function ConsolePage() {
     throw error;
   }
   const recoveryCodeCount = user.mfaEnabled ? await remainingRecoveryCodes(user.userId) : 0;
-  return <ConsoleClient data={data} user={{ displayName: user.displayName, email: user.email, role: data.role, emailVerified: user.emailVerified, mfaEnabled: user.mfaEnabled, recoveryCodeCount }} />;
+  return <ConsoleClient data={data} user={{ userId: user.userId, displayName: user.displayName, email: user.email, role: data.role, emailVerified: user.emailVerified, mfaEnabled: user.mfaEnabled, recoveryCodeCount }} />;
 }

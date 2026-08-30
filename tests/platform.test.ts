@@ -12,6 +12,7 @@ import { ACCESS_POLICY, ROLE_PROFILES, assignableRole, canManageRole, normalizeA
 import { approvalActionType, approvalExpiryMinutes, approvalReason, canDecideApproval } from '../app/lib/platform/approval-policy.ts';
 import { normalizeEvidenceLink, normalizeOperationalNote, normalizeWorkItemUpdate } from '../app/lib/platform/operations-input.ts';
 import { normalizeRiskRuleInput, normalizeRiskSimulationSamples, normalizeRiskStepUpCredential, normalizeRiskStepUpInput } from '../app/lib/platform/risk-input.ts';
+import { normalizeDueDiligenceCancellation, normalizeDueDiligenceCaseInput, normalizeDueDiligenceCheckInput, normalizeDueDiligenceDecisionInput, normalizeDueDiligencePartyInput } from '../app/lib/platform/due-diligence-input.ts';
 import { normalizeRawRiskSignals, parseProtectedRiskSignals, protectRiskSignals, publicRiskSignals, riskSubjectHash, riskSubjectPreview } from '../app/lib/platform/risk-signals.ts';
 import { initialCardStatus, normalizeCardControlsInput, normalizeCardProgramInput, normalizeCardTransition } from '../app/lib/platform/card-issuing.ts';
 import { authenticatedFetch } from '../app/lib/platform/client-http.ts';
@@ -207,6 +208,26 @@ test('step-up acota método, expiración, intentos y credenciales', () => {
   assert.equal(normalizeRiskStepUpCredential({ credential: ' 123456 ' }), '123456');
   assert.equal(normalizeRiskStepUpCredential({ credential: '12345' }), null);
   assert.equal(normalizeRiskStepUpCredential({ credential: 123456 }), null);
+});
+
+test('KYC/KYB normaliza expedientes, partes, checks y decisiones sensibles', () => {
+  assert.deepEqual(normalizeDueDiligenceCaseInput({ customerId: '00000000-0000-4000-8000-000000000001' }), {
+    customerId: '00000000-0000-4000-8000-000000000001', expiresInDays: 90,
+  });
+  assert.equal(normalizeDueDiligenceCaseInput({ customerId: 'short', expiresInDays: 6 }), null);
+  assert.deepEqual(normalizeDueDiligencePartyInput({ role: 'beneficial_owner', name: '  Ana   Sur  ', taxId: '20-1234-5678-9', ownershipPercentage: 25.55, pepDeclared: true }), {
+    role: 'beneficial_owner', name: 'Ana Sur', taxIdLast4: '6789', ownershipBps: 2555, pepDeclared: true,
+  });
+  assert.equal(normalizeDueDiligencePartyInput({ role: 'beneficial_owner', name: 'Ana', taxId: '1234' }), null);
+  assert.deepEqual(normalizeDueDiligenceCheckInput({ checkType: 'sanctions', source: 'official_registry', status: 'passed', resultCode: ' NO MATCH ', note: 'Fuente oficial consultada.', evidenceDocumentId: '' }), {
+    checkType: 'sanctions', source: 'official_registry', status: 'passed', resultCode: 'no_match', note: 'Fuente oficial consultada.', evidenceDocumentId: null,
+  });
+  assert.equal(normalizeDueDiligenceCheckInput({ checkType: 'biometric', source: 'competitor', status: 'passed', resultCode: 'ok', note: 'No permitido' }), null);
+  assert.deepEqual(normalizeDueDiligenceDecisionInput({ decision: 'approve', riskRating: 'low', note: 'Control independiente completo.' }), {
+    decision: 'approve', riskRating: 'low', note: 'Control independiente completo.',
+  });
+  assert.equal(normalizeDueDiligenceDecisionInput({ decision: 'approve', riskRating: 'prohibited', note: 'Inconsistente' }), null);
+  assert.deepEqual(normalizeDueDiligenceCancellation({ note: ' Duplicado operativo ' }), { note: 'Duplicado operativo' });
 });
 
 test('disputes aplica un lifecycle explícito y terminal', () => {

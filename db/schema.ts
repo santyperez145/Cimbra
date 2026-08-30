@@ -265,6 +265,76 @@ export const complianceDocuments = pgTable('compliance_documents', {
   createdAt: text('created_at').notNull(),
 }, (table) => [index('idx_compliance_org_created').on(table.organizationId, table.createdAt)]);
 
+export const dueDiligenceCases = pgTable('due_diligence_cases', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  customerId: text('customer_id').notNull().references(() => customers.id, { onDelete: 'restrict' }),
+  idempotencyKey: text('idempotency_key').notNull(), requestFingerprint: text('request_fingerprint').notNull(),
+  kind: text('kind').notNull(), jurisdiction: text('jurisdiction').notNull(), policyVersion: text('policy_version').notNull(),
+  requiredChecks: text('required_checks').notNull(), status: text('status').notNull().default('draft'),
+  riskRating: text('risk_rating').notNull().default('unassessed'), expiresAt: text('expires_at').notNull(),
+  createdBy: text('created_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
+  submittedBy: text('submitted_by').references(() => users.id, { onDelete: 'restrict' }), submittedAt: text('submitted_at'),
+  resolvedBy: text('resolved_by').references(() => users.id, { onDelete: 'restrict' }), resolutionNote: text('resolution_note'),
+  resolvedAt: text('resolved_at'), createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_due_diligence_cases_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  uniqueIndex('idx_due_diligence_cases_customer_active').on(table.organizationId, table.customerId)
+    .where(sql`${table.status} IN ('draft', 'in_review')`),
+  index('idx_due_diligence_cases_org_status_created').on(table.organizationId, table.status, table.createdAt),
+  check('due_diligence_cases_kind', sql`${table.kind} IN ('kyc', 'kyb')`),
+  check('due_diligence_cases_status', sql`${table.status} IN ('draft', 'in_review', 'approved', 'rejected', 'cancelled', 'expired')`),
+  check('due_diligence_cases_risk', sql`${table.riskRating} IN ('unassessed', 'low', 'medium', 'high', 'prohibited')`),
+]);
+
+export const dueDiligenceParties = pgTable('due_diligence_parties', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  caseId: text('case_id').notNull().references(() => dueDiligenceCases.id, { onDelete: 'cascade' }),
+  idempotencyKey: text('idempotency_key').notNull(), requestFingerprint: text('request_fingerprint').notNull(),
+  role: text('role').notNull(), name: text('name').notNull(), taxIdLast4: text('tax_id_last4').notNull(),
+  ownershipBps: integer('ownership_bps'), pepDeclared: integer('pep_declared').notNull().default(0),
+  createdBy: text('created_by').notNull().references(() => users.id, { onDelete: 'restrict' }), createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_due_diligence_parties_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  index('idx_due_diligence_parties_case_created').on(table.caseId, table.createdAt),
+  check('due_diligence_parties_role', sql`${table.role} IN ('subject', 'legal_representative', 'beneficial_owner', 'director')`),
+  check('due_diligence_parties_tax_last4', sql`length(${table.taxIdLast4}) = 4`),
+  check('due_diligence_parties_ownership', sql`${table.ownershipBps} IS NULL OR ${table.ownershipBps} BETWEEN 1 AND 10000`),
+  check('due_diligence_parties_pep', sql`${table.pepDeclared} IN (0, 1)`),
+]);
+
+export const dueDiligenceChecks = pgTable('due_diligence_checks', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  caseId: text('case_id').notNull().references(() => dueDiligenceCases.id, { onDelete: 'cascade' }),
+  idempotencyKey: text('idempotency_key').notNull(), requestFingerprint: text('request_fingerprint').notNull(),
+  checkType: text('check_type').notNull(), source: text('source').notNull(), status: text('status').notNull(),
+  resultCode: text('result_code').notNull(), note: text('note').notNull(),
+  evidenceDocumentId: text('evidence_document_id').references(() => complianceDocuments.id, { onDelete: 'restrict' }),
+  checkedBy: text('checked_by').notNull().references(() => users.id, { onDelete: 'restrict' }), createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_due_diligence_checks_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  index('idx_due_diligence_checks_case_type_created').on(table.caseId, table.checkType, table.createdAt),
+  check('due_diligence_checks_type', sql`${table.checkType} IN ('identity_document', 'address', 'sanctions', 'pep', 'business_registry', 'beneficial_ownership')`),
+  check('due_diligence_checks_source', sql`${table.source} IN ('manual_review', 'official_registry', 'internal_list')`),
+  check('due_diligence_checks_status', sql`${table.status} IN ('pending', 'passed', 'failed', 'review')`),
+]);
+
+export const dueDiligenceEvents = pgTable('due_diligence_events', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  caseId: text('case_id').notNull().references(() => dueDiligenceCases.id, { onDelete: 'cascade' }),
+  idempotencyKey: text('idempotency_key').notNull(), requestFingerprint: text('request_fingerprint').notNull(),
+  event: text('event').notNull(), fromStatus: text('from_status'), toStatus: text('to_status').notNull(),
+  payload: text('payload').notNull().default('{}'), actorId: text('actor_id').notNull().references(() => users.id, { onDelete: 'restrict' }),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_due_diligence_events_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  index('idx_due_diligence_events_case_created').on(table.caseId, table.createdAt),
+  check('due_diligence_events_event', sql`${table.event} IN ('created', 'submitted', 'approved', 'rejected', 'cancelled', 'expired')`),
+]);
+
 export const auditEvents = pgTable('audit_events', {
   id: text('id').primaryKey(), organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
   actorId: text('actor_id').notNull().references(() => users.id, { onDelete: 'restrict' }),

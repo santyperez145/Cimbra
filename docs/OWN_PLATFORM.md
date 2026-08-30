@@ -11,7 +11,7 @@ La independencia tecnológica no elimina la realidad de los rieles. Para mover f
 | Dominio propio | Superficie objetivo | Interfaces | Estado actual |
 | --- | --- | --- | --- |
 | Identity & Tenancy | organizaciones, invitaciones verificadas, RBAC, API keys, MFA, maker/checker, auditoría | API, webhooks, consola | Sandbox operativo |
-| Customers, KYC & KYB | personas/empresas, evidencia, screening, casos | API, webhooks, SDK, consola | Base técnica |
+| Customers, KYC & KYB | personas/empresas, partes relacionadas, evidencia, checks, casos, vencimiento y decisión maker/checker | API, webhooks, SDK, consola | Sandbox operativo; sin verificación externa certificada |
 | Financial Core | cuentas, ledger, holds, límites, fees, reversas | API, webhooks, SDK, consola | Sandbox operativo |
 | Payment Orchestration | intents, cash-in/out, transfers, routing, estados y doble aprobación | API, webhooks, SDK, consola | Sandbox operativo |
 | Instant Payments | transferencias, alias, QR, request-to-pay, returns | API, webhooks, archivos | Roadmap |

@@ -1265,6 +1265,183 @@ paths:
         '200': { description: Cursor-paginated audit event list }
         '400': { description: Invalid cursor or limit }
         '401': { description: Authentication required }
+  /api/v1/due-diligence:
+    get:
+      operationId: getDueDiligenceState
+      summary: Read the tenant KYC/KYB policy, metrics, cases, customers and evidence inventory
+      description: Returns Cimbra's native due-diligence orchestration state. It records evidence and controlled decisions but does not claim biometric, government-registry or regulated approval without a direct certified source.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      responses:
+        '200':
+          description: Tenant-scoped due-diligence state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/DueDiligenceState' }
+        '401': { description: Authentication required }
+        '403': { description: compliance:read scope required for API keys }
+  /api/v1/due-diligence/cases:
+    post:
+      operationId: createDueDiligenceCase
+      summary: Create a KYC or KYB case from the canonical customer type
+      description: Individual customers produce KYC cases and business customers produce KYB cases. Only one non-expired active case is allowed per customer.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [customerId]
+              properties:
+                customerId: { type: string, format: uuid }
+                expiresInDays: { type: integer, minimum: 7, maximum: 365, default: 90 }
+      responses:
+        '201':
+          description: Case created with a versioned policy snapshot
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, const: true }
+                  case: { $ref: '#/components/schemas/DueDiligenceCase' }
+                  replayed: { type: boolean }
+        '400': { description: Invalid case input }
+        '404': { description: Customer not found in this tenant }
+        '409': { description: Active case exists or idempotency key payload differs }
+  /api/v1/due-diligence/cases/{id}:
+    get:
+      operationId: retrieveDueDiligenceCase
+      summary: Retrieve one KYC/KYB case with parties, append-only checks and lifecycle events
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses:
+        '200':
+          description: Hydrated due-diligence case
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/DueDiligenceCase' }
+        '404': { description: Case not found in this tenant }
+  /api/v1/due-diligence/cases/{id}/parties:
+    post:
+      operationId: addDueDiligenceParty
+      summary: Append a subject or KYB related party while the case is in draft
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/ResourceId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [role, name, taxId]
+              properties:
+                role: { type: string, enum: [subject, legal_representative, beneficial_owner, director] }
+                name: { type: string, minLength: 2, maxLength: 160 }
+                taxId: { type: string, minLength: 4, writeOnly: true, description: Only the final four alphanumeric characters are retained. }
+                ownershipPercentage: { type: number, exclusiveMinimum: 0, maximum: 100 }
+                pepDeclared: { type: boolean, default: false }
+      responses:
+        '201': { description: Party appended; total beneficial ownership cannot exceed 100 percent }
+        '400': { description: Invalid party input }
+        '409': { description: Invalid role, non-draft case, ownership exceeded or idempotency mismatch }
+  /api/v1/due-diligence/cases/{id}/checks:
+    post:
+      operationId: recordDueDiligenceCheck
+      summary: Append an evidence-backed KYC/KYB check while the case is in draft
+      description: Check history is append-only. New checks supersede older observations by check type without mutating prior evidence.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/ResourceId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [checkType, source, status, resultCode, note]
+              properties:
+                checkType: { $ref: '#/components/schemas/DueDiligenceCheckType' }
+                source: { type: string, enum: [manual_review, official_registry, internal_list] }
+                status: { type: string, enum: [pending, passed, failed, review] }
+                resultCode: { type: string, minLength: 2, maxLength: 80 }
+                note: { type: string, minLength: 3, maxLength: 1000 }
+                evidenceDocumentId: { type: string, format: uuid }
+      responses:
+        '201': { description: Check appended and audit event emitted }
+        '404': { description: Case or tenant-scoped evidence document not found }
+        '409': { description: Case is not draft or idempotency key payload differs }
+  /api/v1/due-diligence/cases/{id}/submit:
+    post:
+      operationId: submitDueDiligenceCase
+      summary: Submit a complete draft to the independent review queue
+      description: Every required check must have a non-pending observation; KYB also requires a legal representative and beneficial owner.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/ResourceId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      responses:
+        '200': { description: Case moved to in_review or idempotent result replayed }
+        '409': { description: Requirements are missing, case is expired or no longer draft }
+  /api/v1/due-diligence/cases/{id}/decide:
+    post:
+      operationId: decideDueDiligenceCase
+      summary: Approve or reject an in-review case under mandatory maker-checker control
+      description: Session-only decision. Requires an owner or admin with MFA who is different from the submitter. Approval also requires every latest required check to have passed.
+      security: [{ session: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/ResourceId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [decision, riskRating, note]
+              properties:
+                decision: { type: string, enum: [approve, reject] }
+                riskRating: { type: string, enum: [low, medium, high, prohibited] }
+                note: { type: string, minLength: 3, maxLength: 1000 }
+      responses:
+        '200': { description: Independent decision recorded with audit and webhook events }
+        '403': { description: Owner or admin with MFA required; API keys are not accepted }
+        '409': { description: Self-decision, non-passing checks, invalid state or idempotency mismatch }
+  /api/v1/due-diligence/cases/{id}/cancel:
+    post:
+      operationId: cancelDueDiligenceCase
+      summary: Cancel a draft or in-review KYC/KYB case with a reason
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/ResourceId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [note]
+              properties:
+                note: { type: string, minLength: 3, maxLength: 1000 }
+      responses:
+        '200': { description: Case cancelled or idempotent result replayed }
+        '409': { description: Case is already terminal }
   /api/v1/compliance/documents:
     post:
       operationId: uploadComplianceDocument
@@ -1408,7 +1585,7 @@ paths:
                   type: array
                   minItems: 1
                   uniqueItems: true
-                  items: { type: string, enum: ['customers:read', 'customers:write', 'accounts:read', 'accounts:write', 'cards:read', 'cards:write', 'transfers:read', 'transfers:write', 'payments:read', 'payments:write', 'risk:read', 'risk:write', 'disputes:read', 'disputes:write', 'reconciliation:read', 'reconciliation:write', 'settlements:read', 'settlements:write', 'approvals:read', 'operations:read', 'operations:write', 'platform:read', 'ledger:read', 'events:read', 'compliance:write', 'webhooks:manage'] }
+                  items: { type: string, enum: ['customers:read', 'customers:write', 'accounts:read', 'accounts:write', 'cards:read', 'cards:write', 'transfers:read', 'transfers:write', 'payments:read', 'payments:write', 'risk:read', 'risk:write', 'disputes:read', 'disputes:write', 'reconciliation:read', 'reconciliation:write', 'settlements:read', 'settlements:write', 'approvals:read', 'operations:read', 'operations:write', 'platform:read', 'ledger:read', 'events:read', 'compliance:read', 'compliance:write', 'webhooks:manage'] }
                 expiresInDays: { type: integer, minimum: 1, maximum: 365 }
       responses:
         '201': { description: API key created and secret returned once }
@@ -1532,6 +1709,137 @@ components:
       description: Stable unique key for this logical write. Replays return the original resource; reusing it with a different payload returns 409.
       schema: { type: string, minLength: 8, maxLength: 100, pattern: '^[A-Za-z0-9._:-]+$' }
   schemas:
+    DueDiligenceCheckType:
+      type: string
+      enum: [identity_document, address, sanctions, pep, business_registry, beneficial_ownership]
+    DueDiligenceParty:
+      type: object
+      additionalProperties: false
+      required: [id, caseId, role, name, taxIdLast4, ownershipPercentage, pepDeclared, createdBy, createdByName, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        caseId: { type: string, format: uuid }
+        role: { type: string, enum: [subject, legal_representative, beneficial_owner, director] }
+        name: { type: string }
+        taxIdLast4: { type: string, minLength: 4, maxLength: 4 }
+        ownershipPercentage: { type: [number, 'null'], minimum: 0, maximum: 100 }
+        pepDeclared: { type: boolean }
+        createdBy: { type: string, format: uuid }
+        createdByName: { type: string }
+        createdAt: { type: string, format: date-time }
+    DueDiligenceCheck:
+      type: object
+      additionalProperties: false
+      required: [id, caseId, checkType, source, status, resultCode, note, evidenceDocumentId, evidenceFileName, checkedBy, checkedByName, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        caseId: { type: string, format: uuid }
+        checkType: { $ref: '#/components/schemas/DueDiligenceCheckType' }
+        source: { type: string, enum: [manual_review, official_registry, internal_list] }
+        status: { type: string, enum: [pending, passed, failed, review] }
+        resultCode: { type: string }
+        note: { type: string }
+        evidenceDocumentId: { type: [string, 'null'], format: uuid }
+        evidenceFileName: { type: [string, 'null'] }
+        checkedBy: { type: string, format: uuid }
+        checkedByName: { type: string }
+        createdAt: { type: string, format: date-time }
+    DueDiligenceEvent:
+      type: object
+      additionalProperties: false
+      required: [id, caseId, event, fromStatus, toStatus, payload, actorId, actorName, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        caseId: { type: string, format: uuid }
+        event: { type: string, enum: [created, submitted, approved, rejected, cancelled, expired] }
+        fromStatus: { type: [string, 'null'], enum: [draft, in_review, approved, rejected, cancelled, expired, null] }
+        toStatus: { type: string, enum: [draft, in_review, approved, rejected, cancelled, expired] }
+        payload: { type: object, additionalProperties: true }
+        actorId: { type: string, format: uuid }
+        actorName: { type: string }
+        createdAt: { type: string, format: date-time }
+    DueDiligenceCase:
+      type: object
+      additionalProperties: false
+      required: [id, customerId, customerName, customerType, country, taxIdLast4, kind, jurisdiction, policyVersion, requiredChecks, completedRequiredChecks, readyForReview, status, riskRating, expiresAt, createdBy, createdByName, submittedBy, submittedByName, submittedAt, resolvedBy, resolvedByName, resolutionNote, resolvedAt, createdAt, updatedAt, parties, checks, events]
+      properties:
+        id: { type: string, format: uuid }
+        customerId: { type: string, format: uuid }
+        customerName: { type: string }
+        customerType: { type: string, enum: [individual, business] }
+        country: { type: string, pattern: '^[A-Z]{2}$' }
+        taxIdLast4: { type: string, minLength: 4, maxLength: 4 }
+        kind: { type: string, enum: [kyc, kyb] }
+        jurisdiction: { type: string, pattern: '^[A-Z]{2}$' }
+        policyVersion: { type: string }
+        requiredChecks: { type: array, items: { $ref: '#/components/schemas/DueDiligenceCheckType' } }
+        completedRequiredChecks: { type: integer, minimum: 0 }
+        readyForReview: { type: boolean }
+        status: { type: string, enum: [draft, in_review, approved, rejected, cancelled, expired] }
+        riskRating: { type: string, enum: [unassessed, low, medium, high, prohibited] }
+        expiresAt: { type: string, format: date-time }
+        createdBy: { type: string, format: uuid }
+        createdByName: { type: string }
+        submittedBy: { type: [string, 'null'], format: uuid }
+        submittedByName: { type: [string, 'null'] }
+        submittedAt: { type: [string, 'null'], format: date-time }
+        resolvedBy: { type: [string, 'null'], format: uuid }
+        resolvedByName: { type: [string, 'null'] }
+        resolutionNote: { type: [string, 'null'] }
+        resolvedAt: { type: [string, 'null'], format: date-time }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        parties: { type: array, items: { $ref: '#/components/schemas/DueDiligenceParty' } }
+        checks: { type: array, items: { $ref: '#/components/schemas/DueDiligenceCheck' } }
+        events: { type: array, items: { $ref: '#/components/schemas/DueDiligenceEvent' } }
+    DueDiligenceState:
+      type: object
+      additionalProperties: false
+      required: [policy, metrics, cases, customers, documents]
+      properties:
+        policy:
+          type: object
+          required: [version, kycRequiredChecks, kybRequiredChecks, boundary]
+          properties:
+            version: { type: string }
+            kycRequiredChecks: { type: array, items: { $ref: '#/components/schemas/DueDiligenceCheckType' } }
+            kybRequiredChecks: { type: array, items: { $ref: '#/components/schemas/DueDiligenceCheckType' } }
+            boundary: { type: string }
+        metrics:
+          type: object
+          required: [total, drafts, inReview, approved, rejected]
+          properties:
+            total: { type: integer, minimum: 0 }
+            drafts: { type: integer, minimum: 0 }
+            inReview: { type: integer, minimum: 0 }
+            approved: { type: integer, minimum: 0 }
+            rejected: { type: integer, minimum: 0 }
+        cases: { type: array, items: { $ref: '#/components/schemas/DueDiligenceCase' } }
+        customers:
+          type: array
+          items:
+            type: object
+            required: [id, type, name, country, taxIdLast4, status, createdAt]
+            properties:
+              id: { type: string, format: uuid }
+              type: { type: string, enum: [individual, business] }
+              name: { type: string }
+              country: { type: string }
+              taxIdLast4: { type: string }
+              status: { type: string }
+              createdAt: { type: string, format: date-time }
+        documents:
+          type: array
+          items:
+            type: object
+            required: [id, fileName, contentType, size, status, createdAt]
+            properties:
+              id: { type: string, format: uuid }
+              fileName: { type: string }
+              contentType: { type: string }
+              size: { type: integer, minimum: 0 }
+              status: { type: string }
+              createdAt: { type: string, format: date-time }
     Dispute:
       type: object
       required: [id, transactionId, reason, description, amountMinor, amount, currency, status, open, priority, provisionalCreditRequested, creditStatus, possibleEvents, createdAt, updatedAt]

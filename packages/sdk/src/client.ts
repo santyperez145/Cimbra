@@ -2,16 +2,18 @@ import { CimbraApiError, CimbraConnectionError, CimbraTimeoutError } from './err
 import type {
   Account, ApprovalRequest, AuditEvent, Card, CardControls, CardLifecycleEvent, CardProgram, CimbraResult, CreateAccountInput,
   CreateCardInput, CreateCardProgramInput, CreateCustomerInput, CreateDisputeInput, CreatePaymentInput,
+  CreateDueDiligenceCaseInput, CreateDueDiligencePartyInput,
   CreateReconciliationCsvImportInput, CreateReconciliationRunInput, CreateRiskEvaluationInput, CreateRiskListEntryInput, CreateRiskRuleInput, CreateRiskSimulationInput,
   CreateRiskStepUpChallengeInput,
   CreateSettlementCycleInput, CreateTransferInput, CreateWebhookInput,
-  Customer, Dispute, DisputeEventName, DisputeTimelineEvent, DisputeTransitionResult, Hold, HoldResolution, LedgerBalance, LedgerJournal, ListOptions, Page, PlatformCapability,
+  Customer, DueDiligenceCase, DueDiligenceCheck, DueDiligenceParty, DueDiligenceState,
+  Dispute, DisputeEventName, DisputeTimelineEvent, DisputeTransitionResult, Hold, HoldResolution, LedgerBalance, LedgerJournal, ListOptions, Page, PlatformCapability,
   OperationalEvidence, OperationalNote, OperationalState, OperationalWorkItem, TransitionCardInput, UpdateCardControlsInput,
   UpdateOperationalWorkItemInput, WorkItemType,
   ReconciliationException, ReconciliationExceptionResolutionResult, ReconciliationRun, RequestOptions, RiskCase,
   ReportRiskOutcomeInput, RiskCaseResolutionResult, RiskEvaluation, RiskListEntry, RiskMetrics, RiskOutcome, RiskRule, RiskSimulation,
   RiskStepUpAttempt, RiskStepUpChallenge, SettlementCycle, SettlementExecutionResult, VerifyRiskStepUpChallengeInput,
-  Transaction, TransferCreationResult, WebhookOperationalState,
+  RecordDueDiligenceCheckInput, Transaction, TransferCreationResult, WebhookOperationalState,
 } from './types.ts';
 
 type Fetch = typeof globalThis.fetch;
@@ -67,6 +69,26 @@ export class Cimbra {
     retrieve: (id: string, options?: RequestOptions) => this.request<Customer>('GET', `/api/v1/customers/${encodeURIComponent(id)}`, undefined, options),
     create: (input: CreateCustomerInput, options?: RequestOptions) =>
       this.post<{ ok: true; customer: Customer; replayed: boolean }>('/api/v1/customers', input, options, true),
+  };
+
+  readonly dueDiligence = {
+    state: (options?: RequestOptions) => this.request<{ data: DueDiligenceState }>('GET', '/api/v1/due-diligence', undefined, options),
+    retrieve: (id: string, options?: RequestOptions) =>
+      this.request<{ data: DueDiligenceCase }>('GET', `/api/v1/due-diligence/cases/${encodeURIComponent(id)}`, undefined, options),
+    create: (input: CreateDueDiligenceCaseInput, options?: RequestOptions) =>
+      this.post<{ ok: true; case: DueDiligenceCase; replayed: boolean }>('/api/v1/due-diligence/cases', input, options, true),
+    addParty: (id: string, input: CreateDueDiligencePartyInput, options?: RequestOptions) =>
+      this.post<{ ok: true; party: DueDiligenceParty; replayed: boolean }>(
+        `/api/v1/due-diligence/cases/${encodeURIComponent(id)}/parties`, input, options, true),
+    recordCheck: (id: string, input: RecordDueDiligenceCheckInput, options?: RequestOptions) =>
+      this.post<{ ok: true; check: DueDiligenceCheck; replayed: boolean }>(
+        `/api/v1/due-diligence/cases/${encodeURIComponent(id)}/checks`, input, options, true),
+    submit: (id: string, options?: RequestOptions) =>
+      this.post<{ ok: true; case: DueDiligenceCase; replayed: boolean }>(
+        `/api/v1/due-diligence/cases/${encodeURIComponent(id)}/submit`, undefined, options, true),
+    cancel: (id: string, note: string, options?: RequestOptions) =>
+      this.post<{ ok: true; case: DueDiligenceCase; replayed: boolean }>(
+        `/api/v1/due-diligence/cases/${encodeURIComponent(id)}/cancel`, { note }, options, true),
   };
 
   readonly accounts = {

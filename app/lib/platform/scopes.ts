@@ -23,6 +23,7 @@ export const API_SCOPES = [
   'platform:read',
   'ledger:read',
   'events:read',
+  'compliance:read',
   'compliance:write',
   'webhooks:manage',
 ] as const;

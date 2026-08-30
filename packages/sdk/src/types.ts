@@ -6,6 +6,37 @@ export type Page<T> = { data: T[]; hasMore: boolean; nextCursor: string | null }
 export type CimbraResult<T> = { data: T; requestId: string };
 
 export type Customer = { id: string; type: 'individual' | 'business'; name: string; country: string; taxIdLast4: string; status: string; createdAt: string };
+export type DueDiligenceCheckType = 'identity_document' | 'address' | 'sanctions' | 'pep' | 'business_registry' | 'beneficial_ownership';
+export type DueDiligenceParty = {
+  id: string; caseId: string; role: 'subject' | 'legal_representative' | 'beneficial_owner' | 'director';
+  name: string; taxIdLast4: string; ownershipPercentage: number | null; pepDeclared: boolean;
+  createdBy: string; createdByName: string; createdAt: string;
+};
+export type DueDiligenceCheck = {
+  id: string; caseId: string; checkType: DueDiligenceCheckType; source: 'manual_review' | 'official_registry' | 'internal_list';
+  status: 'pending' | 'passed' | 'failed' | 'review'; resultCode: string; note: string; evidenceDocumentId: string | null;
+  evidenceFileName: string | null; checkedBy: string; checkedByName: string; createdAt: string;
+};
+export type DueDiligenceEvent = {
+  id: string; caseId: string; event: 'created' | 'submitted' | 'approved' | 'rejected' | 'cancelled' | 'expired';
+  fromStatus: string | null; toStatus: string; payload: Record<string, unknown>; actorId: string; actorName: string; createdAt: string;
+};
+export type DueDiligenceCase = {
+  id: string; customerId: string; customerName: string; customerType: Customer['type']; country: string; taxIdLast4: string;
+  kind: 'kyc' | 'kyb'; jurisdiction: string; policyVersion: string; requiredChecks: DueDiligenceCheckType[];
+  completedRequiredChecks: number; readyForReview: boolean;
+  status: 'draft' | 'in_review' | 'approved' | 'rejected' | 'cancelled' | 'expired';
+  riskRating: 'unassessed' | 'low' | 'medium' | 'high' | 'prohibited'; expiresAt: string;
+  createdBy: string; createdByName: string; submittedBy: string | null; submittedByName: string | null; submittedAt: string | null;
+  resolvedBy: string | null; resolvedByName: string | null; resolutionNote: string | null; resolvedAt: string | null;
+  createdAt: string; updatedAt: string; parties: DueDiligenceParty[]; checks: DueDiligenceCheck[]; events: DueDiligenceEvent[];
+};
+export type DueDiligenceState = {
+  policy: { version: string; kycRequiredChecks: DueDiligenceCheckType[]; kybRequiredChecks: DueDiligenceCheckType[]; boundary: string };
+  metrics: { total: number; drafts: number; inReview: number; approved: number; rejected: number };
+  cases: DueDiligenceCase[]; customers: Customer[];
+  documents: Array<{ id: string; fileName: string; contentType: string; size: number; status: string; createdAt: string }>;
+};
 export type Account = { id: string; customerId: string; currency: Currency; country: string; accountReference: string; balance?: number; balanceMinor?: string; status: string; createdAt: string };
 export type CardStatus = 'created' | 'active' | 'frozen' | 'terminated';
 export type CardProduct = 'debit' | 'credit' | 'prepaid';
@@ -195,6 +226,14 @@ export type WebhookEvent<T = unknown> = { id: string; type: string; created_at: 
 export type CreateResult<T> = { ok: true; replayed: boolean; customer?: T; account?: T; card?: T };
 
 export type CreateCustomerInput = { type?: 'individual' | 'business'; name: string; country: string; taxId: string };
+export type CreateDueDiligenceCaseInput = { customerId: string; expiresInDays?: number };
+export type CreateDueDiligencePartyInput = {
+  role: DueDiligenceParty['role']; name: string; taxId: string; ownershipPercentage?: number; pepDeclared?: boolean;
+};
+export type RecordDueDiligenceCheckInput = {
+  checkType: DueDiligenceCheckType; source: DueDiligenceCheck['source']; status: DueDiligenceCheck['status'];
+  resultCode: string; note: string; evidenceDocumentId?: string;
+};
 export type CreateAccountInput = { customerId: string; currency: Currency; country: string };
 export type CreateCardInput = { accountId: string; programId?: string; product?: CardProduct; format?: CardFormat };
 export type CreateCardProgramInput = { name: string; product: CardProduct; formats: CardFormat[]; defaultCurrency: Currency };

@@ -50,6 +50,26 @@ Cada recurso puede recuperarse directamente por su identificador:
 const customer = await cimbra.customers.retrieve('00000000-0000-4000-8000-000000000001');
 ```
 
+## Orquestación KYC/KYB
+
+El tipo de customer define el expediente y su política requerida. Una integración S2S puede preparar evidencia, partes y checks, y enviarlo a revisión:
+
+```ts
+const opened = await cimbra.dueDiligence.create({ customerId: customer.data.id, expiresInDays: 90 });
+const caseId = opened.data.case.id;
+
+await cimbra.dueDiligence.addParty(caseId, {
+  role: 'beneficial_owner', name: 'Ana Sur', taxId: '20123456789', ownershipPercentage: 25,
+});
+await cimbra.dueDiligence.recordCheck(caseId, {
+  checkType: 'sanctions', source: 'official_registry', status: 'passed',
+  resultCode: 'no_match', note: 'Consulta directa documentada.',
+});
+await cimbra.dueDiligence.submit(caseId);
+```
+
+El SDK no expone una decisión automática: aprobar o rechazar exige una sesión humana, otro Owner/Admin con MFA y separación maker/checker. El sandbox registra evidencia y lifecycle, pero no afirma biometría, consultas oficiales ni aprobación regulatoria si no existe una fuente directa certificada.
+
 ## Programas y controles de tarjetas
 
 ```ts

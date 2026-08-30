@@ -162,6 +162,13 @@
       "when": 1788046733094,
       "tag": "0022_careless_the_liberteens",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1788056009777,
+      "tag": "0023_black_albert_cleary",
+      "breakpoints": true
     }
   ]
 }

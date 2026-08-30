@@ -55,6 +55,14 @@ export const WEBHOOK_EVENT_TYPES = [
   'organization.member_role_updated',
   'organization.member_removed',
   'compliance.document_uploaded',
+  'due_diligence.created',
+  'due_diligence.party_added',
+  'due_diligence.check_recorded',
+  'due_diligence.submitted',
+  'due_diligence.approved',
+  'due_diligence.rejected',
+  'due_diligence.cancelled',
+  'due_diligence.expired',
 ] as const;
 
 export type WebhookEventType = typeof WEBHOOK_EVENT_TYPES[number] | '*';

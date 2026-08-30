@@ -9,6 +9,7 @@ import { authenticatedFetch } from '@/app/lib/platform/client-http';
 import AccessPanel from './access-panel';
 import ApprovalsPanel from './approvals-panel';
 import CardsPanel from './cards-panel';
+import CompliancePanel from './compliance-panel';
 import DevelopersPanel from './developers-panel';
 import DisputesPanel from './disputes-panel';
 import OperationsPanel from './operations-panel';
@@ -37,7 +38,7 @@ function statusLabel(status: string) {
 
 export default function ConsoleClient({ data, user }: {
   data: DashboardData;
-  user: { displayName: string; email: string; role: Role; emailVerified: boolean; mfaEnabled: boolean; recoveryCodeCount: number };
+  user: { userId: string; displayName: string; email: string; role: Role; emailVerified: boolean; mfaEnabled: boolean; recoveryCodeCount: number };
 }) {
   const router = useRouter();
   const mounted = useSyncExternalStore(() => () => undefined, () => true, () => false);
@@ -161,7 +162,7 @@ export default function ConsoleClient({ data, user }: {
             </article>
             <aside className="risk-card"><div className="card-head"><div><h2>Control de riesgo</h2><p>Reservas persistidas del sandbox</p></div><span className="risk-live">● ACTIVO</span></div><div className="risk-score"><div><strong>{data.riskAlerts}</strong><span>reservas abiertas</span></div><div><strong>{data.journalCount}</strong><span>journals posteados</span></div></div>{data.holds.slice(0,1).map((hold)=><div className="risk-item" key={hold.id}><i className="coral-dot">!</i><span><strong>Fondos reservados</strong><small>{hold.counterparty} · {money(hold.amount,hold.currency)}</small></span><b>Revisar</b></div>)}<div className="risk-item"><i>✓</i><span><strong>Integridad del ledger</strong><small>Débitos y créditos validados en PostgreSQL</small></span><b className="normal">Activo</b></div><button className="risk-button" onClick={() => setActive('Riesgo')}>Abrir centro de riesgo →</button></aside>
           </div>
-          </> : active === 'Seguridad' ? <SecurityPanel user={user} /> : active === 'Disputas' ? <DisputesPanel readOnly={!roleCan(user.role, 'disputes.write')} /> : active === 'Operaciones' ? <OperationsPanel readOnly={!roleCan(user.role, 'operations.write')} /> : active === 'Aprobaciones' ? <ApprovalsPanel actorRole={user.role} mfaEnabled={user.mfaEnabled} /> : active === 'Accesos' && canManageOrganization ? <AccessPanel actorRole={user.role as Extract<Role, 'owner' | 'admin'>} /> : <SecondaryConsoleView active={active} data={data} role={user.role} busy={busy} feedback={feedback} onTransfer={() => setTransferOpen(true)} onPayment={() => setPaymentOpen(true)} onReverse={reverseTransaction} onHold={resolveReview} />}
+          </> : active === 'Seguridad' ? <SecurityPanel user={user} /> : active === 'Disputas' ? <DisputesPanel readOnly={!roleCan(user.role, 'disputes.write')} /> : active === 'Operaciones' ? <OperationsPanel readOnly={!roleCan(user.role, 'operations.write')} /> : active === 'Aprobaciones' ? <ApprovalsPanel actorRole={user.role} mfaEnabled={user.mfaEnabled} /> : active === 'Compliance' ? <CompliancePanel actorRole={user.role} mfaEnabled={user.mfaEnabled} currentUserId={user.userId} /> : active === 'Accesos' && canManageOrganization ? <AccessPanel actorRole={user.role as Extract<Role, 'owner' | 'admin'>} /> : <SecondaryConsoleView active={active} data={data} role={user.role} busy={busy} feedback={feedback} onTransfer={() => setTransferOpen(true)} onPayment={() => setPaymentOpen(true)} onReverse={reverseTransaction} onHold={resolveReview} />}
         </div>
       </section>
 
@@ -176,8 +177,6 @@ function SecondaryConsoleView({ active, data, role, busy, feedback, onTransfer, 
   onPayment: () => void;
   onReverse: (transactionId: string) => void; onHold: (holdId: string, action: 'capture' | 'release') => void;
 }) {
-  const [uploadState, setUploadState] = useState('');
-  const [uploading, setUploading] = useState(false);
   const [movementQuery, setMovementQuery] = useState('');
   const [movementFilter, setMovementFilter] = useState<'all' | 'in' | 'out'>('all');
   const canOperate = roleCan(role, 'finance.write');
@@ -195,15 +194,6 @@ function SecondaryConsoleView({ active, data, role, busy, feedback, onTransfer, 
     const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = 'cimbra-movimientos.csv'; link.click(); URL.revokeObjectURL(url);
   }
 
-  async function uploadDocument(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setUploading(true); setUploadState('');
-    const response = await authenticatedFetch('/api/compliance/documents', { method: 'POST', body: new FormData(event.currentTarget) });
-    const result = await response.json() as { error?: string; document?: { fileName: string } };
-    setUploadState(response.ok ? `${result.document?.fileName ?? 'Documento'} recibido y listo para revisión.` : result.error ?? 'No pudimos subir el documento.');
-    if (response.ok) event.currentTarget.reset();
-    setUploading(false);
-  }
-
   if (active === 'Movimientos') return <div className="module-view"><div className="module-view-head"><div><p>OPERACIONES</p><h1>Movimientos</h1><span>Operaciones monetarias respaldadas por asientos inmutables.</span></div>{canOperate && <button className="app-primary" onClick={onTransfer}>+ Nueva transferencia</button>}</div>{feedback&&<div className="form-feedback ledger-feedback">{feedback}</div>}<article className="full-table"><div className="module-toolbar"><input aria-label="Buscar movimiento" placeholder="⌕ Buscar movimiento" value={movementQuery} onChange={(event) => setMovementQuery(event.target.value)} /><div><button className={movementFilter === 'all' ? 'active' : ''} onClick={() => setMovementFilter('all')}>Todos</button><button className={movementFilter === 'in' ? 'active' : ''} onClick={() => setMovementFilter('in')}>Ingresos</button><button className={movementFilter === 'out' ? 'active' : ''} onClick={() => setMovementFilter('out')}>Egresos</button><button disabled={filteredTransactions.length === 0} onClick={exportTransactions}>Exportar CSV ↓</button></div></div><div className="app-table-head"><span>MOVIMIENTO</span><span>FECHA</span><span>MONTO</span><span>ESTADO</span></div>{filteredTransactions.length === 0 ? <div className="table-empty">No hay movimientos para este filtro.</div> : filteredTransactions.map((transaction)=><div className="app-table-row" key={transaction.id}><span className="movement"><i>{transaction.amount < 0 ? '↗' : '↙'}</i><b>{transaction.counterparty}<small>{transaction.description}</small></b></span><span>{new Date(transaction.createdAt).toLocaleDateString('es-AR',{day:'2-digit',month:'short'})}<small>{new Date(transaction.createdAt).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</small></span><strong className={transaction.amount<0?'':'positive'}>{transaction.amount>0?'+':''}{money(transaction.amount,transaction.currency)}</strong><span className={`row-status ${transaction.status}`}><i />{statusLabel(transaction.status)}{canOperate&&transaction.amount<0&&transaction.status==='settled'&&!transaction.reversalOf&&<button className="ledger-row-action" disabled={busy} onClick={()=>onReverse(transaction.id)}>Revertir</button>}</span></div>)}</article></div>;
 
   if (active === 'Payments') return <div className="module-view"><div className="module-view-head"><div><p>PAYMENT ORCHESTRATION</p><h1>Cash-in y cash-out</h1><span>Ingresos y payouts aplicados a cuentas concretas, listos para adaptadores regionales.</span></div>{canOperate && <button className="app-primary" onClick={onPayment}>+ Nuevo payment</button>}</div>{feedback&&<div className="form-feedback ledger-feedback">{feedback}</div>}<div className="module-metrics"><article><strong>{data.accounts.length}</strong><span>cuentas operables</span></article><article><strong>{data.transactions.filter((item)=>item.amount>0).length}</strong><span>ingresos recientes</span></article><article><strong>{data.transactions.filter((item)=>item.amount<0).length}</strong><span>egresos recientes</span></article></div><article className="module-list"><div className="card-head"><div><h2>Cuentas de producto</h2><p>Saldo derivado de postings por cuenta</p></div><b>LEDGER-BACKED</b></div>{data.accounts.length===0?<div><span className="movement"><i>◉</i><b>Sin cuentas<small>{canOperate ? 'Creá una cuenta mediante API para comenzar' : 'No hay cuentas disponibles para consultar'}</small></b></span><strong>Vacío</strong></div>:data.accounts.map((account)=><div key={account.id}><span className="movement"><i>◉</i><b>{account.accountReference}<small>{account.country} · {account.currency} · {account.status}</small></b></span><strong>{money(account.balance,account.currency)}</strong></div>)}</article></div>;
@@ -213,8 +203,6 @@ function SecondaryConsoleView({ active, data, role, busy, feedback, onTransfer, 
   if (active === 'Riesgo') return <RiskPanel holds={data.holds} busy={busy} canManageRules={roleCan(role, 'risk.rules.manage')} canResolve={roleCan(role, 'risk.cases.resolve')} onHold={onHold} />;
 
   if (active === 'Conciliación') return <ReconciliationPanel readOnly={!canOperate} />;
-
-  if (active === 'Compliance') return <div className="module-view"><div className="module-view-head"><div><p>COMPLIANCE CENTER</p><h1>Evidencia documental</h1><span>Archivos privados con metadata y auditoría persistidas.</span></div><span className="module-health"><i /> {data.documents.length} documentos</span></div><div className={`compliance-grid ${canOperate ? '' : 'single'}`}>{canOperate && <article className="upload-card"><div className="module-icon">↑</div><h2>Agregar evidencia</h2><p>Subí documentación para el expediente. Se almacena de forma privada y queda registrada en auditoría.</p><form onSubmit={uploadDocument}><label>Seleccionar PDF, JPG o PNG<input name="file" type="file" accept="application/pdf,image/jpeg,image/png" required /></label><button disabled={uploading}>{uploading?'Subiendo…':'Subir documento →'}</button>{uploadState&&<div className="form-feedback">{uploadState}</div>}</form><small>Máximo 5 MB por archivo.</small></article>}<article className="review-queue"><div className="card-head"><div><h2>Documentos recibidos</h2><p>Metadata del almacenamiento privado</p></div><b>{data.documents.length} registrados</b></div>{data.documents.length===0?<div><span className="movement"><i>◇</i><b>Sin documentos<small>{canOperate ? 'Subí la primera evidencia para verla acá' : 'No hay evidencia disponible para consultar'}</small></b></span><em>Vacío</em></div>:data.documents.map((document)=><div key={document.id}><span className="movement"><i>✓</i><b>{document.fileName}<small>{Math.ceil(document.size/1024)} KB · {new Date(document.createdAt).toLocaleDateString('es-AR')}</small></b></span><em>{document.status}</em></div>)}</article></div></div>;
 
   if (active === 'Tarjetas') return <CardsPanel initialCards={data.cards} accounts={data.accounts} role={role} />;
 

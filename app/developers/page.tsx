@@ -29,6 +29,11 @@ const errorResponses = [
 const changelog = [
   {
     date: '29 AGO 2026',
+    title: 'KYC/KYB nativo y maker/checker obligatorio',
+    detail: 'Expedientes versionados con partes y beneficiarios finales, checks/evidencia append-only, expiración, scopes S2S, SDK de orquestación, webhooks y consola por rol. La decisión queda reservada a otro Owner/Admin con MFA y sesión humana.',
+  },
+  {
+    date: '29 AGO 2026',
     title: 'Step-up OTP y SLO de decisión',
     detail: 'Challenges client-managed con secreto cifrado y hasheado, expiración, intentos append-only, idempotencia, RBAC, auditoría y SDK. Riesgo publica p50/p95/p99 y cumplimiento medido; no se presenta como 3DS o ACS.',
   },
@@ -171,6 +176,28 @@ const result = await cimbra.risk.verifyStepUpChallenge(
 );
 
 console.log(result.data.verified, result.data.challenge.status);`;
+  const dueDiligenceExample = `const opened = await cimbra.dueDiligence.create({
+  customerId: '<business_customer_uuid>',
+  expiresInDays: 90,
+});
+
+await cimbra.dueDiligence.addParty(opened.data.case.id, {
+  role: 'beneficial_owner',
+  name: 'Ana Sur',
+  taxId: '20123456789',
+  ownershipPercentage: 25,
+});
+
+await cimbra.dueDiligence.recordCheck(opened.data.case.id, {
+  checkType: 'sanctions',
+  source: 'official_registry',
+  status: 'passed',
+  resultCode: 'no_match',
+  note: 'Consulta directa documentada.',
+});
+
+// Completá todos los checks/partes exigidos antes de enviar.
+await cimbra.dueDiligence.submit(opened.data.case.id);`;
 
   return <main className="docs-shell docs-shell-expanded">
     <header className="docs-topbar">
@@ -196,6 +223,7 @@ console.log(result.data.verified, result.data.challenge.status);`;
         <a href="#errors">Errores y rate limits</a>
         <strong>INTEGRACIÓN</strong>
         <a href="#sdk">SDK TypeScript</a>
+        <a href="#due-diligence">KYC/KYB</a>
         <a href="#risk-step-up">Step-up y SLO</a>
         <a href="#webhooks">Webhooks y eventos</a>
         <a href="#reference">Referencia completa</a>
@@ -207,7 +235,7 @@ console.log(result.data.verified, result.data.challenge.status);`;
     <article className="docs-content docs-content-expanded">
       <details className="docs-mobile-nav">
         <summary>Índice de documentación</summary>
-        <nav><a href="#overview">Overview</a><a href="#quickstart">Quickstart</a><a href="#authentication">Auth</a><a href="#sdk">SDK</a><a href="#risk-step-up">Step-up</a><a href="#webhooks">Webhooks</a><a href="#reference">API reference</a></nav>
+        <nav><a href="#overview">Overview</a><a href="#quickstart">Quickstart</a><a href="#authentication">Auth</a><a href="#sdk">SDK</a><a href="#due-diligence">KYC/KYB</a><a href="#risk-step-up">Step-up</a><a href="#webhooks">Webhooks</a><a href="#reference">API reference</a></nav>
       </details>
 
       <section id="overview" className="docs-hero">
@@ -221,7 +249,7 @@ console.log(result.data.verified, result.data.challenge.status);`;
           <article><strong>{API_SCOPES.length}</strong><span>Scopes S2S canónicos</span></article>
           <article><strong>{WEBHOOK_EVENT_TYPES.length}</strong><span>Tipos de evento emitidos</span></article>
         </div>
-        <div className="docs-callout"><i>i</i><div><strong>Sandbox persistente, no dinero real</strong><p>Customers, cuentas, programas y lifecycle de tarjetas, controles, movimientos, ledger, riesgo, conciliación, disputas, expedientes operativos, aprobaciones y webhooks se persisten. No existen rieles bancarios o de tarjetas homologados, PAN/CVV ni instrumentos emitidos en redes de pago.</p></div></div>
+        <div className="docs-callout"><i>i</i><div><strong>Sandbox persistente, no dinero real</strong><p>Customers, KYC/KYB, cuentas, programas y lifecycle de tarjetas, controles, movimientos, ledger, riesgo, conciliación, disputas, expedientes operativos, aprobaciones y webhooks se persisten. No existen fuentes de identidad o rieles homologados, PAN/CVV ni instrumentos emitidos en redes de pago.</p></div></div>
       </section>
 
       <section id="environments" className="docs-section">
@@ -315,6 +343,18 @@ console.log(result.data.verified, result.data.challenge.status);`;
         <CodeBlock language="TYPESCRIPT" value={sdkQuickstart} />
       </section>
 
+      <section id="due-diligence" className="docs-section">
+        <p className="docs-kicker">CUSTOMER DUE DILIGENCE</p><h2>KYC/KYB orquestado, con decisión humana independiente.</h2>
+        <p className="docs-section-lede">El tipo del customer determina KYC o KYB. Cada caso congela jurisdicción, versión de política y checks requeridos; partes, evidencia y observaciones se conservan append-only y el vencimiento es terminal.</p>
+        <div className="webhook-contract-grid">
+          <article><strong>Preparación S2S</strong><p><code>compliance:read/write</code> permite crear, completar, consultar, enviar o cancelar un expediente desde backend.</p></article>
+          <article><strong>KYB completo</strong><p>Exige representante legal y al menos un beneficiario final; la participación declarada total no puede superar 100%.</p></article>
+          <article><strong>Maker / checker</strong><p>Aprobar o rechazar es session-only: otro Owner/Admin con MFA decide y una API key recibe <code>403 session_required</code>.</p></article>
+          <article><strong>Límite real</strong><p>El sandbox no afirma biometría, prueba de vida, listas o registros oficiales sin una fuente directa certificada.</p></article>
+        </div>
+        <CodeBlock language="TYPESCRIPT · SDK REAL" value={dueDiligenceExample} />
+      </section>
+
       <section id="risk-step-up" className="docs-section">
         <p className="docs-kicker">RISK STEP-UP</p><h2>Autenticación reforzada, sin confundirla con una red.</h2>
         <p className="docs-section-lede">Una evaluación <code>review</code> puede abrir un challenge OTP. Cimbra genera la credencial, conserva hash y ciphertext, limita intentos, expira el challenge y registra cada intento sin guardar el código en claro. El integrador recibe la credencial sólo en el create/replay pendiente y la entrega desde backend por su canal aprobado.</p>
@@ -355,7 +395,7 @@ console.log(result.data.verified, result.data.challenge.status);`;
 
     <aside className="docs-toc">
       <strong>EN ESTA PÁGINA</strong>
-      <a href="#overview">Overview</a><a href="#environments">Entornos</a><a href="#quickstart">Quickstart</a><a href="#authentication">Autenticación</a><a href="#idempotency">Idempotencia</a><a href="#errors">Errores</a><a href="#sdk">SDK</a><a href="#risk-step-up">Step-up</a><a href="#webhooks">Webhooks</a><a href="#reference">API reference</a><a href="#changelog">Changelog</a>
+      <a href="#overview">Overview</a><a href="#environments">Entornos</a><a href="#quickstart">Quickstart</a><a href="#authentication">Autenticación</a><a href="#idempotency">Idempotencia</a><a href="#errors">Errores</a><a href="#sdk">SDK</a><a href="#due-diligence">KYC/KYB</a><a href="#risk-step-up">Step-up</a><a href="#webhooks">Webhooks</a><a href="#reference">API reference</a><a href="#changelog">Changelog</a>
       <div><span>{user ? `Sesión activa · ${user.displayName.split(' ')[0]}` : '¿Necesitás credenciales?'}</span><Link href={user ? '/console' : '/login?return_to=%2Fconsole'}>{user ? 'Abrir Developers' : 'Ingresar al sandbox'} →</Link></div>
     </aside>
   </main>;

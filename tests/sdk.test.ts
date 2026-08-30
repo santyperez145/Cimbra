@@ -317,6 +317,40 @@ test('el SDK verifica firma, timestamp, cuerpo crudo y antigüedad del webhook',
   );
 });
 
+test('el SDK orquesta KYC/KYB por S2S y excluye la decisión humana', async () => {
+  const calls: Array<{ url: string; method: string; idempotencyKey: string | null; body: Record<string, unknown> }> = [];
+  const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async (input, init) => {
+    const url = String(input); const method = init?.method ?? 'GET';
+    const body = typeof init?.body === 'string' ? JSON.parse(init.body) as Record<string, unknown> : {};
+    calls.push({ url, method, idempotencyKey: new Headers(init?.headers).get('idempotency-key'), body });
+    if (url.endsWith('/due-diligence')) return Response.json({ data: { policy: {}, metrics: {}, cases: [], customers: [], documents: [] } });
+    if (method === 'GET') return Response.json({ data: { id: 'case_1', kind: 'kyb', status: 'draft', parties: [], checks: [], events: [] } });
+    if (url.endsWith('/parties')) return Response.json({ ok: true, replayed: false, party: { id: 'party_1' } }, { status: 201 });
+    if (url.endsWith('/checks')) return Response.json({ ok: true, replayed: false, check: { id: 'check_1' } }, { status: 201 });
+    return Response.json({ ok: true, replayed: false, case: { id: 'case_1', kind: 'kyb', status: url.endsWith('/submit') ? 'in_review' : url.endsWith('/cancel') ? 'cancelled' : 'draft' } }, { status: url.endsWith('/cases') ? 201 : 200 });
+  } });
+  await client.dueDiligence.state();
+  await client.dueDiligence.retrieve('case/unsafe');
+  await client.dueDiligence.create({ customerId: 'customer_1', expiresInDays: 90 });
+  await client.dueDiligence.addParty('case_1', { role: 'beneficial_owner', name: 'Ana Sur', taxId: '20123456789', ownershipPercentage: 25 });
+  await client.dueDiligence.recordCheck('case_1', { checkType: 'sanctions', source: 'official_registry', status: 'passed', resultCode: 'no_match', note: 'Consulta directa.' });
+  await client.dueDiligence.submit('case_1');
+  await client.dueDiligence.cancel('case_1', 'Expediente duplicado.');
+  assert.deepEqual(calls.map(({ method, url }) => `${method} ${url}`), [
+    'GET https://api.test/api/v1/due-diligence',
+    'GET https://api.test/api/v1/due-diligence/cases/case%2Funsafe',
+    'POST https://api.test/api/v1/due-diligence/cases',
+    'POST https://api.test/api/v1/due-diligence/cases/case_1/parties',
+    'POST https://api.test/api/v1/due-diligence/cases/case_1/checks',
+    'POST https://api.test/api/v1/due-diligence/cases/case_1/submit',
+    'POST https://api.test/api/v1/due-diligence/cases/case_1/cancel',
+  ]);
+  assert.equal(calls[0].idempotencyKey, null); assert.equal(calls[1].idempotencyKey, null);
+  for (const call of calls.slice(2)) assert.match(call.idempotencyKey ?? '', /^idem_[a-f0-9]{32}$/);
+  assert.deepEqual(calls[4].body, { checkType: 'sanctions', source: 'official_registry', status: 'passed', resultCode: 'no_match', note: 'Consulta directa.' });
+  assert.equal('decide' in client.dueDiligence, false);
+});
+
 test('el SDK cubre el lifecycle de step-up sin exponer secretos en lecturas', async () => {
   const calls: Array<{ method: string; url: string; idempotencyKey: string | null }> = [];
   const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async (input, init) => {

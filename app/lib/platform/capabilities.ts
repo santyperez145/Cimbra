@@ -24,10 +24,10 @@ export const PLATFORM_CAPABILITIES: readonly PlatformCapability[] = [
     interfaces: ['rest_api', 'webhooks', 'console'], regulatoryBoundary: 'Cimbra administra identidad y autorización; cada cliente conserva la responsabilidad sobre sus usuarios autorizados.',
   },
   {
-    id: 'customers-kyc', name: 'Customers, KYC & KYB', domain: 'risk', availability: 'foundation', delivery: 'cimbra_native',
-    summary: 'Ciclo de clientes y empresas, evidencia, casos, screening y decisiones trazables.',
-    features: ['customers y businesses', 'documentos privados', 'casos y evidencia', 'screening AML/sanciones', 'decision logs'],
-    interfaces: ['rest_api', 'webhooks', 'sdk', 'console'], regulatoryBoundary: 'La verificación regulatoria requiere fuentes de identidad, listas oficiales y responsables de compliance habilitados por jurisdicción.',
+    id: 'customers-kyc', name: 'Customers, KYC & KYB', domain: 'risk', availability: 'sandbox', delivery: 'cimbra_native',
+    summary: 'Expedientes KYC/KYB versionados con partes, evidencia, checks append-only, vencimiento y decisión maker/checker.',
+    features: ['customers y businesses', 'KYC/KYB derivado del tipo de cliente', 'partes y beneficiarios finales', 'documentos privados', 'checks append-only', 'policy snapshots', 'expiración', 'decisión owner/admin con MFA'],
+    interfaces: ['rest_api', 'webhooks', 'sdk', 'console'], regulatoryBoundary: 'El sandbox orquesta evidencia y decisiones. Verificación biométrica, registros oficiales, listas regulatorias y aprobación productiva requieren fuentes directas certificadas y responsables habilitados por jurisdicción.',
   },
   {
     id: 'financial-core', name: 'Financial Core & Ledger', domain: 'core', availability: 'sandbox', delivery: 'cimbra_native',

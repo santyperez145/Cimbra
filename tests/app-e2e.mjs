@@ -107,6 +107,10 @@ async function cleanup() {
       await transaction`DELETE FROM financial_accounts WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM transactions WHERE organization_id = ${organizationId} AND reversal_of IS NOT NULL`;
       await transaction`DELETE FROM transactions WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM due_diligence_checks WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM due_diligence_parties WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM due_diligence_events WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM due_diligence_cases WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM compliance_documents WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM audit_events WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM customers WHERE organization_id = ${organizationId}`;
@@ -899,6 +903,101 @@ try {
   form.append('file', new File([png], 'qa-evidence.png', { type: 'image/png' }));
   const evidenceDocument = await json(await request('/api/v1/compliance/documents', { method: 'POST', body: form }), 201);
 
+  const dueCaseKey = `qa-kyb-case-${runId}`;
+  const dueCase = await json(await request('/api/v1/due-diligence/cases', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': dueCaseKey },
+    body: JSON.stringify({ customerId: customer.id, expiresInDays: 90 }),
+  }), 201);
+  assert.equal(dueCase.case.kind, 'kyb'); assert.equal(dueCase.case.status, 'draft');
+  const dueCaseReplay = await json(await request('/api/v1/due-diligence/cases', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': dueCaseKey },
+    body: JSON.stringify({ customerId: customer.id, expiresInDays: 90 }),
+  }), 200);
+  assert.equal(dueCaseReplay.replayed, true); assert.equal(dueCaseReplay.case.id, dueCase.case.id);
+  const dueCaseMismatch = await json(await request('/api/v1/due-diligence/cases', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': dueCaseKey },
+    body: JSON.stringify({ customerId: customer.id, expiresInDays: 180 }),
+  }), 409);
+  assert.equal(dueCaseMismatch.error.code, 'idempotency_mismatch');
+  const prematureSubmission = await json(await request(`/api/v1/due-diligence/cases/${dueCase.case.id}/submit`, {
+    method: 'POST', headers: { 'Idempotency-Key': `qa-kyb-premature-${runId}` },
+  }), 409);
+  assert.equal(prematureSubmission.error.code, 'due_diligence_requirements_missing');
+
+  await json(await request(`/api/v1/due-diligence/cases/${dueCase.case.id}/parties`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-kyb-representative-${runId}` },
+    body: JSON.stringify({ role: 'legal_representative', name: 'Ana Representante', taxId: '20111222333', pepDeclared: false }),
+  }), 201);
+  await json(await request(`/api/v1/due-diligence/cases/${dueCase.case.id}/parties`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-kyb-owner-${runId}` },
+    body: JSON.stringify({ role: 'beneficial_owner', name: 'Bruno Beneficiario', taxId: '20222333444', ownershipPercentage: 60, pepDeclared: false }),
+  }), 201);
+  const ownershipExceeded = await json(await request(`/api/v1/due-diligence/cases/${dueCase.case.id}/parties`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-kyb-owner-exceeded-${runId}` },
+    body: JSON.stringify({ role: 'beneficial_owner', name: 'Carla Beneficiaria', taxId: '20333444555', ownershipPercentage: 50 }),
+  }), 409);
+  assert.equal(ownershipExceeded.error.code, 'due_diligence_ownership_exceeded');
+  for (const checkType of ['business_registry', 'sanctions', 'pep', 'beneficial_ownership']) {
+    const check = await json(await request(`/api/v1/due-diligence/cases/${dueCase.case.id}/checks`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-kyb-check-${checkType}-${runId}` },
+      body: JSON.stringify({ checkType, source: checkType === 'sanctions' ? 'official_registry' : 'manual_review', status: 'passed',
+        resultCode: 'verified_qa', note: `Control ${checkType} documentado por QA.`, evidenceDocumentId: evidenceDocument.document.id }),
+    }), 201);
+    assert.equal(check.check.checkType, checkType);
+  }
+  const readyCase = (await json(await request(`/api/v1/due-diligence/cases/${dueCase.case.id}`), 200)).data;
+  assert.equal(readyCase.readyForReview, true); assert.equal(readyCase.checks.length, 4); assert.equal(readyCase.parties.length, 2);
+  const submittedDueCase = await json(await request(`/api/v1/due-diligence/cases/${dueCase.case.id}/submit`, {
+    method: 'POST', headers: { 'Idempotency-Key': `qa-kyb-submit-${runId}` },
+  }), 200);
+  assert.equal(submittedDueCase.case.status, 'in_review');
+  const selfDueDecision = await json(await request(`/api/v1/due-diligence/cases/${dueCase.case.id}/decide`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-kyb-self-${runId}` },
+    body: JSON.stringify({ decision: 'approve', riskRating: 'low', note: 'El maker no debe decidir.' }),
+  }), 409);
+  assert.equal(selfDueDecision.error.code, 'due_diligence_self_decision');
+  const cddKey = await json(await request('/api/platform/api-keys', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'QA CDD orchestrator', scopes: ['compliance:read', 'compliance:write'], expiresInDays: 1 }),
+  }), 201);
+  const cddStateByApi = await json(await fetch(new URL('/api/v1/due-diligence', target), { headers: { Authorization: `Bearer ${cddKey.secret}` } }), 200);
+  assert.equal(cddStateByApi.data.cases.some((item) => item.id === dueCase.case.id), true);
+  const machineDecisionDenied = await json(await fetch(new URL(`/api/v1/due-diligence/cases/${dueCase.case.id}/decide`, target), {
+    method: 'POST', headers: { Authorization: `Bearer ${cddKey.secret}`, 'Content-Type': 'application/json', 'Idempotency-Key': `qa-kyb-machine-${runId}` },
+    body: JSON.stringify({ decision: 'approve', riskRating: 'low', note: 'Una API key no decide.' }),
+  }), 403);
+  assert.equal(machineDecisionDenied.error.code, 'session_required');
+  await json(await request(`/api/platform/api-keys/${cddKey.key.id}`, { method: 'DELETE' }), 200);
+  cookie = checkerCookie;
+  const dueDecisionKey = `qa-kyb-checker-${runId}`;
+  const decidedDueCase = await json(await request(`/api/v1/due-diligence/cases/${dueCase.case.id}/decide`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': dueDecisionKey },
+    body: JSON.stringify({ decision: 'approve', riskRating: 'low', note: 'Evidencia completa y control independiente.' }),
+  }), 200);
+  assert.equal(decidedDueCase.case.status, 'approved'); assert.equal(decidedDueCase.case.resolvedByName, 'Cimbra Checker');
+  const dueDecisionReplay = await json(await request(`/api/v1/due-diligence/cases/${dueCase.case.id}/decide`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': dueDecisionKey },
+    body: JSON.stringify({ decision: 'approve', riskRating: 'low', note: 'Evidencia completa y control independiente.' }),
+  }), 200);
+  assert.equal(dueDecisionReplay.replayed, true);
+  cookie = ownerCookieAfterRequest;
+  const cancelledDueCase = await json(await request('/api/v1/due-diligence/cases', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-kyb-cancel-create-${runId}` },
+    body: JSON.stringify({ customerId: customer.id, expiresInDays: 30 }),
+  }), 201);
+  const cancelledDueResult = await json(await request(`/api/v1/due-diligence/cases/${cancelledDueCase.case.id}/cancel`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-kyb-cancel-${runId}` },
+    body: JSON.stringify({ note: 'Caso duplicado para validar cancelación.' }),
+  }), 200);
+  assert.equal(cancelledDueResult.case.status, 'cancelled');
+  const expiringDueCase = await json(await request('/api/v1/due-diligence/cases', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-kyb-expire-create-${runId}` },
+    body: JSON.stringify({ customerId: customer.id, expiresInDays: 30 }),
+  }), 201);
+  await sql`UPDATE due_diligence_cases SET expires_at = ${new Date(Date.now() - 60_000).toISOString()} WHERE id = ${expiringDueCase.case.id}`;
+  const expiredDueCase = (await json(await request(`/api/v1/due-diligence/cases/${expiringDueCase.case.id}`), 200)).data;
+  assert.equal(expiredDueCase.status, 'expired');
+
   const operations = (await json(await request('/api/v1/operations/work-items'), 200)).data;
   const operationalCase = operations.workItems.find((item) => item.type === 'risk_case' && item.metadata.transactionId === high.transaction.id);
   const operationalOwnerMember = operations.members.find((member) => member.email === email);
@@ -1119,6 +1218,7 @@ try {
   await json(await request('/api/v1/ledger'), 200);
   await json(await request('/api/v1/operations/work-items'), 200);
   await json(await request('/api/v1/disputes'), 200);
+  await json(await request('/api/v1/due-diligence'), 200);
   await json(await request(`/api/v1/cards/${card.id}/lifecycle`), 200);
   assert.equal((await request('/console')).status, 200);
   const viewerWriteDenied = await json(await request('/api/v1/transfers', {
@@ -1145,6 +1245,11 @@ try {
     body: JSON.stringify({ name: 'Viewer denied', product: 'debit', formats: ['virtual'], defaultCurrency: 'ARS' }),
   }), 403);
   assert.equal(viewerProgramDenied.error.code, 'insufficient_role');
+  const viewerDueDiligenceDenied = await json(await request('/api/v1/due-diligence/cases', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-viewer-cdd-${runId}` },
+    body: JSON.stringify({ customerId: customer.id, expiresInDays: 30 }),
+  }), 403);
+  assert.equal(viewerDueDiligenceDenied.error.code, 'insufficient_role');
   const viewerCredentialsDenied = await json(await request('/api/platform/api-keys'), 403);
   assert.equal(viewerCredentialsDenied.code, 'insufficient_role');
   cookie = ownerCookieAfterRequest;
@@ -1165,6 +1270,8 @@ try {
   assert.ok(events.some((event) => event.action === 'risk.step_up_challenge_verified'));
   assert.ok(events.some((event) => event.action === 'risk.step_up_attempt_failed'));
   assert.ok(events.some((event) => event.action === 'risk.step_up_challenge_expired'));
+  assert.ok(events.some((event) => event.action === 'due_diligence.approved'));
+  assert.ok(events.some((event) => event.action === 'due_diligence.expired'));
   assert.ok(events.every((event) => typeof event.payload === 'object'));
 
   const [integrity] = await sql`
@@ -1183,7 +1290,7 @@ try {
 
   console.log(JSON.stringify({
     ok: true,
-    checks: ['auth', 'landing-session-state', 'console-session-guard', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'viewer-read-only', 'member-invitations', 'dual-control', 'maker-checker', 'transfer-approval', 'approval-replay', 'approval-fail-closed', 'risk-case-approval', 'risk-hold-bypass-guard', 'reconciliation-exception-approval', 'disputes', 'partial-dispute', 'dispute-ledger-credit', 'dispute-compensation', 'dispute-approval', 'dispute-evidence', 'dispute-rbac', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'card-programs', 'card-lifecycle', 'card-controls', 'card-terminal-state', 'card-rbac', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'risk-signals-privacy', 'risk-decision-lists', 'risk-step-up', 'risk-step-up-idempotency', 'risk-step-up-rbac', 'risk-decision-slo', 'risk-confirmed-outcomes', 'risk-supervised-metrics', 'risk-outcome-revisions', 'reconciliation', 'operations-work-queue', 'operations-idempotency', 'operations-evidence', 'operations-rbac', 'csv-import', 'settlement', 'private-evidence', 'audit'],
+    checks: ['auth', 'landing-session-state', 'console-session-guard', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'viewer-read-only', 'member-invitations', 'dual-control', 'maker-checker', 'transfer-approval', 'approval-replay', 'approval-fail-closed', 'risk-case-approval', 'risk-hold-bypass-guard', 'reconciliation-exception-approval', 'disputes', 'partial-dispute', 'dispute-ledger-credit', 'dispute-compensation', 'dispute-approval', 'dispute-evidence', 'dispute-rbac', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'cdd-kyb', 'cdd-evidence', 'cdd-idempotency', 'cdd-maker-checker', 'cdd-s2s-orchestration', 'cdd-session-only-decision', 'cdd-expiry', 'cdd-rbac', 'card-programs', 'card-lifecycle', 'card-controls', 'card-terminal-state', 'card-rbac', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'risk-signals-privacy', 'risk-decision-lists', 'risk-step-up', 'risk-step-up-idempotency', 'risk-step-up-rbac', 'risk-decision-slo', 'risk-confirmed-outcomes', 'risk-supervised-metrics', 'risk-outcome-revisions', 'reconciliation', 'operations-work-queue', 'operations-idempotency', 'operations-evidence', 'operations-rbac', 'csv-import', 'settlement', 'private-evidence', 'audit'],
   }));
 } finally {
   await cleanup();

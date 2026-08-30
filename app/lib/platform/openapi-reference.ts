@@ -140,6 +140,7 @@ function authenticationLabel(value: unknown): ApiReferenceOperation['authenticat
 
 function operationGroup(path: string) {
   if (path.startsWith('/api/auth/') || path === '/api/health' || path.endsWith('/capabilities')) return 'Identidad y estado';
+  if (path.includes('/due-diligence')) return 'Compliance';
   if (path.includes('/customers')) return 'Customers';
   if (path.includes('/accounts')) return 'Accounts';
   if (path.includes('/cards') || path.includes('/card-programs')) return 'Cards';
@@ -158,6 +159,7 @@ function operationGroup(path: string) {
 function operationScope(path: string, method: string) {
   const access = method === 'get' ? 'read' : 'write';
   if (!path.startsWith('/api/v1/')) return null;
+  if (path.includes('/due-diligence')) return path.endsWith('/decide') ? null : `compliance:${access}`;
   if (path.includes('/customers')) return `customers:${access}`;
   if (path.includes('/accounts')) return `accounts:${access}`;
   if (path.includes('/cards') || path.includes('/card-programs')) return `cards:${access}`;
