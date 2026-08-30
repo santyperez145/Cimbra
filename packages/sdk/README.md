@@ -123,6 +123,45 @@ const available = catalog.data.data.filter((service) => service.availability ===
 
 El catálogo declara qué dominios son nativos de Cimbra, sus interfaces (`rest_api`, `webhooks`, `sdk`, `console`, `iso8583`, archivos o streaming), el grado real de disponibilidad y su límite regulatorio. No registra ni requiere conexiones con plataformas competidoras.
 
+## Servicios, recargas y pagos recurrentes
+
+El originador directo registra un biller y emite sus obligaciones dentro del tenant. La referencia completa del suscriptor se usa como input protegido y nunca vuelve en una respuesta:
+
+```ts
+const biller = await cimbra.billers.create({
+  code: 'ENERGIA_AR', name: 'Energía Regional', country: 'AR', category: 'utilities',
+  serviceType: 'bill_payment', currency: 'ARS', amountMode: 'exact',
+  contractReference: 'DIRECT-2026-001',
+});
+const debt = await cimbra.billers.createObligation(biller.data.biller.id, {
+  externalReference: 'INV-2026-0001', subscriberReference: 'CLIENTE-00123456',
+  amount: '18250.00', dueAt: '2026-09-10T21:00:00.000Z', description: 'Servicio agosto 2026',
+});
+const paid = await cimbra.billPayments.create({
+  accountId: '00000000-0000-4000-8000-000000000001',
+  billerId: biller.data.biller.id,
+  obligationId: debt.data.obligation.id,
+});
+```
+
+Para recargas o gift cards, el biller define rango o monto fijo y la orden recibe `destinationReference` y `amount`. Los mandatos semanales o mensuales conservan consentimiento, límite y política de reintentos:
+
+```ts
+const mandate = await cimbra.recurringMandates.create({
+  accountId: '00000000-0000-4000-8000-000000000001',
+  billerId: biller.data.biller.id,
+  subscriberReference: 'CLIENTE-00123456',
+  frequency: 'monthly',
+  amountLimit: '25000.00',
+  consentReference: 'CONSENT-2026-001',
+  consentedAt: new Date().toISOString(),
+  nextChargeAt: '2026-09-10T12:00:00.000Z',
+});
+await cimbra.recurringMandates.pause(mandate.data.mandate.id);
+```
+
+Estas órdenes reutilizan cuentas, ledger de doble partida, riesgo, holds, auditoría y webhooks; una reversa crea postings compensatorios. El sandbox no inventa consultas de deuda ni cobertura comercial y no debita dinero real: cada país requiere contratos directos, consentimiento exigible y homologación del riel.
+
 ## Riesgo y fraude
 
 ```ts

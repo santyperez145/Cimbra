@@ -40,14 +40,14 @@ La comparación oficial muestra, sin embargo, una brecha deliberadamente visible
 | --- | --- | --- | --- |
 | BIND / bindX | OAuth2, rate limiting, cuentas y transferencias CBU/CVU 7x24 sobre riel bancario real | Contrato API, scopes, rate limit, ledger y transferencias sandbox | Conectar directamente el primer riel/sponsor; no usar bindX como dependencia |
 | Dock | Antifraude transaccional en tiempo real, identidad, comportamiento, biometría, comunicación multicanal y operación 24x7 | Reglas determinísticas versionadas, shadow testing, velocity, señales protegidas, listas, step-up OTP, SLO medido, casos, outcomes y auditabilidad | Agregar modelos offline evaluados y canales OOB/biometría sólo con evidencia y contratos directos; no anunciar IA antes de tener volumen |
-| tapi | Una integración regional, sandbox, dashboard y soporte para bill payments, recargas y cash in/out | Developer platform uniforme, payments genéricos, consola y SDK; sin catálogo regional real | Construir billers y cash network mediante convenios directos por país |
+| tapi | Una integración regional, sandbox, dashboard, pagos de servicios, recargas, agenda de vencimientos y pago automático | Catálogo tenant, deuda emitida, referencia protegida, pagos/recargas ledger-backed, reversas y mandatos con consentimiento; sin cobertura externa | Contratar originadores directamente por país y certificar el riel sin depender de tapi |
 | Pismo | Portal extenso, APIs, eventos real-time/batch, reglas de validación con resultados explícitos, metadata antifraude y reconciliación de clearing/DLQ | API v1, eventos firmados, decisión síncrona con SLO p50/p95/p99, señales protegidas, outcomes y conciliación por lote | Incorporar streaming/batch durable, replay operacional y reconciliación específica por riel |
 | Pomelo | Idempotencia, autorización/ajustes, presentments asíncronos, bloqueos transaccionales, remedios de fraude, chargebacks y archivos diarios de conciliación | Idempotencia, listas block/watch/allow, holds/reversas, outcomes corregibles, casos y comparación de lotes vía API | Crear disputes/remedies específicos, ingestión firmada y presentments/clearing con máquina de estados |
 | Wibond | Wallet/finanzas embebidas de implementación rápida; el detalle técnico público no permite validar paridad endpoint por endpoint | Core y developer platform propios con mayor trazabilidad visible | Validar producto, SLA, cobertura y precios directamente durante diligence |
 
 Prioridad de producto resultante:
 
-1. Evolucionar la ingestión CSV/checksum y el scheduling sandbox ya disponibles hacia intercambio firmado, cierre y settlement por riel directo.
+1. Homologar el primer originador directo de servicios y evolucionar la ingestión CSV/checksum y el scheduling sandbox hacia intercambio firmado, cierre y settlement por riel.
 2. Señales protegidas, listas tenant, outcomes, step-up OTP y SLO de decisión medido ya están operativos; el siguiente gate es evaluación offline de modelos contra etiquetas confirmadas, sin poner IA en vivo antes de demostrar precisión, sesgo, drift y operación.
 3. Disputes ya aporta lifecycle, créditos compensables y expediente operativo común; el siguiente gate es presentment/remedy específico por cada riel directo, con ventanas y reason codes certificados.
 4. Publicar Postman, generación de SDKs adicionales, changelog y SLOs medidos; luego ejecutar homologación y certificaciones.
@@ -61,6 +61,14 @@ Ninguno de estos gaps autoriza conectar Cimbra con un competidor. Las únicas de
 Cimbra implementa el control propio rail-agnostic: sólo una evaluación `review` puede abrir un OTP client-managed; la credencial se devuelve al backend integrador, queda cifrada para replay idempotente mientras está pendiente y hasheada con PBKDF2 para verificación. Lifecycle, expiración, máximo de intentos, locks, ledger append-only de intentos, RBAC, scopes, auditoría, webhooks, SDK y consola comparten el contrato. Verificar aporta evidencia al caso y nunca contabiliza, resuelve un hold ni evita maker/checker. Cada evaluación nueva persiste su latencia y el estado tenant publica p50, p95, p99 y cumplimiento del objetivo de 250 ms sobre muestras medidas.
 
 Este step-up no es EMV 3DS, ACS, liability shift, SMS, push ni biometría. Esas capacidades pasan a producción únicamente con canal directo aprobado, perímetro de secretos, consentimiento/tratamiento de datos, riel y certificación. El objetivo de 250 ms es una métrica interna del sandbox, no un SLA comercial.
+
+## Benchmark aplicado — servicios, recargas y recurrencia (30/08/2026)
+
+[tapi](https://tapi.la/servicios/) concentra pagos de servicios, recargas, agenda de vencimientos y pago automático detrás de una sola integración regional. [Pismo Payment Scheduler](https://developers.pismo.io/pismo-docs/docs/payment-scheduler) expone frecuencias, restricciones, reintentos y eventos para programaciones, mientras [Pix Automático](https://developers.pismo.io/pismo-docs/docs/pix-automatic) separa autorización previa del pagador, cargos fijos o variables, cancelación y notificaciones. [Dock DDA](https://dock.tech/fluid/blog/banking/dda/) enfatiza habilitación, consulta y avisos de obligaciones. El patrón competitivo verificable es catálogo + deuda + consentimiento + agenda + lifecycle + notificación; la amplitud comercial de cobertura no se puede inventar desde software.
+
+Cimbra implementa el núcleo propio y canónico: `billers`, obligaciones emitidas por originadores directos, referencias de suscriptor hasheadas por tenant, pagos/recargas/gift cards con idempotencia, ledger, riesgo y holds, reversas compensatorias y mandatos semanales o mensuales con consentimiento único, límites, lease de ejecución, reintentos y eventos. Owner/admin gobiernan catálogo y deuda, operator ejecuta, viewer sólo lee; las API keys separan `billers:*` de `payments:*`. Una obligación admite como máximo una orden activa y sólo queda pagada al liquidar o capturar el hold.
+
+La disponibilidad `sandbox` no significa red regional, deuda consultada a terceros, débito automático homologado ni fondos reales. La salida por país exige contrato directo con cada originador, base legal y revocación del consentimiento, intercambio autenticado, reason codes, conciliación/settlement oficial, SLO operativo y certificación. BIND, Dock, tapi, Pismo, Pomelo y Wibond siguen siendo benchmarks, no conectores ni destinos de pruebas de contrato.
 
 ## Benchmark aplicado — Customer Due Diligence KYC/KYB (29/08/2026)
 
@@ -110,7 +118,7 @@ La decisión propia es no fingir clientes, volumen, uptime, tiempos de integraci
 
 Pismo reúne guías, referencia REST, esquemas de eventos, changelog, consola interactiva y colección Postman; además documenta autenticación S2S y verificación de webhooks como contratos separados. Pomelo hace explícitos OAuth 2.0, scopes, montos decimales, idempotencia y firma HMAC de webhooks. BIND PSP publica URLs distintas para staging y producción, autenticación, scopes, ejemplos curl, códigos de error y política de reintentos de webhooks. Esos patrones reducen el tiempo hasta el primer request y, sobre todo, evitan que el integrador tenga que adivinar límites operativos.
 
-Cimbra adopta el estándar de claridad como propiedad propia: `/developers` publica la única base URL activa, diferencia sandbox de producción no habilitada, genera la referencia de 93 operaciones desde OpenAPI, consume scopes y eventos canónicos, ofrece quickstarts exactos, errores estructurados, rate limits, paginación, modelo monetario, contrato de firma y calendario de reintentos. El SDK TypeScript se distribuye como artefacto real con checksum mientras no exista publicación npm. Postman y SDKs adicionales se muestran explícitamente como backlog; no se ofrecen botones ni instalaciones ficticias. La consola interactiva contra endpoints mutantes se posterga hasta poder aislar credenciales y datos de forma segura. Dock, tapi y Wibond continúan como benchmarks de producto; no se atribuyen contratos técnicos específicos cuando la documentación pública consultada no alcanza para verificarlos.
+Cimbra adopta el estándar de claridad como propiedad propia: `/developers` publica la única base URL activa, diferencia sandbox de producción no habilitada, genera la referencia de 107 operaciones desde OpenAPI, consume scopes y eventos canónicos, ofrece quickstarts exactos, errores estructurados, rate limits, paginación, modelo monetario, contrato de firma y calendario de reintentos. El SDK TypeScript se distribuye como artefacto real con checksum mientras no exista publicación npm. Postman y SDKs adicionales se muestran explícitamente como backlog; no se ofrecen botones ni instalaciones ficticias. La consola interactiva contra endpoints mutantes se posterga hasta poder aislar credenciales y datos de forma segura. Dock, tapi y Wibond continúan como benchmarks de producto; no se atribuyen contratos técnicos específicos cuando la documentación pública consultada no alcanza para verificarlos.
 
 ## Wedge recomendado
 
@@ -164,10 +172,13 @@ Una ronda pre-seed debe financiar 18 meses para cerrar el producto inicial, cont
 - https://dock.tech/es/solucao/fraud-prevention/
 - https://www.dock.tech/en/solution/fraud-prevention
 - https://tapi.la/
+- https://tapi.la/servicios/
 - https://www.tapila.dev/docs
 - https://developers.pismo.io/pismo-docs/docs/welcome
 - https://www.pismo.io/homepage/
 - https://developers.pismo.io/pismo-docs/docs/main-solutions
+- https://developers.pismo.io/pismo-docs/docs/payment-scheduler
+- https://developers.pismo.io/pismo-docs/docs/pix-automatic
 - https://developers.pismo.io/pismo-docs/docs/anti-fraud-integration
 - https://developers.pismo.io/pismo-docs/docs/authorization-validation-rules-for-platform-operations
 - https://developers.pismo.io/pismo-docs/docs/disputes
@@ -205,5 +216,6 @@ Una ronda pre-seed debe financiar 18 meses para cerrar el producto inicial, cont
 - https://developers.pomelo.la/guides/dashboard/cards/cards
 - https://developers.pomelo.la/api-reference/cards/issuing/get-card
 - https://www.wibond.co/
+- https://dock.tech/fluid/blog/banking/dda/
 
 La información pública cambia; validar métricas, cobertura, licencias y precios directamente en diligence antes de usarla en un pitch.

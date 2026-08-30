@@ -317,6 +317,36 @@ test('el SDK verifica firma, timestamp, cuerpo crudo y antigüedad del webhook',
   );
 });
 
+test('el SDK cablea billers, obligaciones, pagos, reversas y mandatos con rutas e idempotencia canónicas', async () => {
+  const calls: Array<{ url: string; method: string; idempotencyKey: string | null }> = [];
+  const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async (input, init) => {
+    const url = String(input); const method = init?.method ?? 'GET';
+    calls.push({ url, method, idempotencyKey: new Headers(init?.headers).get('idempotency-key') });
+    if (url.endsWith('/obligations')) return Response.json({ ok: true, replayed: false, obligation: { id: 'obligation_1' } }, { status: 201 });
+    if (url.endsWith('/reverse')) return Response.json({ ok: true, replayed: false, order: { id: 'order_1', status: 'reversed' } });
+    if (url.includes('/recurring-mandates/') && url.endsWith('/status')) return Response.json({ ok: true, replayed: false, mandate: { id: 'mandate_1', status: 'paused' } });
+    if (url.endsWith('/recurring-mandates')) return Response.json({ ok: true, replayed: false, mandate: { id: 'mandate_1', status: 'active' } }, { status: 201 });
+    if (url.endsWith('/bill-payments')) return Response.json({ ok: true, replayed: false, order: { id: 'order_1', status: 'settled' } }, { status: 201 });
+    return Response.json({ ok: true, replayed: false, biller: { id: 'biller_1', status: 'active' } }, { status: 201 });
+  } });
+  const biller = await client.billers.create({ code: 'ENERGIA_AR', name: 'Energía Regional', country: 'AR', category: 'utilities',
+    serviceType: 'bill_payment', currency: 'ARS', amountMode: 'exact' });
+  const debt = await client.billers.createObligation(biller.data.biller.id, { externalReference: 'INV-001', subscriberReference: 'CLIENTE-001234',
+    amount: '100.00', dueAt: '2026-09-10T12:00:00.000Z', description: 'Servicio' });
+  const paid = await client.billPayments.create({ accountId: 'account_1', billerId: biller.data.biller.id, obligationId: debt.data.obligation.id });
+  await client.billPayments.reverse(paid.data.order.id);
+  const mandate = await client.recurringMandates.create({ accountId: 'account_1', billerId: biller.data.biller.id,
+    subscriberReference: 'CLIENTE-001234', frequency: 'monthly', amountLimit: '500.00', consentReference: 'CONSENT-001',
+    consentedAt: '2026-08-30T12:00:00.000Z', nextChargeAt: '2026-09-30T12:00:00.000Z' });
+  await client.recurringMandates.pause(mandate.data.mandate.id);
+  assert.deepEqual(calls.map(({ method, url }) => `${method} ${url}`), [
+    'POST https://api.test/api/v1/billers', 'POST https://api.test/api/v1/billers/biller_1/obligations',
+    'POST https://api.test/api/v1/bill-payments', 'POST https://api.test/api/v1/bill-payments/order_1/reverse',
+    'POST https://api.test/api/v1/recurring-mandates', 'POST https://api.test/api/v1/recurring-mandates/mandate_1/status',
+  ]);
+  for (const call of calls) assert.match(call.idempotencyKey ?? '', /^idem_[a-f0-9]{32}$/);
+});
+
 test('el SDK orquesta KYC/KYB por S2S y excluye la decisión humana', async () => {
   const calls: Array<{ url: string; method: string; idempotencyKey: string | null; body: Record<string, unknown> }> = [];
   const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async (input, init) => {

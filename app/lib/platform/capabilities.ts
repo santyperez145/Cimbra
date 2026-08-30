@@ -72,10 +72,10 @@ export const PLATFORM_CAPABILITIES: readonly PlatformCapability[] = [
     interfaces: ['rest_api', 'webhooks', 'sdk', 'iso8583'], regulatoryBoundary: 'Adquirencia real requiere licencia o sponsor adquirente, certificaciones EMV/PCI y acuerdos con marcas y comercios.',
   },
   {
-    id: 'bill-payments', name: 'Bill Payments & Top-ups', domain: 'commerce', availability: 'roadmap', delivery: 'cimbra_native',
-    summary: 'Catálogo, deuda, pago, recargas, suscripciones, confirmación y reversa.',
-    features: ['service catalog', 'debt inquiry', 'bill pay', 'top-ups', 'subscriptions'],
-    interfaces: ['rest_api', 'webhooks', 'sdk', 'files'], regulatoryBoundary: 'La cobertura requiere convenios directos con empresas, agregadores de origen o redes habilitadas, manteniendo el modelo canónico de Cimbra.',
+    id: 'bill-payments', name: 'Bill Payments, Top-ups & Recurring', domain: 'commerce', availability: 'sandbox', delivery: 'cimbra_native',
+    summary: 'Catálogo tenant, deuda emitida, pagos y recargas ledger-backed, reversas compensatorias y mandatos recurrentes con consentimiento.',
+    features: ['service catalog', 'issued obligations', 'protected debt inquiry', 'bill pay', 'mobile top-ups', 'gift cards', 'recurring mandates', 'limits and retries', 'risk and holds', 'compensating reversals'],
+    interfaces: ['rest_api', 'webhooks', 'sdk', 'console'], regulatoryBoundary: 'El sandbox ejecuta el dominio propio de Cimbra, sin consultas simuladas ni dependencia de competidores. La cobertura comercial y el dinero real requieren convenios directos con cada originador, consentimiento exigible y certificación del riel por país.',
   },
   {
     id: 'wallets', name: 'Wallets & Embedded Finance', domain: 'core', availability: 'foundation', delivery: 'cimbra_native',

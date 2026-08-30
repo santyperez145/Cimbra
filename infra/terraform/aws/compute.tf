@@ -512,7 +512,7 @@ resource "aws_iam_role_policy" "events" {
 
 resource "aws_cloudwatch_event_rule" "dispatcher" {
   name                = "${local.name}-webhook-dispatcher"
-  description         = "Recovery sweep for the durable PostgreSQL webhook outbox"
+  description         = "Recovery sweep for PostgreSQL outbox, recurring mandates and scheduled settlements"
   schedule_expression = "rate(1 minute)"
 }
 

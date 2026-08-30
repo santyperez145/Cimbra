@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Cimbra API v1
-  version: '2026-08-29'
+  version: '2026-08-30'
   description: Versioned financial infrastructure API backed by a persistent double-entry ledger, scoped S2S API keys and signed durable webhooks. This deployment is a sandbox and does not move real funds. Every response includes X-Request-Id and Cimbra-Version; responses after successful API-key authorization also expose X-RateLimit-Limit, X-RateLimit-Remaining and X-RateLimit-Reset. Mutations replayed from an idempotency key include Idempotent-Replayed, while error responses may include Cimbra-Should-Retry so official SDKs can make safe retry decisions.
   license:
     name: Proprietary
@@ -426,6 +426,202 @@ paths:
       responses:
         '200': { description: Payment }
         '404': { description: Payment not found in tenant }
+  /api/v1/billers:
+    get:
+      operationId: listBillers
+      summary: List the tenant biller and top-up catalog
+      description: Returns Cimbra-owned catalog records. It never proxies or simulates a competitor or external biller response.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      responses:
+        '200':
+          description: Tenant biller catalog
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/Biller' } } } }
+        '403': { description: Missing billers:read scope or console role }
+    post:
+      operationId: createBiller
+      summary: Register a directly contracted or internal sandbox biller
+      description: Owner/Admin only for sessions. The record is tenant-scoped, idempotent, audited and emitted as an event.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateBillerInput' } } }
+      responses:
+        '201': { description: Biller created }
+        '200': { description: Idempotent replay }
+        '403': { description: Missing billers:write scope or billers.manage permission }
+        '409': { description: Duplicate code or idempotency mismatch }
+  /api/v1/billers/{id}:
+    get:
+      operationId: retrieveBiller
+      summary: Retrieve a tenant biller
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses:
+        '200': { description: Biller, content: { application/json: { schema: { type: object, properties: { data: { $ref: '#/components/schemas/Biller' } } } } } }
+        '404': { description: Biller not found in tenant }
+  /api/v1/billers/{id}/status:
+    post:
+      operationId: updateBillerStatus
+      summary: Activate or suspend a biller
+      description: Owner/Admin only for sessions. Lifecycle changes are idempotent, audited and emitted as events.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties: { action: { type: string, enum: [activate, suspend] } }
+      responses:
+        '200': { description: Biller lifecycle updated or replayed }
+        '404': { description: Biller not found in tenant }
+        '409': { description: Idempotency mismatch }
+  /api/v1/billers/{id}/obligations:
+    get:
+      operationId: listBillerObligations
+      summary: List debts issued by a tenant biller
+      description: An optional raw subscriber reference is normalized and hashed inside the tenant boundary; only its last four characters are returned.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - name: subscriberReference
+          in: query
+          required: false
+          description: Subscriber identifier used only to calculate a tenant-scoped digest.
+          schema: { type: string, minLength: 4, maxLength: 120 }
+      responses:
+        '200':
+          description: Biller obligations
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/BillerObligation' } } } }
+        '404': { description: Biller not found in tenant }
+    post:
+      operationId: createBillerObligation
+      summary: Issue a debt for a bill-payment biller
+      description: Direct originator ingestion only. Cimbra persists the canonical obligation and never fabricates an external debt query.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateBillerObligationInput' } } }
+      responses:
+        '201': { description: Obligation issued }
+        '200': { description: Idempotent replay }
+        '403': { description: Missing billers:write scope or billers.manage permission }
+        '409': { description: External reference conflict or idempotency mismatch }
+  /api/v1/bill-payments:
+    get:
+      operationId: listBillPaymentOrders
+      summary: List bill-payment, top-up and gift-card orders
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      responses:
+        '200':
+          description: Tenant orders
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/BillPaymentOrder' } } } }
+    post:
+      operationId: createBillPaymentOrder
+      summary: Pay an obligation or execute a top-up
+      description: Uses the canonical account, double-entry ledger, risk evaluation, holds and settlement path. A review response remains pending until its hold is captured or released.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateBillPaymentInput' } } }
+      responses:
+        '201': { description: Order created }
+        '200': { description: Idempotent replay }
+        '403': { description: Missing payments:write scope or finance.write permission }
+        '409': { description: Currency, obligation state or idempotency conflict }
+        '422': { description: Insufficient balance, risk decline or amount outside biller controls }
+  /api/v1/bill-payments/{id}:
+    get:
+      operationId: retrieveBillPaymentOrder
+      summary: Retrieve a bill-payment or top-up order
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses:
+        '200': { description: Bill-payment order, content: { application/json: { schema: { type: object, properties: { data: { $ref: '#/components/schemas/BillPaymentOrder' } } } } } }
+        '404': { description: Order not found in tenant }
+  /api/v1/bill-payments/{id}/reverse:
+    post:
+      operationId: reverseBillPaymentOrder
+      summary: Reverse a settled bill-payment or top-up order
+      description: Creates a compensating ledger transaction and reopens a linked obligation; financial postings are never destructively mutated.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200': { description: Order reversed or idempotently replayed }
+        '404': { description: Order not found in tenant }
+        '409': { description: Order state or idempotency conflict }
+  /api/v1/recurring-mandates:
+    get:
+      operationId: listRecurringPaymentMandates
+      summary: List recurring payment mandates
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      responses:
+        '200':
+          description: Tenant mandates
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/RecurringPaymentMandate' } } } }
+    post:
+      operationId: createRecurringPaymentMandate
+      summary: Create a weekly or monthly payment mandate
+      description: Persists consent evidence, limits, cadence and retry policy. It does not claim homologated direct debit or a live biller rail.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateRecurringPaymentMandateInput' } } }
+      responses:
+        '201': { description: Mandate created }
+        '200': { description: Idempotent replay }
+        '403': { description: Missing payments:write scope or finance.write permission }
+        '409': { description: Biller/account state or idempotency conflict }
+  /api/v1/recurring-mandates/{id}:
+    get:
+      operationId: retrieveRecurringPaymentMandate
+      summary: Retrieve a recurring payment mandate
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses:
+        '200': { description: Recurring mandate, content: { application/json: { schema: { type: object, properties: { data: { $ref: '#/components/schemas/RecurringPaymentMandate' } } } } } }
+        '404': { description: Mandate not found in tenant }
+  /api/v1/recurring-mandates/{id}/status:
+    post:
+      operationId: updateRecurringPaymentMandateStatus
+      summary: Pause, resume or cancel a recurring mandate
+      description: Lifecycle actions are tenant-scoped, idempotent, audited and emitted as webhook events. Cancelled is terminal.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties: { action: { type: string, enum: [pause, resume, cancel] } }
+      responses:
+        '200': { description: Mandate lifecycle updated or replayed }
+        '404': { description: Mandate not found in tenant }
+        '409': { description: Invalid lifecycle transition or idempotency mismatch }
   /api/v1/capabilities:
     get:
       operationId: listPlatformCapabilities
@@ -1585,7 +1781,7 @@ paths:
                   type: array
                   minItems: 1
                   uniqueItems: true
-                  items: { type: string, enum: ['customers:read', 'customers:write', 'accounts:read', 'accounts:write', 'cards:read', 'cards:write', 'transfers:read', 'transfers:write', 'payments:read', 'payments:write', 'risk:read', 'risk:write', 'disputes:read', 'disputes:write', 'reconciliation:read', 'reconciliation:write', 'settlements:read', 'settlements:write', 'approvals:read', 'operations:read', 'operations:write', 'platform:read', 'ledger:read', 'events:read', 'compliance:read', 'compliance:write', 'webhooks:manage'] }
+                  items: { type: string, enum: ['customers:read', 'customers:write', 'accounts:read', 'accounts:write', 'cards:read', 'cards:write', 'transfers:read', 'transfers:write', 'payments:read', 'payments:write', 'billers:read', 'billers:write', 'risk:read', 'risk:write', 'disputes:read', 'disputes:write', 'reconciliation:read', 'reconciliation:write', 'settlements:read', 'settlements:write', 'approvals:read', 'operations:read', 'operations:write', 'platform:read', 'ledger:read', 'events:read', 'compliance:read', 'compliance:write', 'webhooks:manage'] }
                 expiresInDays: { type: integer, minimum: 1, maximum: 365 }
       responses:
         '201': { description: API key created and secret returned once }
@@ -1840,6 +2036,167 @@ components:
               size: { type: integer, minimum: 0 }
               status: { type: string }
               createdAt: { type: string, format: date-time }
+    Biller:
+      type: object
+      additionalProperties: false
+      description: Tenant-owned service catalog record. It is not a proxy to another fintech.
+      required: [id, code, name, country, category, serviceType, currency, amountMode, minAmountMinor, minAmount, maxAmountMinor, maxAmount, status, contractReference, createdBy, createdByName, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string }
+        name: { type: string }
+        country: { type: string, pattern: '^[A-Z]{2}$' }
+        category: { type: string, enum: [utilities, telecom, tax, education, health, insurance, transport, entertainment, other] }
+        serviceType: { type: string, enum: [bill_payment, mobile_topup, gift_card] }
+        currency: { type: string, enum: [ARS, USD, MXN, COP, BRL, CLP, PEN] }
+        amountMode: { type: string, enum: [exact, range, fixed] }
+        minAmountMinor: { type: [string, 'null'] }
+        minAmount: { type: [number, 'null'] }
+        maxAmountMinor: { type: [string, 'null'] }
+        maxAmount: { type: [number, 'null'] }
+        status: { type: string, enum: [active, suspended] }
+        contractReference: { type: [string, 'null'] }
+        createdBy: { type: string, format: uuid }
+        createdByName: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    CreateBillerInput:
+      type: object
+      additionalProperties: false
+      required: [code, name, country, category, serviceType, currency, amountMode]
+      properties:
+        code: { type: string, minLength: 2, maxLength: 40, pattern: '^[A-Za-z0-9_-]+$' }
+        name: { type: string, minLength: 2, maxLength: 160 }
+        country: { type: string, pattern: '^[A-Za-z]{2}$' }
+        category: { type: string, enum: [utilities, telecom, tax, education, health, insurance, transport, entertainment, other] }
+        serviceType: { type: string, enum: [bill_payment, mobile_topup, gift_card] }
+        currency: { type: string, enum: [ARS, USD, MXN, COP, BRL, CLP, PEN] }
+        amountMode:
+          type: string
+          enum: [exact, range, fixed]
+          description: bill_payment requires exact; top-ups and gift cards require range or fixed.
+        minAmount: { type: string, pattern: '^\d+(?:\.\d+)?$' }
+        maxAmount: { type: string, pattern: '^\d+(?:\.\d+)?$' }
+        contractReference: { type: string, minLength: 3, maxLength: 120 }
+    BillerObligation:
+      type: object
+      additionalProperties: false
+      required: [id, billerId, billerName, externalReference, subscriberReferenceLast4, amountMinor, amount, currency, dueAt, description, status, paidAt, createdByName, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        billerId: { type: string, format: uuid }
+        billerName: { type: string }
+        externalReference: { type: string }
+        subscriberReferenceLast4: { type: string, minLength: 4, maxLength: 4 }
+        amountMinor: { type: string, pattern: '^\d+$' }
+        amount: { type: number }
+        currency: { type: string, enum: [ARS, USD, MXN, COP, BRL, CLP, PEN] }
+        dueAt: { type: string, format: date-time }
+        description: { type: string }
+        status: { type: string, enum: [open, paid, cancelled, expired] }
+        paidAt: { type: [string, 'null'], format: date-time }
+        createdByName: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    CreateBillerObligationInput:
+      type: object
+      additionalProperties: false
+      required: [externalReference, subscriberReference, amount, dueAt, description]
+      properties:
+        externalReference: { type: string, minLength: 2, maxLength: 100 }
+        subscriberReference:
+          type: string
+          minLength: 4
+          maxLength: 120
+          description: Normalized and hashed tenant-locally; only the last four characters are exposed.
+        amount: { type: string, pattern: '^\d+(?:\.\d+)?$' }
+        dueAt: { type: string, format: date-time }
+        description: { type: string, minLength: 2, maxLength: 240 }
+    BillPaymentOrder:
+      type: object
+      additionalProperties: false
+      required: [id, billerId, billerName, accountId, accountReference, obligationId, mandateId, transactionId, reversalTransactionId, serviceType, destinationReferenceLast4, amountMinor, amount, currency, status, failureCode, createdByName, createdAt, updatedAt, settledAt, reversedAt]
+      properties:
+        id: { type: string, format: uuid }
+        billerId: { type: string, format: uuid }
+        billerName: { type: string }
+        accountId: { type: string, format: uuid }
+        accountReference: { type: string }
+        obligationId: { type: [string, 'null'], format: uuid }
+        mandateId: { type: [string, 'null'], format: uuid }
+        transactionId: { type: [string, 'null'], format: uuid }
+        reversalTransactionId: { type: [string, 'null'], format: uuid }
+        serviceType: { type: string, enum: [bill_payment, mobile_topup, gift_card] }
+        destinationReferenceLast4: { type: string, minLength: 4, maxLength: 4 }
+        amountMinor: { type: string, pattern: '^\d+$' }
+        amount: { type: number }
+        currency: { type: string, enum: [ARS, USD, MXN, COP, BRL, CLP, PEN] }
+        status: { type: string, enum: [declined, review, settled, reversed, cancelled] }
+        failureCode: { type: [string, 'null'] }
+        createdByName: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        settledAt: { type: [string, 'null'], format: date-time }
+        reversedAt: { type: [string, 'null'], format: date-time }
+    CreateBillPaymentInput:
+      type: object
+      additionalProperties: false
+      required: [accountId, billerId]
+      description: bill_payment requires obligationId. mobile_topup and gift_card require destinationReference and amount.
+      properties:
+        accountId: { type: string, format: uuid }
+        billerId: { type: string, format: uuid }
+        obligationId: { type: string, format: uuid }
+        destinationReference: { type: string, minLength: 4, maxLength: 120 }
+        amount: { type: string, pattern: '^\d+(?:\.\d+)?$' }
+    RecurringPaymentMandate:
+      type: object
+      additionalProperties: false
+      required: [id, billerId, billerName, serviceType, currency, accountId, accountReference, subscriberReferenceLast4, frequency, amountMinor, amount, amountLimitMinor, amountLimit, consentReference, consentedAt, status, nextChargeAt, lastExecutedAt, retryCount, maxRetries, cancelledAt, createdBy, createdByName, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        billerId: { type: string, format: uuid }
+        billerName: { type: string }
+        serviceType: { type: string, enum: [bill_payment, mobile_topup, gift_card] }
+        currency: { type: string, enum: [ARS, USD, MXN, COP, BRL, CLP, PEN] }
+        accountId: { type: string, format: uuid }
+        accountReference: { type: string }
+        subscriberReferenceLast4: { type: string, minLength: 4, maxLength: 4 }
+        frequency: { type: string, enum: [weekly, monthly] }
+        amountMinor: { type: [string, 'null'] }
+        amount: { type: [number, 'null'] }
+        amountLimitMinor: { type: string, pattern: '^\d+$' }
+        amountLimit: { type: number }
+        consentReference: { type: string }
+        consentedAt: { type: string, format: date-time }
+        status: { type: string, enum: [active, paused, cancelled, expired] }
+        nextChargeAt: { type: string, format: date-time }
+        lastExecutedAt: { type: [string, 'null'], format: date-time }
+        retryCount: { type: integer, minimum: 0 }
+        maxRetries: { type: integer, minimum: 0, maximum: 10 }
+        cancelledAt: { type: [string, 'null'], format: date-time }
+        createdBy: { type: string, format: uuid }
+        createdByName: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    CreateRecurringPaymentMandateInput:
+      type: object
+      additionalProperties: false
+      required: [accountId, billerId, subscriberReference, frequency, amountLimit, consentReference, consentedAt, nextChargeAt]
+      properties:
+        accountId: { type: string, format: uuid }
+        billerId: { type: string, format: uuid }
+        subscriberReference: { type: string, minLength: 4, maxLength: 120 }
+        frequency: { type: string, enum: [weekly, monthly] }
+        amount:
+          type: string
+          pattern: '^\d+(?:\.\d+)?$'
+          description: Required for mobile_topup and gift_card; omitted for debt-based bill_payment mandates.
+        amountLimit: { type: string, pattern: '^\d+(?:\.\d+)?$' }
+        consentReference: { type: string, minLength: 3, maxLength: 120 }
+        consentedAt: { type: string, format: date-time }
+        nextChargeAt: { type: string, format: date-time }
+        maxRetries: { type: integer, minimum: 0, maximum: 10, default: 3 }
     Dispute:
       type: object
       required: [id, transactionId, reason, description, amountMinor, amount, currency, status, open, priority, provisionalCreditRequested, creditStatus, possibleEvents, createdAt, updatedAt]

@@ -63,6 +63,33 @@ export type CardControls = {
   status: 'active' | 'inactive'; createdBy: string; createdByName: string; createdAt: string;
 };
 export type Transaction = { id: string; counterparty: string; description: string; amount: number; amountMinor: string; currency: Currency; status: string; riskScore: number; reversalOf: string | null; createdAt: string };
+export type Biller = {
+  id: string; code: string; name: string; country: string;
+  category: 'utilities' | 'telecom' | 'tax' | 'education' | 'health' | 'insurance' | 'transport' | 'entertainment' | 'other';
+  serviceType: 'bill_payment' | 'mobile_topup' | 'gift_card'; currency: Currency; amountMode: 'exact' | 'range' | 'fixed';
+  minAmountMinor: string | null; minAmount: number | null; maxAmountMinor: string | null; maxAmount: number | null;
+  status: 'active' | 'suspended'; contractReference: string | null; createdBy: string; createdByName: string; createdAt: string; updatedAt: string;
+};
+export type BillerObligation = {
+  id: string; billerId: string; billerName: string; externalReference: string; subscriberReferenceLast4: string;
+  amountMinor: string; amount: number; currency: Currency; dueAt: string; description: string;
+  status: 'open' | 'paid' | 'cancelled' | 'expired'; paidAt: string | null; createdByName: string; createdAt: string; updatedAt: string;
+};
+export type BillPaymentOrder = {
+  id: string; billerId: string; billerName: string; accountId: string; accountReference: string; obligationId: string | null;
+  mandateId: string | null; transactionId: string | null; reversalTransactionId: string | null; serviceType: Biller['serviceType'];
+  destinationReferenceLast4: string; amountMinor: string; amount: number; currency: Currency;
+  status: 'declined' | 'review' | 'settled' | 'reversed' | 'cancelled'; failureCode: string | null;
+  createdByName: string; createdAt: string; updatedAt: string; settledAt: string | null; reversedAt: string | null;
+};
+export type RecurringPaymentMandate = {
+  id: string; billerId: string; billerName: string; serviceType: Biller['serviceType']; currency: Currency;
+  accountId: string; accountReference: string; subscriberReferenceLast4: string; frequency: 'weekly' | 'monthly';
+  amountMinor: string | null; amount: number | null; amountLimitMinor: string; amountLimit: number;
+  consentReference: string; consentedAt: string; status: 'active' | 'paused' | 'cancelled' | 'expired'; nextChargeAt: string;
+  lastExecutedAt: string | null; retryCount: number; maxRetries: number; cancelledAt: string | null;
+  createdBy: string; createdByName: string; createdAt: string; updatedAt: string;
+};
 export type PlatformCapability = {
   id: string; name: string; domain: 'core' | 'payments' | 'cards' | 'commerce' | 'credit' | 'risk' | 'operations' | 'platform';
   summary: string; features: string[]; interfaces: Array<'rest_api' | 'webhooks' | 'sdk' | 'console' | 'iso8583' | 'files' | 'streaming'>;
@@ -244,6 +271,20 @@ export type UpdateCardControlsInput = {
 };
 export type CreateTransferInput = { counterparty: string; description: string; amount: string; currency?: Currency; signals?: RiskSignalsInput };
 export type CreatePaymentInput = { accountId: string; direction: 'cash_in' | 'cash_out'; counterparty: string; description: string; amount: string; currency: Currency; signals?: RiskSignalsInput };
+export type CreateBillerInput = {
+  code: string; name: string; country: string; category: Biller['category']; serviceType: Biller['serviceType']; currency: Currency;
+  amountMode: Biller['amountMode']; minAmount?: string; maxAmount?: string; contractReference?: string;
+};
+export type CreateBillerObligationInput = {
+  externalReference: string; subscriberReference: string; amount: string; dueAt: string; description: string;
+};
+export type CreateBillPaymentInput = {
+  accountId: string; billerId: string; obligationId?: string; destinationReference?: string; amount?: string;
+};
+export type CreateRecurringPaymentMandateInput = {
+  accountId: string; billerId: string; subscriberReference: string; frequency: RecurringPaymentMandate['frequency'];
+  amount?: string; amountLimit: string; consentReference: string; consentedAt: string; nextChargeAt: string; maxRetries?: number;
+};
 export type CreateRiskEvaluationInput = { operationType: 'transfer' | 'cash_in' | 'cash_out'; amount: string; currency: Currency; counterparty: string; signals?: RiskSignalsInput };
 export type CreateRiskStepUpChallengeInput = { method?: 'otp'; delivery?: 'client_managed'; expiresInSeconds?: number; maxAttempts?: number };
 export type VerifyRiskStepUpChallengeInput = { credential: string };

@@ -98,6 +98,11 @@ async function cleanup() {
       await transaction`DELETE FROM risk_rule_promotions WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM risk_rules WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM risk_list_entries WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM recurring_payment_executions WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM bill_payment_orders WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM recurring_payment_mandates WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM biller_obligations WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM billers WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM holds WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM ledger_postings WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM ledger_journals WHERE organization_id = ${organizationId} AND reversal_of IS NOT NULL`;
@@ -280,7 +285,7 @@ try {
   const initialLedgerResponse = await request('/api/v1/ledger', { headers: { 'X-Request-Id': `qa-request-${runId}` } });
   const initialLedger = (await json(initialLedgerResponse, 200)).data;
   assert.equal(initialLedgerResponse.headers.get('x-request-id'), `qa-request-${runId}`);
-  assert.equal(initialLedgerResponse.headers.get('cimbra-version'), '2026-08-29');
+  assert.equal(initialLedgerResponse.headers.get('cimbra-version'), '2026-08-30');
   const ars = initialLedger.balances.find((balance) => balance.currency === 'ARS');
   const usd = initialLedger.balances.find((balance) => balance.currency === 'USD');
   assert.deepEqual(
@@ -395,6 +400,138 @@ try {
   assert.equal(cashOut.payment.amountMinor, '-10000');
   const retrievedPayment = await json(await request(`/api/v1/payments/${cashOut.payment.id}`), 200);
   assert.equal(retrievedPayment.id, cashOut.payment.id);
+
+  const servicesKey = await json(await request('/api/platform/api-keys', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'QA native billers', scopes: ['billers:read', 'billers:write', 'payments:read', 'payments:write'], expiresInDays: 1 }),
+  }), 201);
+  const billerKey = `qa-biller-${runId}`;
+  const billerPayload = { code: `QA_ENERGY_${runId.slice(0, 8)}`, name: 'QA Energía Regional', country: 'AR', category: 'utilities',
+    serviceType: 'bill_payment', currency: 'ARS', amountMode: 'exact', contractReference: `DIRECT-${runId.slice(0, 8)}` };
+  const billerCreated = await json(await fetch(new URL('/api/v1/billers', target), {
+    method: 'POST', headers: { Authorization: `Bearer ${servicesKey.secret}`, 'Content-Type': 'application/json', 'Idempotency-Key': billerKey },
+    body: JSON.stringify(billerPayload),
+  }), 201);
+  const biller = billerCreated.biller;
+  assert.equal(biller.serviceType, 'bill_payment'); assert.equal(biller.status, 'active');
+  const billerReplay = await json(await fetch(new URL('/api/v1/billers', target), {
+    method: 'POST', headers: { Authorization: `Bearer ${servicesKey.secret}`, 'Content-Type': 'application/json', 'Idempotency-Key': billerKey },
+    body: JSON.stringify(billerPayload),
+  }), 200);
+  assert.equal(billerReplay.replayed, true); assert.equal(billerReplay.biller.id, biller.id);
+  const billerMismatch = await json(await fetch(new URL('/api/v1/billers', target), {
+    method: 'POST', headers: { Authorization: `Bearer ${servicesKey.secret}`, 'Content-Type': 'application/json', 'Idempotency-Key': billerKey },
+    body: JSON.stringify({ ...billerPayload, name: 'Otro nombre' }),
+  }), 409);
+  assert.equal(billerMismatch.error.code, 'idempotency_mismatch');
+  assert.equal((await json(await request(`/api/v1/billers/${biller.id}`), 200)).data.code, billerPayload.code.toUpperCase());
+  assert.ok((await json(await fetch(new URL('/api/v1/billers', target), { headers: { Authorization: `Bearer ${servicesKey.secret}` } }), 200)).data.some((item) => item.id === biller.id));
+  const suspendedBiller = await json(await request(`/api/v1/billers/${biller.id}/status`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-biller-suspend-${runId}` }, body: JSON.stringify({ action: 'suspend' }),
+  }), 200);
+  assert.equal(suspendedBiller.biller.status, 'suspended');
+  const billerLifecycleMismatch = await json(await request(`/api/v1/billers/${biller.id}/status`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-biller-suspend-${runId}` }, body: JSON.stringify({ action: 'activate' }),
+  }), 409);
+  assert.equal(billerLifecycleMismatch.error.code, 'idempotency_mismatch');
+  await json(await request(`/api/v1/billers/${biller.id}/status`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-biller-activate-${runId}` }, body: JSON.stringify({ action: 'activate' }),
+  }), 200);
+
+  const obligationKey = `qa-obligation-${runId}`;
+  const subscriberReference = `CLIENTE-${runId.slice(0, 12)}`;
+  const obligationPayload = { externalReference: `INV-${runId.slice(0, 12)}`, subscriberReference, amount: '18.25',
+    dueAt: new Date(Date.now() + 86_400_000).toISOString(), description: 'Servicio energético QA' };
+  const obligationCreated = await json(await fetch(new URL(`/api/v1/billers/${biller.id}/obligations`, target), {
+    method: 'POST', headers: { Authorization: `Bearer ${servicesKey.secret}`, 'Content-Type': 'application/json', 'Idempotency-Key': obligationKey },
+    body: JSON.stringify(obligationPayload),
+  }), 201);
+  const obligation = obligationCreated.obligation;
+  assert.equal(obligation.amountMinor, '1825'); assert.equal(obligation.status, 'open');
+  assert.equal(JSON.stringify(obligation).includes(subscriberReference), false); assert.equal(obligation.subscriberReferenceLast4.length, 4);
+  const obligationReplay = await json(await fetch(new URL(`/api/v1/billers/${biller.id}/obligations`, target), {
+    method: 'POST', headers: { Authorization: `Bearer ${servicesKey.secret}`, 'Content-Type': 'application/json', 'Idempotency-Key': obligationKey },
+    body: JSON.stringify(obligationPayload),
+  }), 200);
+  assert.equal(obligationReplay.replayed, true); assert.equal(obligationReplay.obligation.id, obligation.id);
+  const debtQuery = (await json(await request(`/api/v1/billers/${biller.id}/obligations?subscriberReference=${encodeURIComponent(subscriberReference)}`), 200)).data;
+  assert.equal(debtQuery.length, 1); assert.equal(JSON.stringify(debtQuery).includes(subscriberReference), false);
+
+  const orderKey = `qa-bill-payment-${runId}`;
+  const billPaymentCreated = await json(await fetch(new URL('/api/v1/bill-payments', target), {
+    method: 'POST', headers: { Authorization: `Bearer ${servicesKey.secret}`, 'Content-Type': 'application/json', 'Idempotency-Key': orderKey },
+    body: JSON.stringify({ accountId: account.id, billerId: biller.id, obligationId: obligation.id }),
+  }), 201);
+  const billPayment = billPaymentCreated.order;
+  assert.equal(billPayment.status, 'settled'); assert.ok(billPayment.transactionId);
+  const paymentReplay = await json(await fetch(new URL('/api/v1/bill-payments', target), {
+    method: 'POST', headers: { Authorization: `Bearer ${servicesKey.secret}`, 'Content-Type': 'application/json', 'Idempotency-Key': orderKey },
+    body: JSON.stringify({ accountId: account.id, billerId: biller.id, obligationId: obligation.id }),
+  }), 200);
+  assert.equal(paymentReplay.replayed, true); assert.equal(paymentReplay.order.id, billPayment.id);
+  assert.equal((await json(await request(`/api/v1/bill-payments/${billPayment.id}`), 200)).data.status, 'settled');
+  const genericBillReverseDenied = await json(await request(`/api/v1/transfers/${billPayment.transactionId}/reverse`, {
+    method: 'POST', headers: { 'Idempotency-Key': `qa-invalid-bill-reverse-${runId}` },
+  }), 409);
+  assert.equal(genericBillReverseDenied.error.code, 'bill_payment_reverse_required');
+  const reversedBill = await json(await request(`/api/v1/bill-payments/${billPayment.id}/reverse`, {
+    method: 'POST', headers: { 'Idempotency-Key': `qa-bill-reverse-${runId}` },
+  }), 200);
+  assert.equal(reversedBill.order.status, 'reversed'); assert.ok(reversedBill.order.reversalTransactionId);
+  const reversedBillReplay = await json(await request(`/api/v1/bill-payments/${billPayment.id}/reverse`, {
+    method: 'POST', headers: { 'Idempotency-Key': `qa-bill-reverse-${runId}` },
+  }), 200);
+  assert.equal(reversedBillReplay.replayed, true);
+  assert.equal((await json(await request(`/api/v1/billers/${biller.id}/obligations`), 200)).data.find((item) => item.id === obligation.id).status, 'open');
+
+  const topup = (await json(await request('/api/v1/billers', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-topup-biller-${runId}` },
+    body: JSON.stringify({ code: `QA_TOPUP_${runId.slice(0, 8)}`, name: 'QA Recargas', country: 'AR', category: 'telecom',
+      serviceType: 'mobile_topup', currency: 'ARS', amountMode: 'range', minAmount: '1.00', maxAmount: '100.00' }),
+  }), 201)).biller;
+  const topupOrder = (await json(await request('/api/v1/bill-payments', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-topup-order-${runId}` },
+    body: JSON.stringify({ accountId: account.id, billerId: topup.id, destinationReference: '5491100001234', amount: '5.00' }),
+  }), 201)).order;
+  assert.equal(topupOrder.status, 'settled'); assert.equal(topupOrder.amountMinor, '500'); assert.equal(topupOrder.destinationReferenceLast4, '1234');
+  await json(await request(`/api/v1/bill-payments/${topupOrder.id}/reverse`, { method: 'POST', headers: { 'Idempotency-Key': `qa-topup-reverse-${runId}` } }), 200);
+  const giftCard = (await json(await request('/api/v1/billers', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-gift-biller-${runId}` },
+    body: JSON.stringify({ code: `QA_GIFT_${runId.slice(0, 8)}`, name: 'QA Gift Card', country: 'AR', category: 'entertainment',
+      serviceType: 'gift_card', currency: 'ARS', amountMode: 'fixed', minAmount: '20.00', maxAmount: '20.00' }),
+  }), 201)).biller;
+  assert.equal(giftCard.amountMode, 'fixed'); assert.equal(giftCard.minAmountMinor, '2000');
+
+  const consentReference = `CONSENT-${runId}`;
+  const mandatePayload = { accountId: account.id, billerId: topup.id, subscriberReference: '5491100001234', frequency: 'monthly', amount: '5.00',
+    amountLimit: '10.00', consentReference, consentedAt: new Date().toISOString(), nextChargeAt: new Date(Date.now() + 86_400_000).toISOString(), maxRetries: 3 };
+  const mandateCreated = await json(await request('/api/v1/recurring-mandates', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-mandate-${runId}` }, body: JSON.stringify(mandatePayload),
+  }), 201);
+  const mandate = mandateCreated.mandate;
+  assert.equal(mandate.status, 'active'); assert.equal(mandate.subscriberReferenceLast4, '1234'); assert.equal(JSON.stringify(mandate).includes('5491100001234'), false);
+  const duplicateConsent = await json(await request('/api/v1/recurring-mandates', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-mandate-duplicate-${runId}` }, body: JSON.stringify(mandatePayload),
+  }), 409);
+  assert.equal(duplicateConsent.error.code, 'mandate_consent_exists');
+  const pausedMandate = await json(await request(`/api/v1/recurring-mandates/${mandate.id}/status`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-mandate-pause-${runId}` }, body: JSON.stringify({ action: 'pause' }),
+  }), 200);
+  assert.equal(pausedMandate.mandate.status, 'paused');
+  const mandateLifecycleMismatch = await json(await request(`/api/v1/recurring-mandates/${mandate.id}/status`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-mandate-pause-${runId}` }, body: JSON.stringify({ action: 'resume' }),
+  }), 409);
+  assert.equal(mandateLifecycleMismatch.error.code, 'idempotency_mismatch');
+  await json(await request(`/api/v1/recurring-mandates/${mandate.id}/status`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-mandate-resume-${runId}` }, body: JSON.stringify({ action: 'resume' }),
+  }), 200);
+  const cancelledMandate = await json(await request(`/api/v1/recurring-mandates/${mandate.id}/status`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-mandate-cancel-${runId}` }, body: JSON.stringify({ action: 'cancel' }),
+  }), 200);
+  assert.equal(cancelledMandate.mandate.status, 'cancelled');
+  assert.equal((await json(await request(`/api/v1/recurring-mandates/${mandate.id}`), 200)).data.status, 'cancelled');
+  assert.ok((await json(await fetch(new URL('/api/v1/recurring-mandates', target), { headers: { Authorization: `Bearer ${servicesKey.secret}` } }), 200)).data.some((item) => item.id === mandate.id));
+
   const programKey = `qa-card-program-${runId}`;
   const programPayload = { name: `QA Physical ARS ${runId.slice(0, 8)}`, product: 'debit', formats: ['virtual', 'physical'], defaultCurrency: 'ARS' };
   const program = await json(await request('/api/v1/card-programs', {
@@ -1219,6 +1356,9 @@ try {
   await json(await request('/api/v1/operations/work-items'), 200);
   await json(await request('/api/v1/disputes'), 200);
   await json(await request('/api/v1/due-diligence'), 200);
+  await json(await request('/api/v1/billers'), 200);
+  await json(await request('/api/v1/bill-payments'), 200);
+  await json(await request('/api/v1/recurring-mandates'), 200);
   await json(await request(`/api/v1/cards/${card.id}/lifecycle`), 200);
   assert.equal((await request('/console')).status, 200);
   const viewerWriteDenied = await json(await request('/api/v1/transfers', {
@@ -1250,6 +1390,19 @@ try {
     body: JSON.stringify({ customerId: customer.id, expiresInDays: 30 }),
   }), 403);
   assert.equal(viewerDueDiligenceDenied.error.code, 'insufficient_role');
+  const viewerBillerDenied = await json(await request('/api/v1/billers', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-viewer-biller-${runId}` }, body: JSON.stringify(billerPayload),
+  }), 403);
+  assert.equal(viewerBillerDenied.error.code, 'insufficient_role');
+  const viewerBillPaymentDenied = await json(await request('/api/v1/bill-payments', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-viewer-bill-payment-${runId}` },
+    body: JSON.stringify({ accountId: account.id, billerId: topup.id, destinationReference: '5491100001234', amount: '5.00' }),
+  }), 403);
+  assert.equal(viewerBillPaymentDenied.error.code, 'insufficient_role');
+  const viewerMandateDenied = await json(await request('/api/v1/recurring-mandates', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-viewer-mandate-${runId}` }, body: JSON.stringify(mandatePayload),
+  }), 403);
+  assert.equal(viewerMandateDenied.error.code, 'insufficient_role');
   const viewerCredentialsDenied = await json(await request('/api/platform/api-keys'), 403);
   assert.equal(viewerCredentialsDenied.code, 'insufficient_role');
   cookie = ownerCookieAfterRequest;
@@ -1272,6 +1425,9 @@ try {
   assert.ok(events.some((event) => event.action === 'risk.step_up_challenge_expired'));
   assert.ok(events.some((event) => event.action === 'due_diligence.approved'));
   assert.ok(events.some((event) => event.action === 'due_diligence.expired'));
+  assert.ok(events.some((event) => event.action === 'biller.created'));
+  assert.ok(events.some((event) => event.action === 'bill_payment.order_reversed'));
+  assert.ok(events.some((event) => event.action === 'recurring_mandate.cancelled'));
   assert.ok(events.every((event) => typeof event.payload === 'object'));
 
   const [integrity] = await sql`
@@ -1290,7 +1446,7 @@ try {
 
   console.log(JSON.stringify({
     ok: true,
-    checks: ['auth', 'landing-session-state', 'console-session-guard', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'viewer-read-only', 'member-invitations', 'dual-control', 'maker-checker', 'transfer-approval', 'approval-replay', 'approval-fail-closed', 'risk-case-approval', 'risk-hold-bypass-guard', 'reconciliation-exception-approval', 'disputes', 'partial-dispute', 'dispute-ledger-credit', 'dispute-compensation', 'dispute-approval', 'dispute-evidence', 'dispute-rbac', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'cdd-kyb', 'cdd-evidence', 'cdd-idempotency', 'cdd-maker-checker', 'cdd-s2s-orchestration', 'cdd-session-only-decision', 'cdd-expiry', 'cdd-rbac', 'card-programs', 'card-lifecycle', 'card-controls', 'card-terminal-state', 'card-rbac', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'risk-signals-privacy', 'risk-decision-lists', 'risk-step-up', 'risk-step-up-idempotency', 'risk-step-up-rbac', 'risk-decision-slo', 'risk-confirmed-outcomes', 'risk-supervised-metrics', 'risk-outcome-revisions', 'reconciliation', 'operations-work-queue', 'operations-idempotency', 'operations-evidence', 'operations-rbac', 'csv-import', 'settlement', 'private-evidence', 'audit'],
+    checks: ['auth', 'landing-session-state', 'console-session-guard', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'viewer-read-only', 'member-invitations', 'dual-control', 'maker-checker', 'transfer-approval', 'approval-replay', 'approval-fail-closed', 'risk-case-approval', 'risk-hold-bypass-guard', 'reconciliation-exception-approval', 'disputes', 'partial-dispute', 'dispute-ledger-credit', 'dispute-compensation', 'dispute-approval', 'dispute-evidence', 'dispute-rbac', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'billers', 'biller-obligations', 'protected-subscriber-reference', 'bill-payments', 'mobile-topups', 'gift-cards', 'recurring-mandates', 'mandate-consent', 'biller-rbac', 'biller-s2s', 'bill-payment-compensation', 'cdd-kyb', 'cdd-evidence', 'cdd-idempotency', 'cdd-maker-checker', 'cdd-s2s-orchestration', 'cdd-session-only-decision', 'cdd-expiry', 'cdd-rbac', 'card-programs', 'card-lifecycle', 'card-controls', 'card-terminal-state', 'card-rbac', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'risk-signals-privacy', 'risk-decision-lists', 'risk-step-up', 'risk-step-up-idempotency', 'risk-step-up-rbac', 'risk-decision-slo', 'risk-confirmed-outcomes', 'risk-supervised-metrics', 'risk-outcome-revisions', 'reconciliation', 'operations-work-queue', 'operations-idempotency', 'operations-evidence', 'operations-rbac', 'csv-import', 'settlement', 'private-evidence', 'audit'],
   }));
 } finally {
   await cleanup();

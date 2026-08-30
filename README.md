@@ -9,12 +9,12 @@ La aplicación es un MVP lanzable para venta, discovery e integración en sandbo
 Superficies disponibles:
 
 - `/` — propuesta comercial profesional, estado de sesión contextual, prueba técnica, casos de uso, modelo de acceso y captación persistente de leads.
-- `/developers` — portal técnico generado desde OpenAPI con entornos, quickstart ejecutable, auth/RBAC/scopes, errores, rate limits, SDK descargable, webhooks, catálogo de eventos y las 93 operaciones publicadas.
+- `/developers` — portal técnico generado desde OpenAPI con entornos, quickstart ejecutable, auth/RBAC/scopes, errores, rate limits, SDK descargable, webhooks, catálogo de eventos y las 107 operaciones publicadas.
 - `/login` — registro e inicio de sesión propio con usuario/email y contraseña; OAuth Google y Apple se activa al configurar sus credenciales.
 - `/forgot-password`, `/reset-password` y `/verify-email` — ciclo de vida de cuenta con tokens opacos, expiración, uso único y respuestas anti-enumeración.
 - `/console` — consola protegida y consciente del rol; owner/admin administran miembros e invitaciones, operator ejecuta, viewer trabaja en modo lectura y Operaciones unifica ownership, SLA y expedientes de riesgo/conciliación.
 - `/api/health` — readiness sin caché para esquema PostgreSQL y secretos críticos de cifrado/dispatcher, sin exponer sus valores.
-- `/api/v1/*` — API pública versionada para customers, KYC/KYB, accounts, cards, transfers, payments, riesgo, conciliación CSV/API, work items operativos, settlement sandbox, aprobaciones, holds, ledger, events, compliance y webhooks.
+- `/api/v1/*` — API pública versionada para customers, KYC/KYB, accounts, cards, transfers, payments, billers, obligaciones, recargas, mandatos recurrentes, riesgo, conciliación CSV/API, work items operativos, settlement sandbox, aprobaciones, holds, ledger, events, compliance y webhooks.
 - `/api/sandbox/*` — alias de compatibilidad deprecado; las integraciones nuevas deben usar v1.
 - `/api/platform/api-keys` — claves Bearer con scopes, vencimiento, rate limit, rotación y revocación inmediata.
 - `/api/platform/access` — miembros, invitaciones verificadas, jerarquía de roles, revocación y trazabilidad del tenant.
@@ -95,7 +95,7 @@ Apple requiere un Services ID asociado a una app habilitada para Sign in with Ap
 - outbox de eventos creado dentro de la misma transacción que el cambio de dominio;
 - webhooks HTTPS firmados sobre `timestamp.raw_body`, sin redirects y con bloqueo de redes privadas;
 - leasing con `FOR UPDATE SKIP LOCKED`, backoff durable, intentos persistidos y replay manual;
-- dispatcher protegido por `CRON_SECRET` y ejecución inmediata post-response.
+- dispatcher protegido por `CRON_SECRET`; recupera el outbox, mandatos recurrentes con lease y settlement programado. Vercel lo invoca diariamente en el entorno sin presupuesto y la infraestructura AWS declarada lo programa cada minuto cuando exista autorización de gasto.
 
 ## SDK TypeScript
 

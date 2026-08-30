@@ -19,7 +19,7 @@ La independencia tecnológica no elimina la realidad de los rieles. Para mover f
 | Disputes & Chargebacks | disputas parciales, lifecycle, evidencia, créditos compensables, SLA | API, SDK, eventos, consola | Sandbox |
 | Card Processing | autorización, stand-in, clearing, presentments, 3DS | API, ISO 8583, eventos, archivos | Roadmap |
 | Acquiring | checkout, links, QR, POS, Tap to Phone, split | API, webhooks, SDK, ISO 8583 | Roadmap |
-| Bill Payments | catálogo, deuda, pago, recargas, suscripciones | API, webhooks, SDK, archivos | Roadmap |
+| Bill Payments & Top-ups | catálogo tenant, deuda emitida, pago, recargas, gift cards, reversas y mandatos recurrentes | API, webhooks, SDK, consola | Sandbox operativo; sin cobertura, biller externo ni débito homologado |
 | Wallets | white-label, balances, pockets y payouts | API, webhooks, SDK, consola | Base técnica |
 | Lending | originación, líneas, schedules, intereses y cobranza | API, webhooks, SDK, consola | Roadmap |
 | Risk & Fraud | reglas, velocity, señales protegidas, listas tenant, scoring, step-up OTP, SLO p50/p95/p99, casos, outcomes confirmados, métricas supervisadas, ownership, SLA, evidencia y decisiones con doble aprobación | API, webhooks, SDK, consola | Sandbox operativo; no 3DS/ACS |
@@ -51,7 +51,7 @@ La amplitud es objetivo de plataforma, pero el capital se asigna por gates:
 2. obtener design partners y elegir un solo país/riel inicial;
 3. construir el conector directo, operación y certificación de ese riel;
 4. completar issuing/processing o acquiring según demanda contractual;
-5. expandir bill payments, lending y tesorería sin degradar confiabilidad ni margen.
+5. homologar la primera cobertura directa de bill payments y expandir instant payments, lending y tesorería sin degradar confiabilidad ni margen.
 
 Esto conserva la ambición competitiva y evita financiar seis compañías incompletas a la vez.
 

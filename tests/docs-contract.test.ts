@@ -47,10 +47,10 @@ function routeFiles(directory: string): string[] {
 
 test('el OpenAPI público usa el sandbox real y operaciones identificables', () => {
   assert.equal(spec.openapi, '3.1.0');
-  assert.equal(spec.info.version, '2026-08-29');
+  assert.equal(spec.info.version, '2026-08-30');
   assert.deepEqual(spec.servers, [{ url: 'https://cimbra-rose.vercel.app', description: 'Persistent sandbox. Does not move real funds.' }]);
   const operations = contractOperations();
-  assert.equal(operations.length, 93);
+  assert.equal(operations.length, 107);
   const ids = operations.map(({ operation }) => operation.operationId);
   assert.equal(ids.every(Boolean), true);
   assert.equal(new Set(ids).size, ids.length);

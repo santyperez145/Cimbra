@@ -11,7 +11,7 @@ export function proxy(request: NextRequest) {
 
   const response = NextResponse.next({ request: { headers: requestHeaders } });
   response.headers.set('X-Request-Id', requestId);
-  response.headers.set('Cimbra-Version', '2026-08-29');
+  response.headers.set('Cimbra-Version', '2026-08-30');
   if (request.nextUrl.pathname.startsWith('/api/sandbox/')) {
     response.headers.set('Deprecation', 'true');
     response.headers.set('Link', '</api/v1>; rel="successor-version"');

@@ -28,6 +28,11 @@ const errorResponses = [
 
 const changelog = [
   {
+    date: '30 AGO 2026',
+    title: 'Servicios, recargas y mandatos recurrentes nativos',
+    detail: 'Catálogo por tenant, obligaciones emitidas con referencia protegida, pagos y recargas conectados a ledger/riesgo/holds, reversas compensatorias, mandatos con consentimiento, límites, reintentos, scopes S2S, SDK, eventos y consola por rol.',
+  },
+  {
     date: '29 AGO 2026',
     title: 'KYC/KYB nativo y maker/checker obligatorio',
     detail: 'Expedientes versionados con partes y beneficiarios finales, checks/evidencia append-only, expiración, scopes S2S, SDK de orquestación, webhooks y consola por rol. La decisión queda reservada a otro Owner/Admin con MFA y sesión humana.',
@@ -198,6 +203,32 @@ await cimbra.dueDiligence.recordCheck(opened.data.case.id, {
 
 // Completá todos los checks/partes exigidos antes de enviar.
 await cimbra.dueDiligence.submit(opened.data.case.id);`;
+  const billerPaymentsExample = `const biller = await cimbra.billers.create({
+  code: 'ENERGIA_AR',
+  name: 'Energía Regional',
+  country: 'AR',
+  category: 'utilities',
+  serviceType: 'bill_payment',
+  currency: 'ARS',
+  amountMode: 'exact',
+  contractReference: 'DIRECT-2026-001',
+});
+
+const debt = await cimbra.billers.createObligation(biller.data.biller.id, {
+  externalReference: 'INV-2026-0001',
+  subscriberReference: 'CLIENTE-00123456',
+  amount: '18250.00',
+  dueAt: '2026-09-10T21:00:00.000Z',
+  description: 'Servicio agosto 2026',
+});
+
+const payment = await cimbra.billPayments.create({
+  accountId: '<account_uuid>',
+  billerId: biller.data.biller.id,
+  obligationId: debt.data.obligation.id,
+});
+
+console.log(payment.data.order.status);`;
 
   return <main className="docs-shell docs-shell-expanded">
     <header className="docs-topbar">
@@ -223,6 +254,7 @@ await cimbra.dueDiligence.submit(opened.data.case.id);`;
         <a href="#errors">Errores y rate limits</a>
         <strong>INTEGRACIÓN</strong>
         <a href="#sdk">SDK TypeScript</a>
+        <a href="#billers">Servicios y recargas</a>
         <a href="#due-diligence">KYC/KYB</a>
         <a href="#risk-step-up">Step-up y SLO</a>
         <a href="#webhooks">Webhooks y eventos</a>
@@ -235,7 +267,7 @@ await cimbra.dueDiligence.submit(opened.data.case.id);`;
     <article className="docs-content docs-content-expanded">
       <details className="docs-mobile-nav">
         <summary>Índice de documentación</summary>
-        <nav><a href="#overview">Overview</a><a href="#quickstart">Quickstart</a><a href="#authentication">Auth</a><a href="#sdk">SDK</a><a href="#due-diligence">KYC/KYB</a><a href="#risk-step-up">Step-up</a><a href="#webhooks">Webhooks</a><a href="#reference">API reference</a></nav>
+        <nav><a href="#overview">Overview</a><a href="#quickstart">Quickstart</a><a href="#authentication">Auth</a><a href="#sdk">SDK</a><a href="#billers">Servicios</a><a href="#due-diligence">KYC/KYB</a><a href="#risk-step-up">Step-up</a><a href="#webhooks">Webhooks</a><a href="#reference">API reference</a></nav>
       </details>
 
       <section id="overview" className="docs-hero">
@@ -249,7 +281,7 @@ await cimbra.dueDiligence.submit(opened.data.case.id);`;
           <article><strong>{API_SCOPES.length}</strong><span>Scopes S2S canónicos</span></article>
           <article><strong>{WEBHOOK_EVENT_TYPES.length}</strong><span>Tipos de evento emitidos</span></article>
         </div>
-        <div className="docs-callout"><i>i</i><div><strong>Sandbox persistente, no dinero real</strong><p>Customers, KYC/KYB, cuentas, programas y lifecycle de tarjetas, controles, movimientos, ledger, riesgo, conciliación, disputas, expedientes operativos, aprobaciones y webhooks se persisten. No existen fuentes de identidad o rieles homologados, PAN/CVV ni instrumentos emitidos en redes de pago.</p></div></div>
+        <div className="docs-callout"><i>i</i><div><strong>Sandbox persistente, no dinero real</strong><p>Customers, KYC/KYB, cuentas, tarjetas sandbox, servicios, obligaciones, recargas, mandatos, movimientos, ledger, riesgo, conciliación, disputas, operaciones, aprobaciones y webhooks se persisten. No existen fuentes de identidad, cobertura comercial o rieles homologados, PAN/CVV ni instrumentos emitidos en redes de pago.</p></div></div>
       </section>
 
       <section id="environments" className="docs-section">
@@ -343,6 +375,18 @@ await cimbra.dueDiligence.submit(opened.data.case.id);`;
         <CodeBlock language="TYPESCRIPT" value={sdkQuickstart} />
       </section>
 
+      <section id="billers" className="docs-section">
+        <p className="docs-kicker">BILLER INFRASTRUCTURE</p><h2>Servicios propios, no un adaptador a competidores.</h2>
+        <p className="docs-section-lede">El originador directo registra su catálogo y emite obligaciones dentro del tenant. Cimbra protege la referencia del suscriptor, ejecuta el pago o la recarga contra el mismo ledger y riesgo del core, y conserva todo el lifecycle para conciliación, reversa y eventos.</p>
+        <div className="webhook-contract-grid">
+          <article><strong>Contrato S2S</strong><p><code>billers:read/write</code> gobierna catálogo y deuda; <code>payments:read/write</code> gobierna órdenes y mandatos.</p></article>
+          <article><strong>Dinero consistente</strong><p>Una orden comparte ledger de doble partida, límites, evaluación de riesgo y holds. La reversa crea postings compensatorios.</p></article>
+          <article><strong>Recurrencia controlada</strong><p>Mandatos semanales o mensuales conservan consentimiento, límite por ejecución, agenda, reintentos y pausa/cancelación.</p></article>
+          <article><strong>Límite real</strong><p>El sandbox no consulta una deuda externa ni afirma cobertura. Producción exige contrato directo, consentimiento exigible, riel oficial y certificación por país.</p></article>
+        </div>
+        <CodeBlock language="TYPESCRIPT · SDK REAL" value={billerPaymentsExample} />
+      </section>
+
       <section id="due-diligence" className="docs-section">
         <p className="docs-kicker">CUSTOMER DUE DILIGENCE</p><h2>KYC/KYB orquestado, con decisión humana independiente.</h2>
         <p className="docs-section-lede">El tipo del customer determina KYC o KYB. Cada caso congela jurisdicción, versión de política y checks requeridos; partes, evidencia y observaciones se conservan append-only y el vencimiento es terminal.</p>
@@ -395,7 +439,7 @@ await cimbra.dueDiligence.submit(opened.data.case.id);`;
 
     <aside className="docs-toc">
       <strong>EN ESTA PÁGINA</strong>
-      <a href="#overview">Overview</a><a href="#environments">Entornos</a><a href="#quickstart">Quickstart</a><a href="#authentication">Autenticación</a><a href="#idempotency">Idempotencia</a><a href="#errors">Errores</a><a href="#sdk">SDK</a><a href="#due-diligence">KYC/KYB</a><a href="#risk-step-up">Step-up</a><a href="#webhooks">Webhooks</a><a href="#reference">API reference</a><a href="#changelog">Changelog</a>
+      <a href="#overview">Overview</a><a href="#environments">Entornos</a><a href="#quickstart">Quickstart</a><a href="#authentication">Autenticación</a><a href="#idempotency">Idempotencia</a><a href="#errors">Errores</a><a href="#sdk">SDK</a><a href="#billers">Servicios</a><a href="#due-diligence">KYC/KYB</a><a href="#risk-step-up">Step-up</a><a href="#webhooks">Webhooks</a><a href="#reference">API reference</a><a href="#changelog">Changelog</a>
       <div><span>{user ? `Sesión activa · ${user.displayName.split(' ')[0]}` : '¿Necesitás credenciales?'}</span><Link href={user ? '/console' : '/login?return_to=%2Fconsole'}>{user ? 'Abrir Developers' : 'Ingresar al sandbox'} →</Link></div>
     </aside>
   </main>;

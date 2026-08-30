@@ -335,6 +335,124 @@ export const dueDiligenceEvents = pgTable('due_diligence_events', {
   check('due_diligence_events_event', sql`${table.event} IN ('created', 'submitted', 'approved', 'rejected', 'cancelled', 'expired')`),
 ]);
 
+export const billers = pgTable('billers', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  idempotencyKey: text('idempotency_key').notNull(), requestFingerprint: text('request_fingerprint').notNull(),
+  code: text('code').notNull(), name: text('name').notNull(), country: text('country').notNull(),
+  category: text('category').notNull(), serviceType: text('service_type').notNull(), currency: text('currency').notNull(),
+  amountMode: text('amount_mode').notNull(), minAmountMinor: bigint('min_amount_minor', { mode: 'bigint' }),
+  maxAmountMinor: bigint('max_amount_minor', { mode: 'bigint' }), status: text('status').notNull().default('active'),
+  contractReference: text('contract_reference'),
+  createdBy: text('created_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
+  createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_billers_org_code').on(table.organizationId, table.code),
+  uniqueIndex('idx_billers_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  index('idx_billers_org_status_country').on(table.organizationId, table.status, table.country),
+  check('billers_country', sql`length(${table.country}) = 2`),
+  check('billers_category', sql`${table.category} IN ('utilities', 'telecom', 'tax', 'education', 'health', 'insurance', 'transport', 'entertainment', 'other')`),
+  check('billers_service_type', sql`${table.serviceType} IN ('bill_payment', 'mobile_topup', 'gift_card')`),
+  check('billers_currency', sql`${table.currency} IN ('ARS', 'USD', 'MXN', 'COP', 'BRL', 'CLP', 'PEN')`),
+  check('billers_amount_mode', sql`${table.amountMode} IN ('exact', 'range', 'fixed')`),
+  check('billers_amount_range', sql`(${table.minAmountMinor} IS NULL OR ${table.minAmountMinor} > 0) AND (${table.maxAmountMinor} IS NULL OR ${table.maxAmountMinor} > 0) AND (${table.minAmountMinor} IS NULL OR ${table.maxAmountMinor} IS NULL OR ${table.minAmountMinor} <= ${table.maxAmountMinor})`),
+  check('billers_status', sql`${table.status} IN ('active', 'suspended')`),
+]);
+
+export const billerObligations = pgTable('biller_obligations', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  billerId: text('biller_id').notNull().references(() => billers.id, { onDelete: 'restrict' }),
+  idempotencyKey: text('idempotency_key').notNull(), requestFingerprint: text('request_fingerprint').notNull(),
+  externalReference: text('external_reference').notNull(), subscriberReferenceHash: text('subscriber_reference_hash').notNull(),
+  subscriberReferenceLast4: text('subscriber_reference_last4').notNull(), amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(),
+  currency: text('currency').notNull(), dueAt: text('due_at').notNull(), description: text('description').notNull(),
+  status: text('status').notNull().default('open'), paidAt: text('paid_at'),
+  createdBy: text('created_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
+  createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_biller_obligations_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  uniqueIndex('idx_biller_obligations_external').on(table.organizationId, table.billerId, table.externalReference),
+  index('idx_biller_obligations_lookup').on(table.organizationId, table.billerId, table.subscriberReferenceHash, table.status, table.dueAt),
+  check('biller_obligations_amount_positive', sql`${table.amountMinor} > 0`),
+  check('biller_obligations_currency', sql`${table.currency} IN ('ARS', 'USD', 'MXN', 'COP', 'BRL', 'CLP', 'PEN')`),
+  check('biller_obligations_status', sql`${table.status} IN ('open', 'paid', 'cancelled', 'expired')`),
+  check('biller_obligations_reference_last4', sql`length(${table.subscriberReferenceLast4}) = 4`),
+]);
+
+export const recurringPaymentMandates = pgTable('recurring_payment_mandates', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  billerId: text('biller_id').notNull().references(() => billers.id, { onDelete: 'restrict' }),
+  accountId: text('account_id').notNull().references(() => accounts.id, { onDelete: 'restrict' }),
+  idempotencyKey: text('idempotency_key').notNull(), requestFingerprint: text('request_fingerprint').notNull(),
+  subscriberReferenceHash: text('subscriber_reference_hash').notNull(), subscriberReferenceLast4: text('subscriber_reference_last4').notNull(),
+  frequency: text('frequency').notNull(), amountMinor: bigint('amount_minor', { mode: 'bigint' }),
+  amountLimitMinor: bigint('amount_limit_minor', { mode: 'bigint' }).notNull(), consentReference: text('consent_reference').notNull(),
+  consentedAt: text('consented_at').notNull(), status: text('status').notNull().default('active'),
+  nextChargeAt: text('next_charge_at').notNull(), pendingScheduledFor: text('pending_scheduled_for'),
+  lastExecutedAt: text('last_executed_at'), retryCount: integer('retry_count').notNull().default(0),
+  maxRetries: integer('max_retries').notNull().default(3), cancelledAt: text('cancelled_at'),
+  createdBy: text('created_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
+  createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_recurring_mandates_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  uniqueIndex('idx_recurring_mandates_org_consent').on(table.organizationId, table.consentReference),
+  index('idx_recurring_mandates_due').on(table.status, table.nextChargeAt),
+  index('idx_recurring_mandates_org_account').on(table.organizationId, table.accountId, table.status),
+  check('recurring_mandates_frequency', sql`${table.frequency} IN ('weekly', 'monthly')`),
+  check('recurring_mandates_amounts', sql`${table.amountLimitMinor} > 0 AND (${table.amountMinor} IS NULL OR ${table.amountMinor} > 0) AND (${table.amountMinor} IS NULL OR ${table.amountMinor} <= ${table.amountLimitMinor})`),
+  check('recurring_mandates_status', sql`${table.status} IN ('active', 'paused', 'cancelled', 'expired')`),
+  check('recurring_mandates_reference_last4', sql`length(${table.subscriberReferenceLast4}) = 4`),
+  check('recurring_mandates_retries', sql`${table.retryCount} >= 0 AND ${table.maxRetries} BETWEEN 0 AND 10`),
+]);
+
+export const billPaymentOrders = pgTable('bill_payment_orders', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  billerId: text('biller_id').notNull().references(() => billers.id, { onDelete: 'restrict' }),
+  accountId: text('account_id').notNull().references(() => accounts.id, { onDelete: 'restrict' }),
+  obligationId: text('obligation_id').references(() => billerObligations.id, { onDelete: 'restrict' }),
+  mandateId: text('mandate_id').references(() => recurringPaymentMandates.id, { onDelete: 'restrict' }),
+  transactionId: text('transaction_id').references(() => transactions.id, { onDelete: 'restrict' }),
+  reversalTransactionId: text('reversal_transaction_id').references(() => transactions.id, { onDelete: 'restrict' }),
+  idempotencyKey: text('idempotency_key').notNull(), requestFingerprint: text('request_fingerprint').notNull(),
+  serviceType: text('service_type').notNull(), destinationReferenceHash: text('destination_reference_hash').notNull(),
+  destinationReferenceLast4: text('destination_reference_last4').notNull(), amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(),
+  currency: text('currency').notNull(), status: text('status').notNull(), failureCode: text('failure_code'),
+  createdBy: text('created_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
+  createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(), settledAt: text('settled_at'), reversedAt: text('reversed_at'),
+}, (table) => [
+  uniqueIndex('idx_bill_payment_orders_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  uniqueIndex('idx_bill_payment_orders_transaction').on(table.transactionId),
+  uniqueIndex('idx_bill_payment_orders_reversal').on(table.reversalTransactionId),
+  uniqueIndex('idx_bill_payment_orders_active_obligation').on(table.obligationId)
+    .where(sql`${table.obligationId} IS NOT NULL AND ${table.status} IN ('review', 'settled')`),
+  index('idx_bill_payment_orders_org_status_created').on(table.organizationId, table.status, table.createdAt),
+  index('idx_bill_payment_orders_obligation').on(table.obligationId),
+  index('idx_bill_payment_orders_mandate').on(table.mandateId, table.createdAt),
+  check('bill_payment_orders_service_type', sql`${table.serviceType} IN ('bill_payment', 'mobile_topup', 'gift_card')`),
+  check('bill_payment_orders_amount_positive', sql`${table.amountMinor} > 0`),
+  check('bill_payment_orders_currency', sql`${table.currency} IN ('ARS', 'USD', 'MXN', 'COP', 'BRL', 'CLP', 'PEN')`),
+  check('bill_payment_orders_status', sql`${table.status} IN ('declined', 'review', 'settled', 'reversed', 'cancelled')`),
+  check('bill_payment_orders_reference_last4', sql`length(${table.destinationReferenceLast4}) = 4`),
+]);
+
+export const recurringPaymentExecutions = pgTable('recurring_payment_executions', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  mandateId: text('mandate_id').notNull().references(() => recurringPaymentMandates.id, { onDelete: 'restrict' }),
+  orderId: text('order_id').references(() => billPaymentOrders.id, { onDelete: 'restrict' }),
+  scheduledFor: text('scheduled_for').notNull(), attemptNumber: integer('attempt_number').notNull().default(1),
+  status: text('status').notNull(), errorCode: text('error_code'),
+  attemptedAt: text('attempted_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_recurring_executions_mandate_schedule_attempt').on(table.mandateId, table.scheduledFor, table.attemptNumber),
+  index('idx_recurring_executions_org_attempted').on(table.organizationId, table.attemptedAt),
+  check('recurring_executions_status', sql`${table.status} IN ('settled', 'review', 'declined', 'skipped_no_debt', 'failed')`),
+  check('recurring_executions_attempt', sql`${table.attemptNumber} > 0`),
+]);
+
 export const auditEvents = pgTable('audit_events', {
   id: text('id').primaryKey(), organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
   actorId: text('actor_id').notNull().references(() => users.id, { onDelete: 'restrict' }),

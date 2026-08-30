@@ -1,18 +1,18 @@
 import { CimbraApiError, CimbraConnectionError, CimbraTimeoutError } from './errors.ts';
 import type {
-  Account, ApprovalRequest, AuditEvent, Card, CardControls, CardLifecycleEvent, CardProgram, CimbraResult, CreateAccountInput,
-  CreateCardInput, CreateCardProgramInput, CreateCustomerInput, CreateDisputeInput, CreatePaymentInput,
+  Account, ApprovalRequest, AuditEvent, Biller, BillerObligation, BillPaymentOrder, Card, CardControls, CardLifecycleEvent, CardProgram, CimbraResult, CreateAccountInput,
+  CreateBillerInput, CreateBillerObligationInput, CreateBillPaymentInput, CreateCardInput, CreateCardProgramInput, CreateCustomerInput, CreateDisputeInput, CreatePaymentInput,
   CreateDueDiligenceCaseInput, CreateDueDiligencePartyInput,
   CreateReconciliationCsvImportInput, CreateReconciliationRunInput, CreateRiskEvaluationInput, CreateRiskListEntryInput, CreateRiskRuleInput, CreateRiskSimulationInput,
   CreateRiskStepUpChallengeInput,
-  CreateSettlementCycleInput, CreateTransferInput, CreateWebhookInput,
+  CreateRecurringPaymentMandateInput, CreateSettlementCycleInput, CreateTransferInput, CreateWebhookInput,
   Customer, DueDiligenceCase, DueDiligenceCheck, DueDiligenceParty, DueDiligenceState,
   Dispute, DisputeEventName, DisputeTimelineEvent, DisputeTransitionResult, Hold, HoldResolution, LedgerBalance, LedgerJournal, ListOptions, Page, PlatformCapability,
   OperationalEvidence, OperationalNote, OperationalState, OperationalWorkItem, TransitionCardInput, UpdateCardControlsInput,
   UpdateOperationalWorkItemInput, WorkItemType,
   ReconciliationException, ReconciliationExceptionResolutionResult, ReconciliationRun, RequestOptions, RiskCase,
   ReportRiskOutcomeInput, RiskCaseResolutionResult, RiskEvaluation, RiskListEntry, RiskMetrics, RiskOutcome, RiskRule, RiskSimulation,
-  RiskStepUpAttempt, RiskStepUpChallenge, SettlementCycle, SettlementExecutionResult, VerifyRiskStepUpChallengeInput,
+  RecurringPaymentMandate, RiskStepUpAttempt, RiskStepUpChallenge, SettlementCycle, SettlementExecutionResult, VerifyRiskStepUpChallengeInput,
   RecordDueDiligenceCheckInput, Transaction, TransferCreationResult, WebhookOperationalState,
 } from './types.ts';
 
@@ -204,6 +204,41 @@ export class Cimbra {
       this.request<ReconciliationRun & { items: Array<Record<string, unknown>> }>('GET', `/api/v1/reconciliation/runs/${encodeURIComponent(id)}`, undefined, options),
     resolveException: (id: string, input: { resolution: 'corrected' | 'accepted'; note: string }, options?: RequestOptions) =>
       this.post<ReconciliationExceptionResolutionResult>(`/api/v1/reconciliation/exceptions/${encodeURIComponent(id)}/resolve`, input, options, true),
+  };
+
+  readonly billers = {
+    list: (options?: RequestOptions) => this.request<{ data: Biller[] }>('GET', '/api/v1/billers', undefined, options),
+    retrieve: (id: string, options?: RequestOptions) => this.request<{ data: Biller }>('GET', `/api/v1/billers/${encodeURIComponent(id)}`, undefined, options),
+    create: (input: CreateBillerInput, options?: RequestOptions) =>
+      this.post<{ ok: true; biller: Biller; replayed: boolean }>('/api/v1/billers', input, options, true),
+    setStatus: (id: string, action: 'activate' | 'suspend', options?: RequestOptions) =>
+      this.post<{ ok: true; biller: Biller; replayed: boolean }>(`/api/v1/billers/${encodeURIComponent(id)}/status`, { action }, options, true),
+    listObligations: (id: string, subscriberReference?: string, options?: RequestOptions) => this.request<{ data: BillerObligation[] }>('GET',
+      `/api/v1/billers/${encodeURIComponent(id)}/obligations${subscriberReference ? `?subscriberReference=${encodeURIComponent(subscriberReference)}` : ''}`, undefined, options),
+    createObligation: (id: string, input: CreateBillerObligationInput, options?: RequestOptions) =>
+      this.post<{ ok: true; obligation: BillerObligation; replayed: boolean }>(`/api/v1/billers/${encodeURIComponent(id)}/obligations`, input, options, true),
+  };
+
+  readonly billPayments = {
+    list: (options?: RequestOptions) => this.request<{ data: BillPaymentOrder[] }>('GET', '/api/v1/bill-payments', undefined, options),
+    retrieve: (id: string, options?: RequestOptions) => this.request<{ data: BillPaymentOrder }>('GET', `/api/v1/bill-payments/${encodeURIComponent(id)}`, undefined, options),
+    create: (input: CreateBillPaymentInput, options?: RequestOptions) =>
+      this.post<{ ok: true; order: BillPaymentOrder; replayed: boolean }>('/api/v1/bill-payments', input, options, true),
+    reverse: (id: string, options?: RequestOptions) =>
+      this.post<{ ok: true; order: BillPaymentOrder; replayed: boolean }>(`/api/v1/bill-payments/${encodeURIComponent(id)}/reverse`, undefined, options, true),
+  };
+
+  readonly recurringMandates = {
+    list: (options?: RequestOptions) => this.request<{ data: RecurringPaymentMandate[] }>('GET', '/api/v1/recurring-mandates', undefined, options),
+    retrieve: (id: string, options?: RequestOptions) => this.request<{ data: RecurringPaymentMandate }>('GET', `/api/v1/recurring-mandates/${encodeURIComponent(id)}`, undefined, options),
+    create: (input: CreateRecurringPaymentMandateInput, options?: RequestOptions) =>
+      this.post<{ ok: true; mandate: RecurringPaymentMandate; replayed: boolean }>('/api/v1/recurring-mandates', input, options, true),
+    pause: (id: string, options?: RequestOptions) => this.post<{ ok: true; mandate: RecurringPaymentMandate; replayed: boolean }>(
+      `/api/v1/recurring-mandates/${encodeURIComponent(id)}/status`, { action: 'pause' }, options, true),
+    resume: (id: string, options?: RequestOptions) => this.post<{ ok: true; mandate: RecurringPaymentMandate; replayed: boolean }>(
+      `/api/v1/recurring-mandates/${encodeURIComponent(id)}/status`, { action: 'resume' }, options, true),
+    cancel: (id: string, options?: RequestOptions) => this.post<{ ok: true; mandate: RecurringPaymentMandate; replayed: boolean }>(
+      `/api/v1/recurring-mandates/${encodeURIComponent(id)}/status`, { action: 'cancel' }, options, true),
   };
 
   readonly disputes = {

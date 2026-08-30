@@ -379,7 +379,7 @@ export async function createTransferInTransaction(input: TransferCreationInput, 
   };
 }
 
-export async function createAccountPayment(input: {
+export type AccountPaymentInput = {
   organizationId: string;
   actor: AuthUser;
   idempotencyKey: string;
@@ -390,8 +390,13 @@ export async function createAccountPayment(input: {
   amountMinor: bigint;
   currency: Currency;
   signals?: ProtectedRiskSignals;
-}) {
-  return getDatabaseClient().transaction(async (transaction) => {
+};
+
+export async function createAccountPayment(input: AccountPaymentInput) {
+  return getDatabaseClient().transaction((transaction) => createAccountPaymentInTransaction(input, transaction));
+}
+
+export async function createAccountPaymentInTransaction(input: AccountPaymentInput, transaction: DatabaseClient) {
     const operationKey = `payment:${input.idempotencyKey}`;
     await transaction.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
       .bind(`${input.organizationId}:${operationKey}`).first();
@@ -476,16 +481,21 @@ export async function createAccountPayment(input: {
     });
     return { payment: serializeTransaction({ id, counterparty: input.counterparty, description: input.description,
       amountMinor: signedAmount.toString(), currency: input.currency, status, riskScore: assessment.score, reversalOf: null, createdAt: now }), replayed: false };
-  });
 }
 
-export async function reverseTransfer(input: {
+export type ReverseTransactionInput = {
   organizationId: string;
   actor: AuthUser;
   transactionId: string;
   idempotencyKey: string;
-}) {
-  return getDatabaseClient().transaction(async (transaction) => {
+  auditAction?: 'transfer.reversed' | 'bill_payment.reversed';
+};
+
+export async function reverseTransfer(input: ReverseTransactionInput) {
+  return getDatabaseClient().transaction((transaction) => reverseTransactionInTransaction(input, transaction));
+}
+
+export async function reverseTransactionInTransaction(input: ReverseTransactionInput, transaction: DatabaseClient) {
     const operationKey = `reversal:${input.idempotencyKey}`;
     const existingReversal = await transaction.prepare(
       `SELECT id, counterparty, description, amount_minor::text AS amountMinor, currency, status,
@@ -505,6 +515,11 @@ export async function reverseTransfer(input: {
        FROM transactions WHERE id = ? AND organization_id = ? FOR UPDATE`,
     ).bind(input.transactionId, input.organizationId).first<StoredTransaction>();
     if (!original) throw new LedgerError('Transferencia no encontrada.', 404, 'transaction_not_found');
+    if ((input.auditAction ?? 'transfer.reversed') === 'transfer.reversed') {
+      const billPayment = await transaction.prepare('SELECT id FROM bill_payment_orders WHERE organization_id = ? AND transaction_id = ? LIMIT 1')
+        .bind(input.organizationId, original.id).first<{ id: string }>();
+      if (billPayment) throw new LedgerError('Esta transacción debe revertirse desde su orden de servicio.', 409, 'bill_payment_reverse_required');
+    }
     if (original.status !== 'settled') throw new LedgerError('Sólo se puede revertir una transferencia liquidada.', 409, 'transaction_not_reversible');
     const alreadyReversed = await transaction.prepare('SELECT id FROM transactions WHERE reversal_of = ? LIMIT 1')
       .bind(original.id).first<{ id: string }>();
@@ -549,7 +564,7 @@ export async function reverseTransfer(input: {
     await insertAudit(transaction, {
       organizationId: input.organizationId,
       actorId: input.actor.userId,
-      action: 'transfer.reversed',
+      action: input.auditAction ?? 'transfer.reversed',
       resourceType: 'transaction',
       resourceId: original.id,
       payload: { reversalId: id },
@@ -561,7 +576,6 @@ export async function reverseTransfer(input: {
       }),
       replayed: false,
     };
-  });
 }
 
 export async function resolveHold(input: {
@@ -650,6 +664,26 @@ export async function resolveHold(input: {
     } else {
       await transaction.prepare("UPDATE holds SET status = 'released', updated_at = ? WHERE id = ?").bind(now, hold.id).run();
       await transaction.prepare("UPDATE transactions SET status = 'cancelled', updated_at = ? WHERE id = ?").bind(now, hold.transactionId).run();
+    }
+    const billPayment = await transaction.prepare(`SELECT id, obligation_id AS "obligationId", status FROM bill_payment_orders
+      WHERE organization_id = ? AND transaction_id = ? LIMIT 1 FOR UPDATE`)
+      .bind(input.organizationId, hold.transactionId).first<{ id: string; obligationId: string | null; status: string }>();
+    if (billPayment && billPayment.status === 'review') {
+      const orderStatus = input.action === 'capture' ? 'settled' : 'cancelled';
+      await transaction.prepare(`UPDATE bill_payment_orders SET status = ?, settled_at = ?, updated_at = ? WHERE id = ?`)
+        .bind(orderStatus, input.action === 'capture' ? now : null, now, billPayment.id).run();
+      if (billPayment.obligationId && input.action === 'capture') {
+        await transaction.prepare("UPDATE biller_obligations SET status = 'paid', paid_at = ?, updated_at = ? WHERE id = ?")
+          .bind(now, now, billPayment.obligationId).run();
+      }
+      await insertAudit(transaction, {
+        organizationId: input.organizationId,
+        actorId: input.actor.userId,
+        action: `bill_payment.${orderStatus}`,
+        resourceType: 'bill_payment_order',
+        resourceId: billPayment.id,
+        payload: { transactionId: hold.transactionId, holdId: hold.id, status: orderStatus },
+      });
     }
     await insertAudit(transaction, {
       organizationId: input.organizationId,

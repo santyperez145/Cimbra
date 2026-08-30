@@ -20,7 +20,11 @@ export async function GET() {
 
   try {
     const readiness = await getDatabase().prepare(
-      "SELECT to_regclass('public.users') IS NOT NULL AND to_regclass('public.ledger_journals') IS NOT NULL AS ready",
+      `SELECT to_regclass('public.users') IS NOT NULL
+        AND to_regclass('public.ledger_journals') IS NOT NULL
+        AND to_regclass('public.billers') IS NOT NULL
+        AND to_regclass('public.bill_payment_orders') IS NOT NULL
+        AND to_regclass('public.recurring_payment_mandates') IS NOT NULL AS ready`,
     ).first<{ ready: boolean }>();
     if (!readiness?.ready) throw new Error('schema_not_ready');
   } catch (error) {
@@ -30,7 +34,7 @@ export async function GET() {
 
   const healthy = Object.values(dependencies).every((state) => state === 'ok');
   return NextResponse.json({
-    status: healthy ? 'ok' : 'degraded', service: 'cimbra-platform', version: '2026-08-29',
+    status: healthy ? 'ok' : 'degraded', service: 'cimbra-platform', version: '2026-08-30',
     dependencies, latencyMs: Math.round(performance.now() - startedAt), timestamp: new Date().toISOString(),
   }, { status: healthy ? 200 : 503, headers: { 'Cache-Control': 'no-store' } });
 }

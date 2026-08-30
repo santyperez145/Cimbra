@@ -17,6 +17,7 @@ import { normalizeRawRiskSignals, parseProtectedRiskSignals, protectRiskSignals,
 import { initialCardStatus, normalizeCardControlsInput, normalizeCardProgramInput, normalizeCardTransition } from '../app/lib/platform/card-issuing.ts';
 import { authenticatedFetch } from '../app/lib/platform/client-http.ts';
 import { disputeEvent, disputeNextStatus, disputePossibleEvents, disputeReason, isOpenDispute } from '../app/lib/platform/disputes.ts';
+import { normalizeBillerInput, normalizeBillPaymentInput, normalizeLifecycleAction, normalizeMandateInput, normalizeObligationInput, normalizeProtectedReference } from '../app/lib/platform/billers-input.ts';
 
 process.env.CIMBRA_ENCRYPTION_KEY = '3ea72fc13c567057870342c6ebd34d88f58f6d80b1dba61c4be4e1c2f1406afb';
 
@@ -118,6 +119,8 @@ test('una matriz canónica gobierna capacidades de API y consola', () => {
   assert.equal(roleCan('admin', 'credentials.manage'), true);
   assert.equal(roleCan('operator', 'finance.write'), true);
   assert.equal(roleCan('operator', 'cards.program.manage'), false);
+  assert.equal(roleCan('admin', 'billers.manage'), true);
+  assert.equal(roleCan('operator', 'billers.manage'), false);
   assert.equal(roleCan('operator', 'credentials.manage'), false);
   assert.equal(roleCan('viewer', 'console.read'), true);
   assert.equal(roleCan('viewer', 'disputes.read'), true);
@@ -126,6 +129,40 @@ test('una matriz canónica gobierna capacidades de API y consola', () => {
     if (!['console.read', 'disputes.read', 'operations.read', 'approvals.read', 'security.manage_self'].includes(capability)) assert.equal(roleCan('viewer', capability), false, capability);
   }
   assert.equal(ROLE_PROFILES.viewer.posture, 'Sólo lectura');
+});
+
+test('servicios y mandatos validan catálogo, referencias protegidas, importes y consentimiento', () => {
+  assert.deepEqual(normalizeBillerInput({ code: ' energia ar ', name: '  Energía   Regional ', country: 'ar', category: 'utilities',
+    serviceType: 'bill_payment', currency: 'ars', amountMode: 'exact', contractReference: ' DIRECT-001 ' }), {
+    code: 'ENERGIAAR', name: 'Energía Regional', country: 'AR', category: 'utilities', serviceType: 'bill_payment', currency: 'ARS',
+    amountMode: 'exact', minAmountMinor: null, maxAmountMinor: null, contractReference: 'DIRECT-001',
+  });
+  assert.equal(normalizeBillerInput({ code: 'TOPUP', name: 'Top-up', country: 'AR', category: 'telecom',
+    serviceType: 'mobile_topup', currency: 'ARS', amountMode: 'range', minAmount: '1000', maxAmount: '100' }), null);
+  assert.equal(normalizeBillerInput({ code: 'DEBT', name: 'Deuda', country: 'AR', category: 'utilities',
+    serviceType: 'bill_payment', currency: 'ARS', amountMode: 'range', minAmount: '1', maxAmount: '2' }), null);
+  assert.equal(normalizeProtectedReference(' cliente-00 1234 '), 'CLIENTE001234');
+  assert.equal(normalizeProtectedReference('x'), null);
+
+  const obligation = normalizeObligationInput({ externalReference: ' INV-001 ', subscriberReference: 'cliente-001234', amount: '18250.50',
+    dueAt: '2026-09-10T21:00:00.000Z', description: ' Servicio agosto ' }, 'ARS');
+  assert.ok(obligation);
+  assert.equal(obligation.amountMinor, 1_825_050n);
+  assert.equal(obligation.subscriberReference, 'CLIENTE001234');
+  assert.deepEqual(normalizeBillPaymentInput({ accountId: 'acc_1', billerId: 'bill_1', obligationId: 'obl_1' }), {
+    accountId: 'acc_1', billerId: 'bill_1', obligationId: 'obl_1', destinationReference: null, amount: undefined,
+  });
+  assert.equal(normalizeBillPaymentInput({ accountId: 'acc_1', billerId: 'bill_1' }), null);
+
+  const nextChargeAt = new Date(Date.now() + 86_400_000).toISOString();
+  const mandate = normalizeMandateInput({ accountId: 'acc_1', billerId: 'bill_1', subscriberReference: 'cliente-001234', frequency: 'monthly',
+    amountLimit: '25000', consentReference: 'CONSENT-001', consentedAt: new Date().toISOString(), nextChargeAt });
+  assert.ok(mandate);
+  assert.equal(mandate.maxRetries, 3);
+  assert.equal(normalizeMandateInput({ accountId: 'acc_1', billerId: 'bill_1', subscriberReference: 'cliente-001234', frequency: 'daily',
+    amountLimit: '25000', consentReference: 'CONSENT-001', consentedAt: new Date().toISOString(), nextChargeAt }), null);
+  assert.equal(normalizeLifecycleAction({ action: 'pause' }), 'pause');
+  assert.equal(normalizeLifecycleAction({ action: 'delete' }), null);
 });
 
 test('protege referencias de riesgo por tenant y sólo expone señales derivadas', async () => {
