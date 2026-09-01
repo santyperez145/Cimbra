@@ -328,7 +328,7 @@ test('el SDK consulta el readiness live fail-closed', async () => {
   let requestUrl = '';
   const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async (input) => {
     requestUrl = String(input);
-    return Response.json({ data: { requestedMode: 'sandbox', effectiveMode: 'sandbox', liveReady: false, liveBlocked: false, blockReason: 'sandbox_environment', gates: [], rails: [], summary: { readyGates: 0, missingGates: 0, disconnectedRails: 0, certifiedRails: 0 } }, meta: { owner: 'Cimbra', competitorDependency: false, networkBoundary: 'direct_regulated_rails_only', graduation: 'environment_flip_after_gates' } });
+    return Response.json({ data: { requestedMode: 'sandbox', effectiveMode: 'sandbox', liveReady: false, liveBlocked: false, blockReason: 'production_hostname_not_provisioned', goLive: { benchmark: 'Pomelo', documentationUrl: 'https://docs.pomelo.la/docs/get-started/home', current: 'integracion', stages: [] }, environments: [], products: [], references: [], summary: { integracion: 0, homologacion: 0, goLive: 0 } }, meta: { owner: 'Cimbra', competitorDependency: false, networkBoundary: 'direct_regulated_rails_only', graduation: 'integracion_homologacion_go_live' } });
   } });
   const result = await client.liveReadiness.retrieve();
   assert.equal(requestUrl, 'https://api.test/api/v1/live-readiness');

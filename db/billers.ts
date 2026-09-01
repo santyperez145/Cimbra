@@ -5,6 +5,7 @@ import type { BillerAmountMode, BillerCategory, BillerServiceType, RecurringFreq
 import { type DatabaseClient, getDatabaseClient } from './client';
 import { createAccountPaymentInTransaction, LedgerError, reverseTransactionInTransaction } from './ledger';
 import { enqueueWebhookEvent } from './platform';
+import { assertSandboxLedgerOrCertifiedRail } from './platform-rails';
 
 type BillerRow = {
   id: string; code: string; name: string; country: string; category: BillerCategory; serviceType: BillerServiceType;
@@ -245,6 +246,7 @@ type CreateOrderInput = {
 };
 
 async function createBillPaymentOrderInTransaction(input: CreateOrderInput, database: DatabaseClient) {
+  await assertSandboxLedgerOrCertifiedRail('bill_payments', BillerError);
   const fingerprint = await requestFingerprint({ accountId: input.accountId, billerId: input.billerId, obligationId: input.obligationId,
     destinationReference: input.destinationReference ?? null, protectedDestination: input.protectedDestination ?? null,
     amount: input.amount === undefined ? null : String(input.amount), mandateId: input.mandateId ?? null });

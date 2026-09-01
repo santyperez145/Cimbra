@@ -39,8 +39,7 @@ export async function GET() {
         AND to_regclass('public.payment_qrs') IS NOT NULL
         AND to_regclass('public.payment_links') IS NOT NULL
         AND to_regclass('public.echeqs') IS NOT NULL
-        AND to_regclass('public.platform_rails') IS NOT NULL
-        AND to_regclass('public.live_gate_evidence') IS NOT NULL AS ready`,
+        AND to_regclass('public.platform_rails') IS NOT NULL AS ready`,
     ).first<{ ready: boolean }>();
     if (!readiness?.ready) throw new Error('schema_not_ready');
   } catch (error) {

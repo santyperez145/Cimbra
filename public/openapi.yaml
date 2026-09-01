@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Cimbra API v1
   version: '2026-09-01'
-  description: Versioned financial infrastructure API backed by a persistent double-entry ledger, scoped S2S API keys and signed durable webhooks. The product contract is production-grade; this deployment environment is sandbox and does not move real funds until live gates and a certified direct rail pass. Every response includes X-Request-Id, Cimbra-Version and Cimbra-Environment. Responses after successful API-key authorization also expose X-RateLimit-Limit, X-RateLimit-Remaining and X-RateLimit-Reset. Mutations replayed from an idempotency key include Idempotent-Replayed, while error responses may include Cimbra-Should-Retry so official SDKs can make safe retry decisions.
+  description: Versioned financial infrastructure API backed by a persistent double-entry ledger, scoped S2S API keys and signed durable webhooks. The product contract is production-grade. This host is sandbox, matching BIND APIBANK, sandbox.pismolabs.io and sandbox.api.pomelo.la. Production stays fail-closed until a production hostname is provisioned (Pismo hands it over in onboarding; BIND does not publish it; Pomelo uses api.pomelo.la after homologación) and at least one catalog product reaches Go Live. Every response includes X-Request-Id, Cimbra-Version and Cimbra-Environment. Responses after successful API-key authorization also expose X-RateLimit-Limit, X-RateLimit-Remaining and X-RateLimit-Reset. Mutations replayed from an idempotency key include Idempotent-Replayed, while error responses may include Cimbra-Should-Retry so official SDKs can make safe retry decisions.
   license:
     name: Proprietary
     identifier: LicenseRef-Proprietary
@@ -16,7 +16,7 @@ x-cimbra-sdk:
   url: https://cimbra-rose.vercel.app/sdk/cimbra-sdk-0.1.0.tgz
 servers:
   - url: https://cimbra-rose.vercel.app
-    description: Current environment is sandbox. Live money stays fail-closed until license, direct rail, certification and SLO evidence exist.
+    description: Current environment is sandbox (BIND APIBANK, Pismo sandbox.pismolabs.io, Pomelo sandbox.api.pomelo.la). Production hostname is not provisioned.
 security: []
 paths:
   /api/auth/register:
@@ -1627,14 +1627,14 @@ paths:
                       availabilityModel:
                         type: array
                         items: { type: string, enum: [live, sandbox, foundation, roadmap] }
-                      graduation: { type: string, const: environment_flip_after_gates }
+                      graduation: { type: string, const: integracion_homologacion_go_live }
                       environment: { type: string, enum: [sandbox, live] }
                       liveReady: { type: boolean }
   /api/v1/live-readiness:
     get:
       operationId: getLiveReadiness
-      summary: Read executable live gates, direct rail ports and whether production money is unblocked
-      description: Software gates can be ready while evidence and certified rails remain missing. Setting CIMBRA_OPERATING_MODE=live without those gates does not enable live money.
+      summary: Read sandbox vs production hosts, Pomelo go-live stages and catalog products taken from BIND, Pomelo and tapi
+      description: liveReady is true only when a production hostname is provisioned and at least one product is in go_live. CIMBRA_OPERATING_MODE=live does not move funds without that. Products homologate independently, as BIND APIBANK and BIND PSP publish separate APIs.
       security: [{ session: [] }, { bearerApiKey: [] }]
       responses:
         '200':
@@ -1653,7 +1653,7 @@ paths:
                       owner: { type: string, const: Cimbra }
                       competitorDependency: { type: boolean, const: false }
                       networkBoundary: { type: string, const: direct_regulated_rails_only }
-                      graduation: { type: string, const: environment_flip_after_gates }
+                      graduation: { type: string, const: integracion_homologacion_go_live }
         '401': { description: Authentication required }
         '403': { description: Missing platform:read scope or console role }
   /api/v1/risk:
@@ -3886,48 +3886,72 @@ components:
         regulatoryBoundary: { type: string }
     LiveReadiness:
       type: object
-      required: [requestedMode, effectiveMode, liveReady, liveBlocked, blockReason, gates, rails, summary]
+      required: [requestedMode, effectiveMode, liveReady, liveBlocked, blockReason, goLive, environments, products, references, summary]
       properties:
         requestedMode: { type: string, enum: [sandbox, live] }
         effectiveMode: { type: string, enum: [sandbox, live] }
         liveReady: { type: boolean }
         liveBlocked: { type: boolean }
         blockReason: { type: ['string', 'null'] }
-        gates:
+        goLive:
+          type: object
+          required: [benchmark, documentationUrl, current, stages]
+          properties:
+            benchmark: { type: string, const: Pomelo }
+            documentationUrl: { type: string, format: uri }
+            current: { type: string, enum: [integracion, homologacion, go_live] }
+            stages:
+              type: array
+              items:
+                type: object
+                required: [id, name, summary]
+                properties:
+                  id: { type: string, enum: [integracion, homologacion, go_live] }
+                  name: { type: string }
+                  summary: { type: string }
+        environments:
           type: array
           items:
             type: object
-            required: [id, name, kind, requiredForLive, status, summary]
+            required: [id, status, hostname, pciHostname, credentialsPrefix, benchmark]
+            properties:
+              id: { type: string, enum: [sandbox, production] }
+              status: { type: string, enum: [active, provisioned, not_provisioned] }
+              hostname: { type: ['string', 'null'] }
+              pciHostname: { type: ['string', 'null'] }
+              credentialsPrefix: { type: string }
+              benchmark: { type: string }
+        products:
+          type: array
+          items:
+            type: object
+            required: [id, name, country, benchmark, documentationUrl, network, sandboxCoverage, missingForProduction, status]
             properties:
               id: { type: string }
               name: { type: string }
-              kind: { type: string, enum: [software, evidence, rail] }
-              requiredForLive: { type: boolean }
-              status: { type: string, enum: [ready, missing] }
-              summary: { type: string }
-        rails:
+              country: { type: string, enum: [AR, LATAM] }
+              benchmark: { type: string }
+              documentationUrl: { type: string, format: uri }
+              network: { type: string }
+              sandboxCoverage: { type: string }
+              missingForProduction: { type: string }
+              status: { type: string, enum: [integracion, homologacion, go_live] }
+        references:
           type: array
           items:
             type: object
-            required: [id, country, kind, counterpartyKind, counterparty, requiredForLiveMoney, status, evidenceRef, certifiedAt]
+            required: [benchmark, url, surface]
             properties:
-              id: { type: string }
-              country: { type: string }
-              kind: { type: string }
-              counterpartyKind: { type: string, enum: [clearing_house, bank, card_scheme, official_registry, regulated_sponsor] }
-              counterparty: { type: string }
-              requiredForLiveMoney: { type: boolean }
-              status: { type: string, enum: [disconnected, pending_certification, certified, live] }
-              evidenceRef: { type: ['string', 'null'] }
-              certifiedAt: { type: ['string', 'null'] }
+              benchmark: { type: string }
+              url: { type: string, format: uri }
+              surface: { type: string }
         summary:
           type: object
-          required: [readyGates, missingGates, disconnectedRails, certifiedRails]
+          required: [integracion, homologacion, goLive]
           properties:
-            readyGates: { type: integer }
-            missingGates: { type: integer }
-            disconnectedRails: { type: integer }
-            certifiedRails: { type: integer }
+            integracion: { type: integer }
+            homologacion: { type: integer }
+            goLive: { type: integer }
   securitySchemes:
     session:
       type: apiKey
@@ -3938,4 +3962,4 @@ components:
       type: http
       scheme: bearer
       bearerFormat: Cimbra API key
-      description: S2S key. Sandbox secrets use cim_sk_test_. Live secrets cim_sk_live_ are reserved until live gates pass. The plaintext secret is shown once and only its SHA-256 hash is stored.
+      description: S2S key. Sandbox secrets use cim_sk_test_. Live secrets cim_sk_live_ are reserved until a production hostname is provisioned and a product reaches Go Live. The plaintext secret is shown once and only its SHA-256 hash is stored.

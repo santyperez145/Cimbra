@@ -4,6 +4,7 @@ import { CARD_CONTROL_CHANNELS, normalizeCardTransition, serializeCardLimit, typ
 import type { Currency } from '@/app/lib/ledger/money';
 import { enqueueWebhookEvent } from './platform';
 import { type DatabaseClient, getDatabaseClient } from './client';
+import { assertSandboxLedgerOrCertifiedRail } from './platform-rails';
 
 export class CardIssuingError extends Error {
   constructor(message: string, readonly status = 400, readonly code = 'card_issuing_error') { super(message); }
@@ -92,6 +93,7 @@ export async function retrieveCardProgram(organizationId: string, id: string) {
 export async function createCardProgram(input: {
   organizationId: string; actor: AuthUser; idempotencyKey: string; program: NormalizedCardProgramInput;
 }) {
+  await assertSandboxLedgerOrCertifiedRail('card_issuing', CardIssuingError);
   const requestFingerprint = await sha256(JSON.stringify(input.program));
   return getDatabaseClient().transaction(async (database) => {
     await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')

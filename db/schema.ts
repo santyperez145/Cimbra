@@ -1205,33 +1205,12 @@ export const echeqs = pgTable('echeqs', {
 
 export const platformRails = pgTable('platform_rails', {
   id: text('id').primaryKey(),
-  country: text('country').notNull(),
-  kind: text('kind').notNull(),
-  counterpartyKind: text('counterparty_kind').notNull(),
-  counterparty: text('counterparty').notNull(),
-  requiredForLiveMoney: integer('required_for_live_money').notNull().default(0),
-  status: text('status').notNull().default('disconnected'),
-  evidenceRef: text('evidence_ref'),
-  certifiedAt: text('certified_at'),
+  status: text('status').notNull().default('integracion'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => [
   index('idx_platform_rails_status').on(table.status),
-  check('platform_rails_required', sql`${table.requiredForLiveMoney} IN (0, 1)`),
-  check('platform_rails_status', sql`${table.status} IN ('disconnected', 'pending_certification', 'certified', 'live')`),
-  check('platform_rails_counterparty_kind', sql`${table.counterpartyKind} IN ('clearing_house', 'bank', 'card_scheme', 'official_registry', 'regulated_sponsor')`),
-]);
-
-export const liveGateEvidence = pgTable('live_gate_evidence', {
-  id: text('id').primaryKey(),
-  gateId: text('gate_id').notNull(),
-  kind: text('kind').notNull(),
-  reference: text('reference').notNull(),
-  notes: text('notes').notNull().default(''),
-  recordedAt: text('recorded_at').notNull(),
-}, (table) => [
-  index('idx_live_gate_evidence_gate').on(table.gateId, table.recordedAt),
-  check('live_gate_evidence_kind', sql`${table.kind} IN ('document', 'contract', 'pentest', 'slo', 'license', 'rail_certification')`),
+  check('platform_rails_status', sql`${table.status} IN ('integracion', 'homologacion', 'go_live')`),
 ]);
 
 export const echeqEndorsements = pgTable('echeq_endorsements', {

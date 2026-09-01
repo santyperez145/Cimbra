@@ -14,15 +14,17 @@ async function getLiveReadiness(request: Request) {
         liveReady: readiness.liveReady,
         liveBlocked: readiness.liveBlocked,
         blockReason: readiness.blockReason,
-        gates: readiness.gates,
-        rails: readiness.rails,
+        goLive: readiness.goLive,
+        environments: readiness.environments,
+        products: readiness.products,
+        references: readiness.references,
         summary: readiness.summary,
       },
       meta: {
         owner: 'Cimbra',
         competitorDependency: false,
         networkBoundary: 'direct_regulated_rails_only',
-        graduation: 'environment_flip_after_gates',
+        graduation: 'integracion_homologacion_go_live',
       },
     }, { headers: { 'Cache-Control': 'no-store', ...rateLimitHeaders(principal) } });
   } catch (error) {

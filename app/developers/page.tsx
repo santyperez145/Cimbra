@@ -29,8 +29,8 @@ const errorResponses = [
 const changelog = [
   {
     date: '01 SEP 2026',
-    title: 'Contrato live fail-closed y entorno sandbox',
-    detail: 'El producto deja de ser “un sandbox”. GET /api/v1/live-readiness expone gates ejecutables y puertos de riel nativos. CIMBRA_OPERATING_MODE=live no mueve fondos ni emite cim_sk_live_ hasta licencia, riel directo certificado, safeguarding, conciliación de tres vías, pentest y SLO. Ninguna capacidad está live hoy.',
+    title: 'Readiness alineado a BIND, Pismo, Pomelo y tapi',
+    detail: 'GET /api/v1/live-readiness deja de inventar gates de software. Expone sandbox vs production como Pismo y BIND, las etapas Integración → Homologación → Go Live de Pomelo, y productos del catálogo público: consulta CBU/CVU/Alias, transferencias, DEBIN, ECHEQ, CVU, QR interoperable, cobro BIND PSP, issuing PCI/BIN y pago de servicios tapi. Production no tiene hostname. Ningún producto está en Go Live.',
   },
   {
     date: '01 SEP 2026',
@@ -413,14 +413,14 @@ await cimbra.paymentLinks.pay(link.data.link.id, {
           <article><strong>{API_SCOPES.length}</strong><span>Scopes S2S canónicos</span></article>
           <article><strong>{WEBHOOK_EVENT_TYPES.length}</strong><span>Tipos de evento emitidos</span></article>
         </div>
-        <div className="docs-callout"><i>i</i><div><strong>Entorno sandbox, contrato de producción</strong><p>Customers, KYC/KYB, cuentas, wallets, book transfers, estados de cuenta, tarjetas, beneficiarios, lotes de payouts, servicios, obligaciones, recargas, mandatos, movimientos, ledger, riesgo, conciliación, disputas, operaciones, aprobaciones y webhooks se persisten sobre el núcleo real. No existen fuentes de identidad, cobertura comercial o rieles homologados, PAN/CVV ni instrumentos emitidos en redes de pago. Live se habilita por flip de entorno cuando GET /api/v1/live-readiness marque liveReady.</p></div></div>
+        <div className="docs-callout"><i>i</i><div><strong>Entorno sandbox, contrato de producción</strong><p>Customers, KYC/KYB, cuentas, wallets, book transfers, estados de cuenta, tarjetas, beneficiarios, lotes de payouts, servicios, obligaciones, recargas, mandatos, movimientos, ledger, riesgo, conciliación, disputas, operaciones, aprobaciones y webhooks se persisten sobre el núcleo real. El host activo es sandbox, como sandbox.bind.com.ar, sandbox.pismolabs.io y sandbox.api.pomelo.la. Live exige un hostname de producción (Pismo lo entrega en el onboarding; BIND no lo publica; Pomelo usa api.pomelo.la después de homologar) y al menos un producto del catálogo en Go Live.</p></div></div>
       </section>
 
       <section id="environments" className="docs-section">
         <p className="docs-kicker">ENTORNOS</p><h2>Un contrato. Un entorno activo. Live fail-closed.</h2>
         <div className="environment-grid">
           <article className="environment-card available"><div><i /> ENTORNO ACTIVO · SANDBOX</div><code>{reference.baseUrl}</code><p>Misma API, ledger y eventos que producción. Las claves usan <code>cim_sk_test_</code>. No mueve fondos de riel.</p><a href="/api/health">Consultar healthcheck JSON ↗</a></article>
-          <article className="environment-card unavailable"><div><i /> LIVE</div><strong>Bloqueado por gates</strong><p>Se habilita sin reescribir el contrato, cuando exista riel directo, licencia o sponsor, certificación, SLO y evidencia en <code>GET /api/v1/live-readiness</code>.</p><span>Sin hostname live ni credenciales <code>cim_sk_live_</code> hoy</span></article>
+          <article className="environment-card unavailable"><div><i /> LIVE</div><strong>Hostname no provisionado</strong><p>Pismo entrega el hostname de producción en el onboarding comercial. BIND APIBANK no publica la URL productiva. Pomelo usa <code>api.pomelo.la</code> después de homologar. Hasta entonces no hay <code>cim_sk_live_</code>.</p><span>Consultar <code>GET /api/v1/live-readiness</code></span></article>
         </div>
         <div className="artifact-matrix">
           <div><span>OpenAPI YAML</span><b className="available">Disponible</b><a href="/openapi.yaml">Descargar</a></div>

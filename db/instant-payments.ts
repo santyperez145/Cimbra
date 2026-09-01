@@ -133,6 +133,7 @@ export async function retrieveRailInstrument(organizationId: string, id: string)
 }
 
 export async function lookupRailDirectory(organizationId: string, destination: { kind: CounterpartyKind; value: string }) {
+  await assertSandboxLedgerOrCertifiedRail('account_lookup', InstantPaymentError);
   const found = await findInstrumentByValue(getDatabaseClient(), organizationId, destination.value);
   if (found) {
     return {
@@ -154,7 +155,7 @@ export async function lookupRailDirectory(organizationId: string, destination: {
 export async function issueRailInstruments(input: {
   organizationId: string; actor: AuthUser; idempotencyKey: string; instrument: NormalizedIssueInstrumentInput;
 }) {
-  await assertSandboxLedgerOrCertifiedRail('ar_coelsa_transfers', InstantPaymentError);
+  await assertSandboxLedgerOrCertifiedRail('cvu', InstantPaymentError);
   const requestFingerprint = await sha256(JSON.stringify(input.instrument));
   return getDatabaseClient().transaction(async (database) => {
     await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
@@ -326,7 +327,7 @@ export async function createInstantTransfer(input: {
   organizationId: string; actor: AuthUser; idempotencyKey: string;
   transfer: NormalizedInstantTransferInput; signals?: ProtectedRiskSignals;
 }) {
-  await assertSandboxLedgerOrCertifiedRail('ar_coelsa_transfers', InstantPaymentError);
+  await assertSandboxLedgerOrCertifiedRail('transfers', InstantPaymentError);
   const fingerprint = await sha256(JSON.stringify({
     ...input.transfer, amountMinor: input.transfer.amountMinor.toString(), signals: input.signals ?? {},
   }));
@@ -484,7 +485,7 @@ export async function returnInstantTransfer(input: {
 export async function createDebitRequest(input: {
   organizationId: string; actor: AuthUser; idempotencyKey: string; debit: NormalizedDebitRequestInput;
 }) {
-  await assertSandboxLedgerOrCertifiedRail('ar_coelsa_debin', InstantPaymentError);
+  await assertSandboxLedgerOrCertifiedRail('debin', InstantPaymentError);
   const fingerprint = await sha256(JSON.stringify({ ...input.debit, amountMinor: input.debit.amountMinor.toString() }));
   return getDatabaseClient().transaction(async (database) => {
     await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
@@ -608,7 +609,7 @@ export async function listPaymentQrs(input: { organizationId: string; limit: num
 export async function createPaymentQr(input: {
   organizationId: string; actor: AuthUser; idempotencyKey: string; qr: NormalizedPaymentQrInput;
 }) {
-  await assertSandboxLedgerOrCertifiedRail('ar_coelsa_transfers', InstantPaymentError);
+  await assertSandboxLedgerOrCertifiedRail('qr_interoperable', InstantPaymentError);
   const fingerprint = await sha256(JSON.stringify({
     accountId: input.qr.accountId, amountMinor: input.qr.amountMinor?.toString() ?? null,
     description: input.qr.description, expiresInMinutes: input.qr.expiresInMinutes,
@@ -651,6 +652,7 @@ export async function payPaymentQr(input: {
   organizationId: string; actor: AuthUser; qrId: string; idempotencyKey: string;
   payment: NormalizedQrPayInput; signals?: ProtectedRiskSignals;
 }) {
+  await assertSandboxLedgerOrCertifiedRail('qr_interoperable', InstantPaymentError);
   const fingerprint = await sha256(JSON.stringify({
     qrId: input.qrId, ...input.payment, amountMinor: input.payment.amountMinor?.toString() ?? null, signals: input.signals ?? {},
   }));

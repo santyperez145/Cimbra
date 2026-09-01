@@ -189,7 +189,7 @@ export async function retrieveEcheq(organizationId: string, id: string, database
 export async function issueEcheq(input: {
   organizationId: string; actor: AuthUser; idempotencyKey: string; echeq: NormalizedEcheqInput;
 }) {
-  await assertSandboxLedgerOrCertifiedRail('ar_coelsa_echeq', EcheqError);
+  await assertSandboxLedgerOrCertifiedRail('echeq', EcheqError);
   const fingerprint = await sha256(JSON.stringify({
     ...input.echeq, amountMinor: input.echeq.amountMinor.toString(),
   }));

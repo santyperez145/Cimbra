@@ -172,7 +172,7 @@ export class Cimbra {
       meta: {
         owner: 'Cimbra'; strategy: 'build_native'; competitorDependency: false;
         networkBoundary: 'direct_regulated_rails_only'; availabilityModel: Array<'live' | 'sandbox' | 'foundation' | 'roadmap'>;
-        graduation: 'environment_flip_after_gates'; environment: 'sandbox' | 'live'; liveReady: boolean;
+        graduation: 'integracion_homologacion_go_live'; environment: 'sandbox' | 'live'; liveReady: boolean;
       };
     }>('GET', '/api/v1/capabilities', undefined, options),
   };
@@ -180,7 +180,7 @@ export class Cimbra {
   readonly liveReadiness = {
     retrieve: (options?: RequestOptions) => this.request<{
       data: LiveReadiness;
-      meta: { owner: 'Cimbra'; competitorDependency: false; networkBoundary: 'direct_regulated_rails_only'; graduation: 'environment_flip_after_gates' };
+      meta: { owner: 'Cimbra'; competitorDependency: false; networkBoundary: 'direct_regulated_rails_only'; graduation: 'integracion_homologacion_go_live' };
     }>('GET', '/api/v1/live-readiness', undefined, options),
   };
 

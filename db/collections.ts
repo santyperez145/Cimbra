@@ -266,7 +266,7 @@ export async function payPaymentLink(input: {
       throw new CollectionError('El medio de cobro no está habilitado en este link.', 422, 'method_not_allowed');
     }
     if (input.payment.method !== 'internal') {
-      await assertSandboxLedgerOrCertifiedRail('ar_coelsa_transfers', CollectionError);
+      await assertSandboxLedgerOrCertifiedRail('collections', CollectionError);
     }
     const merchant = await loadAccount(database, input.organizationId, current.accountId, true);
     assertCollector(merchant);

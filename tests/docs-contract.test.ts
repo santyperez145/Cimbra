@@ -48,7 +48,7 @@ function routeFiles(directory: string): string[] {
 test('el OpenAPI público usa el sandbox real y operaciones identificables', () => {
   assert.equal(spec.openapi, '3.1.0');
   assert.equal(spec.info.version, '2026-09-01');
-  assert.deepEqual(spec.servers, [{ url: 'https://cimbra-rose.vercel.app', description: 'Current environment is sandbox. Live money stays fail-closed until license, direct rail, certification and SLO evidence exist.' }]);
+  assert.deepEqual(spec.servers, [{ url: 'https://cimbra-rose.vercel.app', description: 'Current environment is sandbox (BIND APIBANK, Pismo sandbox.pismolabs.io, Pomelo sandbox.api.pomelo.la). Production hostname is not provisioned.' }]);
   const operations = contractOperations();
   assert.equal(operations.length, 161);
   const ids = operations.map(({ operation }) => operation.operationId);

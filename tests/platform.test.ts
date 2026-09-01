@@ -5,7 +5,7 @@ import { decodePageCursor, encodePageCursor, pageLimit, paginatedResponse } from
 import { isPrivateAddress, normalizeWebhookUrl } from '../app/lib/platform/webhook-url.ts';
 import { versionedApi } from '../app/lib/platform/versioned-api.ts';
 import { CAPABILITY_AVAILABILITY, PLATFORM_CAPABILITIES, PLATFORM_SUMMARY } from '../app/lib/platform/capabilities.ts';
-import { DIRECT_RAILS, evaluateLiveReadiness, requireLiveApiKeysEnabled, requireSandboxLedgerOrCertifiedRail } from '../app/lib/platform/live-readiness.ts';
+import { COMPETITOR_REFERENCES, evaluateLiveReadiness, PLATFORM_PRODUCTS, requireLiveApiKeysEnabled, requireSandboxLedgerOrCertifiedRail } from '../app/lib/platform/live-readiness.ts';
 import { PlatformRailError } from '../app/lib/platform/operating-mode.ts';
 import { matchReconciliationEntries } from '../app/lib/platform/reconciliation.ts';
 import { systemAmountRisk } from '../app/lib/platform/risk-engine.ts';
@@ -115,34 +115,49 @@ test('el catálogo sólo declara servicios propios y estados verificables', () =
   assert.deepEqual([...PLATFORM_SUMMARY.availabilityModel], ['live', 'sandbox', 'foundation', 'roadmap']);
 });
 
-test('live permanece fail-closed aunque se pida el modo productivo', () => {
+test('live permanece fail-closed y el catálogo cita productos públicos de BIND, Pomelo y tapi', () => {
   const previous = process.env.CIMBRA_OPERATING_MODE;
+  const previousHost = process.env.CIMBRA_PRODUCTION_HOSTNAME;
   try {
     delete process.env.CIMBRA_OPERATING_MODE;
+    delete process.env.CIMBRA_PRODUCTION_HOSTNAME;
     const current = evaluateLiveReadiness();
     assert.equal(current.effectiveMode, 'sandbox');
     assert.equal(current.liveReady, false);
-    assert.ok(current.gates.some((gate) => gate.kind === 'software' && gate.status === 'ready'));
-    assert.ok(current.gates.some((gate) => gate.kind === 'evidence' && gate.status === 'missing'));
-    assert.equal(current.rails.every((rail) => rail.status === 'disconnected'), true);
-    requireSandboxLedgerOrCertifiedRail('ar_coelsa_transfers');
+    assert.equal(current.blockReason, 'production_hostname_not_provisioned');
+    assert.equal(current.goLive.benchmark, 'Pomelo');
+    assert.equal(current.goLive.current, 'integracion');
+    assert.equal(current.goLive.documentationUrl, 'https://docs.pomelo.la/docs/get-started/home');
+    assert.equal(current.environments.find((item) => item.id === 'production')?.hostname, null);
+    assert.equal(current.environments.find((item) => item.id === 'production')?.pciHostname, null);
+    assert.equal(current.products.every((product) => product.status === 'integracion'), true);
+    assert.equal(current.products.some((product) => product.id === 'transfers' && product.documentationUrl === 'https://apibank.bind.com.ar/'), true);
+    assert.equal(current.products.some((product) => product.id === 'qr_interoperable' && product.documentationUrl === 'https://psp.bind.com.ar/developers/apis/pagar-qr'), true);
+    assert.equal(current.products.some((product) => product.id === 'card_issuing' && product.documentationUrl === 'https://developers.pomelo.la/api-reference/cards/issuing'), true);
+    assert.equal(current.products.some((product) => product.id === 'bill_payments' && product.documentationUrl === 'https://tapi.la/'), true);
+    assert.equal(PLATFORM_PRODUCTS.some((product) => product.id.startsWith('ar_coelsa')), false);
+    for (const reference of COMPETITOR_REFERENCES) assert.match(reference.url, /^https:\/\//);
+    requireSandboxLedgerOrCertifiedRail('transfers');
     assert.throws(() => requireLiveApiKeysEnabled(), (error: unknown) => error instanceof PlatformRailError && error.code === 'live_environment_disabled');
     process.env.CIMBRA_OPERATING_MODE = 'live';
     const blocked = evaluateLiveReadiness();
     assert.equal(blocked.requestedMode, 'live');
     assert.equal(blocked.effectiveMode, 'sandbox');
     assert.equal(blocked.liveBlocked, true);
-    const withRails = evaluateLiveReadiness(DIRECT_RAILS.map((rail) => ({
-      id: rail.id, status: 'certified' as const, evidenceRef: 'ops', certifiedAt: '2026-09-01T00:00:00.000Z',
-    })));
-    assert.equal(withRails.gates.find((gate) => gate.id === 'certified_direct_rail')?.status, 'ready');
-    assert.equal(withRails.liveReady, false);
-    const withEvidence = evaluateLiveReadiness([], ['license_or_sponsor', 'safeguarding']);
-    assert.equal(withEvidence.gates.find((gate) => gate.id === 'license_or_sponsor')?.status, 'ready');
-    assert.equal(withEvidence.liveReady, false);
+    const homologated = evaluateLiveReadiness(PLATFORM_PRODUCTS.map((product) => ({ id: product.id, status: 'go_live' as const })));
+    assert.equal(homologated.summary.goLive, PLATFORM_PRODUCTS.length);
+    assert.equal(homologated.liveReady, false);
+    process.env.CIMBRA_PRODUCTION_HOSTNAME = 'https://api.example-cimbra.test';
+    const stillClosed = evaluateLiveReadiness();
+    assert.equal(stillClosed.liveReady, false);
+    const ready = evaluateLiveReadiness([{ id: 'transfers', status: 'go_live' }]);
+    assert.equal(ready.liveReady, true);
+    assert.equal(ready.effectiveMode, 'live');
   } finally {
     if (previous === undefined) delete process.env.CIMBRA_OPERATING_MODE;
     else process.env.CIMBRA_OPERATING_MODE = previous;
+    if (previousHost === undefined) delete process.env.CIMBRA_PRODUCTION_HOSTNAME;
+    else process.env.CIMBRA_PRODUCTION_HOSTNAME = previousHost;
   }
 });
 

@@ -2,170 +2,168 @@ import {
   OPERATING_MODES, PlatformRailError, effectiveOperatingMode, requestedOperatingMode, type OperatingMode,
 } from './operating-mode.ts';
 
-export const LIVE_GATE_STATUSES = ['ready', 'missing'] as const;
-export type LiveGateStatus = typeof LIVE_GATE_STATUSES[number];
+/** Pomelo: Integración → Homologación → Go Live. https://docs.pomelo.la/docs/get-started/home */
+export const GO_LIVE_STAGES = ['integracion', 'homologacion', 'go_live'] as const;
+export type GoLiveStage = typeof GO_LIVE_STAGES[number];
+export type ProductStatus = GoLiveStage;
 
-export const RAIL_STATUSES = ['disconnected', 'pending_certification', 'certified', 'live'] as const;
-export type RailStatus = typeof RAIL_STATUSES[number];
+/** Documentación pública de los benchmarks. No son conectores ni dependencias. */
+export const COMPETITOR_REFERENCES = [
+  { benchmark: 'BIND APIBANK', url: 'https://apibank.bind.com.ar/', surface: 'Cuentas, consulta Alias/CBU/CVU, transferencias, DEBIN, ECHEQ y altas de CVU.' },
+  { benchmark: 'BIND PSP Cobro', url: 'https://psp.bind.com.ar/developers/cobro', surface: 'Deuda, QR, transferencia/CVU y cuenta recaudadora.' },
+  { benchmark: 'BIND PSP Pagar QR', url: 'https://psp.bind.com.ar/developers/apis/pagar-qr', surface: 'PCT en Coelsa, QR estático de caja y QR de deuda.' },
+  { benchmark: 'BIND ECHEQ', url: 'https://blog.bind.com.ar/api-echeq-para-empresas/', surface: 'Emisión, endoso, depósito, cesión, descuento, anulación, ARS y USD.' },
+  { benchmark: 'Pismo environments', url: 'https://developers.pismo.io/pismo-docs/docs/environments', surface: 'sandbox.pismolabs.io vs hostname de producción; PCI en gw-pci.pismolabs.io.' },
+  { benchmark: 'Pomelo get started', url: 'https://docs.pomelo.la/docs/get-started/home', surface: 'Integración, Homologación y Go Live. sandbox.api.pomelo.la vs api.pomelo.la.' },
+  { benchmark: 'Pomelo Issuing', url: 'https://developers.pomelo.la/api-reference/cards/issuing', surface: 'PAN/CVV exigen PCI DSS y AOC; BIN Visa o Mastercard.' },
+  { benchmark: 'tapi', url: 'https://tapi.la/', surface: 'companies, debts, payment, confirm, recargas y gift cards.' },
+] as const;
 
-export const RAIL_COUNTERPARTY_KINDS = ['clearing_house', 'bank', 'card_scheme', 'official_registry', 'regulated_sponsor'] as const;
-export type RailCounterpartyKind = typeof RAIL_COUNTERPARTY_KINDS[number];
-
-export type LiveGate = {
+export type PlatformProduct = {
   id: string;
   name: string;
-  kind: 'software' | 'evidence' | 'rail';
-  requiredForLive: boolean;
-  status: LiveGateStatus;
-  summary: string;
-};
-
-export type DirectRail = {
-  id: string;
-  country: string;
-  kind: string;
-  counterpartyKind: RailCounterpartyKind;
-  counterparty: string;
-  requiredForLiveMoney: boolean;
-  status: RailStatus;
-  evidenceRef: string | null;
-  certifiedAt: string | null;
+  country: 'AR' | 'LATAM';
+  benchmark: string;
+  documentationUrl: string;
+  network: string;
+  sandboxCoverage: string;
+  missingForProduction: string;
+  status: ProductStatus;
 };
 
 type StatusErrorConstructor = new (message: string, status?: number, code?: string) => Error;
 
-export const DIRECT_RAILS: readonly Omit<DirectRail, 'status' | 'evidenceRef' | 'certifiedAt'>[] = [
+export const PLATFORM_PRODUCTS: readonly Omit<PlatformProduct, 'status'>[] = [
   {
-    id: 'ar_coelsa_transfers', country: 'AR', kind: 'instant_credit', counterpartyKind: 'clearing_house',
-    counterparty: 'Coelsa', requiredForLiveMoney: true,
+    id: 'account_lookup', name: 'Consulta de titular CBU, CVU y Alias', country: 'AR',
+    benchmark: 'BIND APIBANK — Datos de una cuenta por Alias, CBU, CVU',
+    documentationUrl: 'https://apibank.bind.com.ar/',
+    network: 'Directorio interbancario / Coelsa',
+    sandboxCoverage: 'Preview del titular sólo dentro del tenant. No consulta el directorio nacional.',
+    missingForProduction: 'Consulta de CBU/CVU/Alias homologada con la red, no un catálogo interno.',
   },
   {
-    id: 'ar_coelsa_debin', country: 'AR', kind: 'instant_debit', counterpartyKind: 'clearing_house',
-    counterparty: 'Coelsa', requiredForLiveMoney: true,
+    id: 'transfers', name: 'Transferencias a CBU, CVU y Alias', country: 'AR',
+    benchmark: 'BIND APIBANK — Transferencias',
+    documentationUrl: 'https://apibank.bind.com.ar/',
+    network: 'Transferencias 3.0',
+    sandboxCoverage: 'Crédito entre cuentas Cimbra o cash-out a settlement interno. 7x24 de ledger, no de cámara.',
+    missingForProduction: 'Transferencia inmediata contra CBU/CVU/Alias reales, irreversible al completar.',
   },
   {
-    id: 'ar_coelsa_echeq', country: 'AR', kind: 'echeq_clearing', counterpartyKind: 'clearing_house',
-    counterparty: 'Coelsa', requiredForLiveMoney: true,
+    id: 'debin', name: 'DEBIN', country: 'AR',
+    benchmark: 'BIND APIBANK — Recaudación DEBIN; BIND PSP — Debin recurrente / fondeo',
+    documentationUrl: 'https://apibank.bind.com.ar/',
+    network: 'DEBIN / Coelsa',
+    sandboxCoverage: 'Solicitud de débito sólo entre cuentas del mismo tenant. El pagador responde en Cimbra.',
+    missingForProduction: 'DEBIN contra CBU/CVU externo, adhesión del vendedor y vencimiento en el banco del pagador.',
   },
   {
-    id: 'ar_cbu_directory', country: 'AR', kind: 'account_directory', counterpartyKind: 'clearing_house',
-    counterparty: 'Coelsa', requiredForLiveMoney: true,
+    id: 'echeq', name: 'ECHEQ', country: 'AR',
+    benchmark: 'BIND — API ECHEQ (emisión, endoso, depósito, cesión, descuento, anulación, ARS y USD)',
+    documentationUrl: 'https://blog.bind.com.ar/api-echeq-para-empresas/',
+    network: 'ECHEQ / Coelsa',
+    sandboxCoverage: 'Emisión, aceptación, endoso, depósito interno, anulación y devolución previa. CUIT AFIP.',
+    missingForProduction: 'ID Coelsa, cesión, descuento, USD, depósito en cuenta corriente y compensación de cámara.',
   },
   {
-    id: 'ar_card_issuing', country: 'AR', kind: 'card_issuing', counterpartyKind: 'card_scheme',
-    counterparty: 'Esquema o BIN sponsor regulado', requiredForLiveMoney: false,
+    id: 'cvu', name: 'Alta de CVU y alias', country: 'AR',
+    benchmark: 'BIND APIBANK — Billeteras virtuales: altas de CVU y cambio de alias',
+    documentationUrl: 'https://apibank.bind.com.ar/',
+    network: 'CVU asignado por PSP / Coelsa',
+    sandboxCoverage: 'CVU sintético 000 + PSP 9999, no asignado por Coelsa.',
+    missingForProduction: 'Código de PSP real y CVU informable al directorio nacional.',
   },
   {
-    id: 'ar_card_acquiring', country: 'AR', kind: 'card_acquiring', counterpartyKind: 'card_scheme',
-    counterparty: 'Esquema o adquirente regulado', requiredForLiveMoney: false,
+    id: 'qr_interoperable', name: 'QR interoperable', country: 'AR',
+    benchmark: 'BIND PSP — Pagar QR (PCT en Coelsa), QR estático de caja y QR de deuda',
+    documentationUrl: 'https://psp.bind.com.ar/developers/apis/pagar-qr',
+    network: 'QR interoperable / Coelsa',
+    sandboxCoverage: 'Payload cimbra:qr:v1, cobro cerrado en el tenant. No es PCT ni lectura por otras billeteras.',
+    missingForProduction: 'Instrucción PCT, QR estático asociado a caja y QR dinámico de deuda con acreditación de red.',
   },
   {
-    id: 'ar_biller_originators', country: 'AR', kind: 'bill_payments', counterpartyKind: 'official_registry',
-    counterparty: 'Originadores y redes de cobranza directos', requiredForLiveMoney: false,
-  },
-];
-
-const SOFTWARE_GATES: readonly Omit<LiveGate, 'status'>[] = [
-  {
-    id: 'double_entry_ledger', name: 'Ledger de doble partida', kind: 'software', requiredForLive: true,
-    summary: 'Journals balanceados, postings inmutables y reversas compensatorias.',
+    id: 'collections', name: 'Cobro (deuda, link y recaudación)', country: 'AR',
+    benchmark: 'BIND PSP Cobro — deuda, QR, transferencia/CVU y cuenta recaudadora',
+    documentationUrl: 'https://psp.bind.com.ar/developers/cobro',
+    network: 'Transferencias 3.0 / DEBIN / QR interoperable',
+    sandboxCoverage: 'Links cimbra:link:v1, eco cerrado e inbound de ledger. Tarjeta, POS y QR de red responden 422.',
+    missingForProduction: 'Botón de pago, caja, POS y liquidación a cuenta recaudadora homologada.',
   },
   {
-    id: 'tenant_isolation', name: 'Aislamiento de tenant', kind: 'software', requiredForLive: true,
-    summary: 'Organizaciones, locks y constraints impiden cruzar datos o dinero entre tenants.',
+    id: 'card_issuing', name: 'Issuing de tarjetas', country: 'LATAM',
+    benchmark: 'Pomelo Issuing — PAN/CVV exigen PCI DSS y AOC; BIN Visa o Mastercard',
+    documentationUrl: 'https://developers.pomelo.la/api-reference/cards/issuing',
+    network: 'Visa / Mastercard vía BIN sponsor',
+    sandboxCoverage: 'Programas, lifecycle y controles. last4 sintético. Sin PAN, CVV ni red.',
+    missingForProduction: 'Homologación, PCI DSS + AOC y BIN sponsor. Sin eso Pomelo responde 403 al pedir datos de tarjeta.',
   },
   {
-    id: 'rbac_and_scopes', name: 'RBAC y scopes', kind: 'software', requiredForLive: true,
-    summary: 'Roles humanos y API keys con mínimo privilegio, validados en servidor.',
-  },
-  {
-    id: 'idempotency', name: 'Idempotencia', kind: 'software', requiredForLive: true,
-    summary: 'Claves por organización, fingerprints y replay explícito.',
-  },
-  {
-    id: 'audit_and_webhooks', name: 'Auditoría y webhooks', kind: 'software', requiredForLive: true,
-    summary: 'Eventos durables, firma HMAC y outbox transaccional.',
-  },
-  {
-    id: 'versioned_public_api', name: 'API versionada', kind: 'software', requiredForLive: true,
-    summary: 'Contrato OpenAPI, SDK y header Cimbra-Version.',
-  },
-  {
-    id: 'fail_closed_rail_ports', name: 'Puertos de riel fail-closed', kind: 'software', requiredForLive: true,
-    summary: 'Dinero externo exige riel certificado; sin él el modo live no se activa.',
-  },
-];
-
-const EVIDENCE_GATES: readonly Omit<LiveGate, 'status'>[] = [
-  {
-    id: 'license_or_sponsor', name: 'Licencia o sponsor', kind: 'evidence', requiredForLive: true,
-    summary: 'Licencia aplicable o contrato de sponsor regulado para la jurisdicción inicial.',
-  },
-  {
-    id: 'safeguarding', name: 'Safeguarding', kind: 'evidence', requiredForLive: true,
-    summary: 'Segregación y custodia de fondos de clientes según el marco local.',
-  },
-  {
-    id: 'three_way_reconciliation', name: 'Conciliación de tres vías', kind: 'evidence', requiredForLive: true,
-    summary: 'Extractos oficiales Cimbra / banco o cámara / settlement, con excepciones en SLA.',
-  },
-  {
-    id: 'pentest_closed', name: 'Pentest cerrado', kind: 'evidence', requiredForLive: true,
-    summary: 'Hallazgos críticos y altos cerrados antes de mover fondos.',
-  },
-  {
-    id: 'slo_90d', name: 'SLO medidos 90 días', kind: 'evidence', requiredForLive: true,
-    summary: 'Disponibilidad y latencia medidas en el entorno que va a liquidar.',
-  },
-  {
-    id: 'incident_response', name: 'Respuesta a incidentes', kind: 'evidence', requiredForLive: true,
-    summary: 'On-call, runbooks, backups y plan de reversas para dinero real.',
-  },
-  {
-    id: 'legal_terms_dpa', name: 'Términos y DPA', kind: 'evidence', requiredForLive: true,
-    summary: 'Términos, privacidad, DPA y matriz regulatoria aprobados.',
-  },
-  {
-    id: 'certified_direct_rail', name: 'Riel directo certificado', kind: 'rail', requiredForLive: true,
-    summary: 'Al menos un riel de dinero con banco, cámara, esquema o sponsor homologado. No competidores.',
+    id: 'bill_payments', name: 'Pago de servicios, recargas y pines', country: 'LATAM',
+    benchmark: 'tapi — companies, debts, payment, confirm, recargas y gift cards',
+    documentationUrl: 'https://tapi.la/',
+    network: 'Originadores y redes de cobranza de cada país',
+    sandboxCoverage: 'Catálogo tenant, deuda emitida y pago ledger-backed. Sin consulta a un biller externo.',
+    missingForProduction: 'Cobertura comercial, consulta de deuda real y confirmación con cada originador.',
   },
 ];
 
-function isCertifiedRail(status: RailStatus) {
-  return status === 'certified' || status === 'live';
+export const GO_LIVE_PROCESS = {
+  benchmark: 'Pomelo',
+  documentationUrl: 'https://docs.pomelo.la/docs/get-started/home',
+  stages: [
+    { id: 'integracion', name: 'Integración', summary: 'Presentar documentación y conectar los servicios.' },
+    { id: 'homologacion', name: 'Homologación', summary: 'Probar la integración y certificar calidad y seguridad.' },
+    { id: 'go_live', name: 'Go Live', summary: 'Lanzar de forma gradual y monitorear.' },
+  ],
+  current: 'integracion' as GoLiveStage,
+} as const;
+
+function productionHostname() {
+  const value = process.env.CIMBRA_PRODUCTION_HOSTNAME?.trim() ?? '';
+  return /^https:\/\//i.test(value) ? value.replace(/\/$/, '') : null;
 }
 
-export function materializeRails(overrides: ReadonlyArray<{ id: string; status: RailStatus; evidenceRef: string | null; certifiedAt: string | null }> = []): DirectRail[] {
-  const byId = new Map(overrides.map((row) => [row.id, row]));
-  return DIRECT_RAILS.map((rail) => {
-    const overlay = byId.get(rail.id);
-    return {
-      ...rail,
-      status: overlay?.status ?? 'disconnected',
-      evidenceRef: overlay?.evidenceRef ?? null,
-      certifiedAt: overlay?.certifiedAt ?? null,
-    };
-  });
+function sandboxHostname() {
+  const value = process.env.CIMBRA_PUBLIC_URL?.trim() || process.env.NEXT_PUBLIC_CIMBRA_PUBLIC_URL?.trim() || '';
+  return /^https:\/\//i.test(value) ? value.replace(/\/$/, '') : 'https://cimbra-rose.vercel.app';
 }
 
-export function evaluateLiveReadiness(
-  overrides: ReadonlyArray<{ id: string; status: RailStatus; evidenceRef: string | null; certifiedAt: string | null }> = [],
-  evidenceGateIds: readonly string[] = [],
-) {
-  const rails = materializeRails(overrides);
-  const moneyRailReady = rails.some((rail) => rail.requiredForLiveMoney && isCertifiedRail(rail.status));
-  const recorded = new Set(evidenceGateIds);
-  const gates: LiveGate[] = [
-    ...SOFTWARE_GATES.map((gate) => ({ ...gate, status: 'ready' as const })),
-    ...EVIDENCE_GATES.map((gate) => ({
-      ...gate,
-      status: gate.id === 'certified_direct_rail'
-        ? (moneyRailReady ? 'ready' as const : 'missing' as const)
-        : (recorded.has(gate.id) ? 'ready' as const : 'missing' as const),
-    })),
+export function platformEnvironments() {
+  const production = productionHostname();
+  return [
+    {
+      id: 'sandbox' as const,
+      status: 'active' as const,
+      hostname: sandboxHostname(),
+      pciHostname: null,
+      credentialsPrefix: 'cim_sk_test_',
+      benchmark: 'sandbox.bind.com.ar, sandbox.pismolabs.io, sandbox.api.pomelo.la',
+    },
+    {
+      id: 'production' as const,
+      status: production ? 'provisioned' as const : 'not_provisioned' as const,
+      hostname: production,
+      pciHostname: null,
+      credentialsPrefix: 'cim_sk_live_',
+      benchmark: 'Pismo entrega hostnames de producción en el onboarding; BIND no publica la URL productiva; Pomelo usa api.pomelo.la después de homologar. Pismo separa además un hostname PCI (gw-pci.pismolabs.io en test).',
+    },
   ];
-  const missingRequired = gates.filter((gate) => gate.requiredForLive && gate.status !== 'ready');
-  const liveReady = missingRequired.length === 0 && moneyRailReady;
+}
+
+export function materializeProducts(overrides: ReadonlyArray<{ id: string; status: ProductStatus }> = []): PlatformProduct[] {
+  const byId = new Map(overrides.map((row) => [row.id, row]));
+  return PLATFORM_PRODUCTS.map((product) => ({
+    ...product,
+    status: byId.get(product.id)?.status ?? 'integracion',
+  }));
+}
+
+export function evaluateLiveReadiness(overrides: ReadonlyArray<{ id: string; status: ProductStatus }> = []) {
+  const environments = platformEnvironments();
+  const products = materializeProducts(overrides);
+  const production = environments.find((item) => item.id === 'production');
+  const liveReady = production?.status === 'provisioned' && products.some((product) => product.status === 'go_live');
   const requestedMode = requestedOperatingMode();
   const effectiveMode = effectiveOperatingMode(liveReady);
   return {
@@ -173,40 +171,36 @@ export function evaluateLiveReadiness(
     effectiveMode,
     liveReady,
     liveBlocked: requestedMode === 'live' && !liveReady,
-    blockReason: requestedMode === 'live' && !liveReady
-      ? 'live_gates_unmet'
-      : liveReady ? null : 'sandbox_environment',
+    blockReason: liveReady ? null : (production?.hostname ? 'homologacion_pendiente' : 'production_hostname_not_provisioned'),
     modes: OPERATING_MODES,
-    gates,
-    rails,
+    goLive: GO_LIVE_PROCESS,
+    environments,
+    products,
+    references: COMPETITOR_REFERENCES,
     summary: {
-      readyGates: gates.filter((gate) => gate.status === 'ready').length,
-      missingGates: missingRequired.length,
-      disconnectedRails: rails.filter((rail) => rail.status === 'disconnected').length,
-      certifiedRails: rails.filter((rail) => isCertifiedRail(rail.status)).length,
+      integracion: products.filter((product) => product.status === 'integracion').length,
+      homologacion: products.filter((product) => product.status === 'homologacion').length,
+      goLive: products.filter((product) => product.status === 'go_live').length,
     },
   };
 }
 
 export type LiveReadiness = ReturnType<typeof evaluateLiveReadiness>;
 
-export function currentOperatingMode(
-  overrides?: Parameters<typeof evaluateLiveReadiness>[0],
-  evidenceGateIds?: Parameters<typeof evaluateLiveReadiness>[1],
-): OperatingMode {
-  return evaluateLiveReadiness(overrides, evidenceGateIds).effectiveMode;
+export function currentOperatingMode(overrides?: Parameters<typeof evaluateLiveReadiness>[0]): OperatingMode {
+  return evaluateLiveReadiness(overrides).effectiveMode;
 }
 
-export function requireSandboxLedgerOrCertifiedRail(railId: string, ErrorType: StatusErrorConstructor = PlatformRailError) {
+export function requireSandboxLedgerOrCertifiedRail(productId: string, ErrorType: StatusErrorConstructor = PlatformRailError) {
   const readiness = evaluateLiveReadiness();
   if (readiness.effectiveMode === 'sandbox') return;
-  const rail = readiness.rails.find((item) => item.id === railId);
-  if (rail && isCertifiedRail(rail.status)) return;
-  throw new ErrorType('El riel directo no está certificado para dinero real.', 422, 'rail_not_connected');
+  const product = readiness.products.find((item) => item.id === productId);
+  if (product?.status === 'go_live') return;
+  throw new ErrorType('Este producto no completó homologación ni go-live.', 422, 'product_not_homologated');
 }
 
 export function requireLiveApiKeysEnabled() {
   if (!evaluateLiveReadiness().liveReady) {
-    throw new PlatformRailError('Las API keys live no están habilitadas hasta completar los gates de producción.', 403, 'live_environment_disabled');
+    throw new PlatformRailError('No hay hostname de producción ni producto en go-live. Pismo y BIND entregan ese ambiente en el onboarding comercial.', 403, 'live_environment_disabled');
   }
 }

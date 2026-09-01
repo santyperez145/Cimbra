@@ -8,17 +8,30 @@ type Capability = {
   availability: 'live' | 'sandbox' | 'foundation' | 'roadmap'; delivery: 'cimbra_native'; regulatoryBoundary: string;
 };
 
-type Gate = { id: string; name: string; kind: string; requiredForLive: boolean; status: 'ready' | 'missing'; summary: string };
-type Rail = { id: string; country: string; kind: string; counterparty: string; requiredForLiveMoney: boolean; status: string };
+type Product = {
+  id: string; name: string; country: string; benchmark: string; documentationUrl: string; network: string;
+  sandboxCoverage: string; missingForProduction: string; status: 'integracion' | 'homologacion' | 'go_live';
+};
+
+type Environment = {
+  id: 'sandbox' | 'production'; status: 'active' | 'provisioned' | 'not_provisioned';
+  hostname: string | null; pciHostname: string | null; credentialsPrefix: string; benchmark: string;
+};
 
 type Readiness = {
   effectiveMode: 'sandbox' | 'live'; liveReady: boolean; liveBlocked: boolean; blockReason: string | null;
-  gates: Gate[]; rails: Rail[];
-  summary: { readyGates: number; missingGates: number; disconnectedRails: number; certifiedRails: number };
+  goLive: { benchmark: string; documentationUrl: string; current: string; stages: Array<{ id: string; name: string; summary: string }> };
+  environments: Environment[];
+  products: Product[];
+  summary: { integracion: number; homologacion: number; goLive: number };
 };
 
 const labels = {
   live: 'Productiva', sandbox: 'Contrato ejecutable', foundation: 'Base técnica', roadmap: 'Roadmap',
+} as const;
+
+const productLabels = {
+  integracion: 'Integración', homologacion: 'Homologación', go_live: 'Go Live',
 } as const;
 
 export default function PlatformPanel() {
@@ -51,24 +64,27 @@ export default function PlatformPanel() {
   }, []);
 
   return <div className="module-view">
-    <div className="module-view-head"><div><p>CIMBRA SERVICE CLOUD</p><h1>Plataforma financiera propia</h1><span>El contrato es el producto real. El entorno actual es sandbox hasta que los gates live y un riel directo certificado se cumplan.</span></div><span className="module-health"><i /> {readiness?.effectiveMode === 'live' ? 'Live' : 'Entorno sandbox'}</span></div>
+    <div className="module-view-head"><div><p>CIMBRA SERVICE CLOUD</p><h1>Plataforma financiera propia</h1><span>Sandbox activo, como BIND APIBANK, Pismo y Pomelo. Production no tiene hostname: Pismo lo entrega el representante, BIND no publica la URL y Pomelo usa api.pomelo.la después de homologar.</span></div><span className="module-health"><i /> {readiness?.effectiveMode === 'live' ? 'Live' : 'Entorno sandbox'}</span></div>
     {feedback && <div className="form-feedback ledger-feedback">{feedback}</div>}
     <div className="module-metrics">
       <article><strong>{readiness?.liveReady ? 'Sí' : 'No'}</strong><span>listo para dinero real</span></article>
-      <article><strong>{readiness?.summary.readyGates ?? '—'}</strong><span>gates de software listos</span></article>
-      <article><strong>{readiness?.summary.missingGates ?? '—'}</strong><span>gates de evidencia pendientes</span></article>
+      <article><strong>{readiness?.environments.find((item) => item.id === 'production')?.hostname ?? 'sin hostname'}</strong><span>production</span></article>
+      <article><strong>{readiness?.summary.goLive ?? 0}</strong><span>productos en Go Live</span></article>
       <article><strong>{totals.sandbox}</strong><span>contratos ejecutables</span></article>
       <article><strong>{totals.live}</strong><span>declaradas live</span></article>
     </div>
-    <article className="module-list capability-list"><div className="card-head"><div><h2>Gates de salida a live</h2><p>Flip de entorno, no reescritura de API. BIND, Dock, tapi, Pismo, Pomelo y Wibond no son rieles.</p></div><b>{loading ? 'Cargando…' : readiness?.liveReady ? 'LIVE READY' : 'FAIL CLOSED'}</b></div>
-      {(readiness?.gates ?? []).map((gate) => <div key={gate.id}><span className="movement"><i>{gate.status === 'ready' ? '✓' : '○'}</i><b>{gate.name}<small>{gate.summary}</small></b></span><em className={`capability-status ${gate.status === 'ready' ? 'sandbox' : 'roadmap'}`}>{gate.status === 'ready' ? 'Listo' : 'Falta evidencia'}</em></div>)}
+    <article className="module-list capability-list"><div className="card-head"><div><h2>Entornos</h2><p>Pismo separa sandbox.pismolabs.io de un hostname de producción y un hostname PCI. Pomelo usa sandbox.api.pomelo.la y api.pomelo.la. BIND APIBANK publica sandbox; production es onboarding comercial.</p></div><b>{readiness?.liveReady ? 'LIVE READY' : 'FAIL CLOSED'}</b></div>
+      {(readiness?.environments ?? []).map((environment) => <div key={environment.id}><span className="movement"><i>{environment.status === 'active' || environment.status === 'provisioned' ? '✓' : '○'}</i><b>{environment.id}<small>{environment.hostname ?? 'Hostname no provisionado'}{environment.pciHostname ? ` · PCI ${environment.pciHostname}` : ' · sin hostname PCI'} · {environment.credentialsPrefix}*</small><small>{environment.benchmark}</small></b></span><em className={`capability-status ${environment.status === 'not_provisioned' ? 'roadmap' : 'sandbox'}`}>{environment.status === 'not_provisioned' ? 'No provisionado' : environment.status === 'provisioned' ? 'Provisionado' : 'Activo'}</em></div>)}
     </article>
-    <article className="module-list capability-list"><div className="card-head"><div><h2>Puertos de riel nativos</h2><p>Sólo bancos, cámaras, esquemas, registros oficiales o sponsors regulados</p></div><b>{readiness?.summary.disconnectedRails ?? 0} desconectados</b></div>
-      {(readiness?.rails ?? []).map((rail) => <div key={rail.id}><span className="movement"><i>⌁</i><b>{rail.counterparty}<small>{rail.country} · {rail.kind}{rail.requiredForLiveMoney ? ' · requerido para dinero' : ''}</small></b></span><em className={`capability-status ${rail.status === 'disconnected' ? 'roadmap' : 'sandbox'}`}>{rail.status}</em></div>)}
+    <article className="module-list capability-list"><div className="card-head"><div><h2>Go Live</h2><p><a href={readiness?.goLive.documentationUrl ?? 'https://docs.pomelo.la/docs/get-started/home'} target="_blank" rel="noreferrer">Pomelo documenta Integración, Homologación y Go Live</a>. Cimbra está en Integración: documentación y sandbox, sin homologación comercial.</p></div><b>{productLabels[readiness?.goLive.current as keyof typeof productLabels] ?? 'Integración'}</b></div>
+      {(readiness?.goLive.stages ?? []).map((stage) => <div key={stage.id}><span className="movement"><i>{readiness?.goLive.current === stage.id ? '●' : '○'}</i><b>{stage.name}<small>{stage.summary}</small></b></span><em className={`capability-status ${readiness?.goLive.current === stage.id ? 'sandbox' : 'roadmap'}`}>{readiness?.goLive.current === stage.id ? 'Actual' : 'Pendiente'}</em></div>)}
     </article>
-    <article className="module-list capability-list"><div className="card-head"><div><h2>Catálogo de servicios</h2><p>Producto propio; competidores usados sólo como benchmark</p></div><b>{loading ? 'Cargando…' : `${capabilities.length} dominios`}</b></div>
+    <article className="module-list capability-list"><div className="card-head"><div><h2>Productos del catálogo público</h2><p>Nombres y cobertura tomados de BIND APIBANK, BIND PSP, Pomelo Issuing y tapi. Homologan por separado; no hay que tener T3.0, DEBIN y ECHEQ juntos para operar uno. Dock documenta Pix y tarjetas en Brasil: no hay producto AR inventado. Wibond no publica un contrato de riel usable.</p></div><b>{loading ? 'Cargando…' : `${readiness?.summary.integracion ?? 0} en integración`}</b></div>
+      {(readiness?.products ?? []).map((product) => <div key={product.id}><span className="movement"><i>⌁</i><b>{product.name}<small>{product.benchmark} · {product.network}</small><small>Sandbox: {product.sandboxCoverage}</small><small>Falta: {product.missingForProduction}</small></b></span><em className={`capability-status ${product.status === 'go_live' ? 'live' : product.status === 'homologacion' ? 'sandbox' : 'roadmap'}`}>{productLabels[product.status]}</em></div>)}
+    </article>
+    <article className="module-list capability-list"><div className="card-head"><div><h2>Catálogo de servicios Cimbra</h2><p>Producto propio; competidores usados sólo como benchmark</p></div><b>{loading ? 'Cargando…' : `${capabilities.length} dominios`}</b></div>
       {capabilities.map((item) => <div key={item.id}><span className="movement"><i>⌘</i><b>{item.name}<small>{item.summary}</small><small>{item.interfaces.join(' · ')} · {item.features.join(' · ')}</small></b></span><em className={`capability-status ${item.availability}`}>{labels[item.availability]}</em></div>)}
     </article>
-    <article className="launch-boundary"><div className="module-icon">✓</div><h2>Límite de lanzamiento</h2><p>El software ya es el núcleo de producción. Graduar a live exige licencia o sponsor, riel directo homologado, safeguarding, conciliación de tres vías, pentest cerrado, SLO y runbooks. Hasta entonces no hay URL live, ni claves <code>cim_sk_live_</code>, ni movimiento de fondos. Esa conectividad regulada no convierte a un competidor en dependencia tecnológica.</p></article>
+    <article className="launch-boundary"><div className="module-icon">✓</div><h2>Límite de lanzamiento</h2><p>No hay hostname de producción ni producto en Go Live. Pismo entrega esos hostnames en el onboarding; BIND no publica la URL productiva; Pomelo pasa a api.pomelo.la después de homologar y exige PCI DSS + AOC para PAN/CVV. Hasta entonces no hay claves <code>cim_sk_live_</code> ni movimiento de fondos. BIND, Dock, tapi, Pismo, Pomelo y Wibond no son conectores.</p></article>
   </div>;
 }

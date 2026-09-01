@@ -29,7 +29,7 @@ La independencia tecnológica no elimina la realidad de los rieles. Para mover f
 | Treasury | posición, prefunding, forecasting y sweeps | API, webhooks, archivos, consola | Roadmap |
 | Developer Platform | API v1, SDK, sandbox, webhooks y observabilidad | API, SDK, consola | Sandbox operativo |
 
-La fuente ejecutable de este catálogo es `GET /api/v1/capabilities`. El estado de graduación a dinero real es `GET /api/v1/live-readiness`. `delivery=cimbra_native` y `competitorDependency=false` son invariantes del contrato. Los estados evitan vender como terminado lo que todavía no fue construido o certificado.
+La fuente ejecutable de este catálogo es `GET /api/v1/capabilities`. El estado frente a dinero real es `GET /api/v1/live-readiness`: entornos sandbox/production documentados por Pismo, BIND y Pomelo; etapas Integración → Homologación → Go Live de Pomelo; y productos del catálogo público de BIND APIBANK, BIND PSP, Pomelo Issuing y tapi, cada uno homologable por separado. `delivery=cimbra_native` y `competitorDependency=false` son invariantes del contrato. Dock documenta Pix y tarjetas en Brasil; no se inventa un riel argentino a su nombre. Wibond no publica un contrato de riel usable.
 
 ## Arquitectura de provisión
 
@@ -59,4 +59,4 @@ Esto conserva la ambición competitiva y evita financiar seis compañías incomp
 
 ## Benchmark permanente
 
-La comparación se mantiene por capacidad, no por conexión: breadth funcional, tiempo a primer request, cobertura de lifecycle, webhooks, consistencia, observabilidad, conciliación, uptime, certificaciones, experiencia operativa y costo total. Una capacidad sólo pasa de `roadmap` a `foundation` con diseño y base técnica; pasa a `sandbox` con contrato API ejecutable y pruebas; y se declara `live` únicamente tras controles, certificación, riel directo y evidencia operativa. El entorno de despliegue (`CIMBRA_OPERATING_MODE`) es independiente del catálogo: pedir `live` sin gates no habilita dinero real.
+La comparación se mantiene por capacidad, no por conexión: breadth funcional, tiempo a primer request, cobertura de lifecycle, webhooks, consistencia, observabilidad, conciliación, uptime, certificaciones, experiencia operativa y costo total. Una capacidad sólo pasa de `roadmap` a `foundation` con diseño y base técnica; pasa a `sandbox` con contrato API ejecutable y pruebas; y se declara `live` únicamente cuando ese producto concreto completó homologación y Go Live sobre un hostname de producción provisionado. Pedir `CIMBRA_OPERATING_MODE=live` sin hostname de producción no habilita dinero real.

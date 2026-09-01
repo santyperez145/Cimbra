@@ -1,39 +1,26 @@
-import { evaluateLiveReadiness, type RailStatus } from '@/app/lib/platform/live-readiness';
+import { evaluateLiveReadiness, GO_LIVE_STAGES, type ProductStatus } from '@/app/lib/platform/live-readiness';
 import { PlatformRailError } from '@/app/lib/platform/operating-mode';
 import { getDatabase } from './runtime';
 
-export type RailOverride = {
-  id: string;
-  status: RailStatus;
-  evidenceRef: string | null;
-  certifiedAt: string | null;
-};
-
-type StatusErrorConstructor = new (message: string, status?: number, code?: string) => Error;
-
-export async function listRailOverrides() {
-  const rows = await getDatabase().prepare(
-    `SELECT id, status, evidence_ref AS "evidenceRef", certified_at AS "certifiedAt" FROM platform_rails`,
-  ).all<RailOverride>();
-  return rows.results;
+function isProductStatus(value: string): value is ProductStatus {
+  return (GO_LIVE_STAGES as readonly string[]).includes(value);
 }
 
-export async function listRecordedEvidenceGates() {
-  const rows = await getDatabase().prepare(
-    'SELECT DISTINCT gate_id AS "gateId" FROM live_gate_evidence',
-  ).all<{ gateId: string }>();
-  return rows.results.map((row) => row.gateId);
+export async function listProductStatusOverrides() {
+  const rows = await getDatabase().prepare('SELECT id, status FROM platform_rails').all<{ id: string; status: string }>();
+  return rows.results.filter((row): row is { id: string; status: ProductStatus } => isProductStatus(row.status));
 }
 
 export async function platformLiveReadiness() {
-  const [rails, evidenceGateIds] = await Promise.all([listRailOverrides(), listRecordedEvidenceGates()]);
-  return evaluateLiveReadiness(rails, evidenceGateIds);
+  return evaluateLiveReadiness(await listProductStatusOverrides());
 }
 
-export async function assertSandboxLedgerOrCertifiedRail(railId: string, ErrorType: StatusErrorConstructor = PlatformRailError) {
+type StatusErrorConstructor = new (message: string, status?: number, code?: string) => Error;
+
+export async function assertSandboxLedgerOrCertifiedRail(productId: string, ErrorType: StatusErrorConstructor = PlatformRailError) {
   const readiness = await platformLiveReadiness();
   if (readiness.effectiveMode === 'sandbox') return;
-  const rail = readiness.rails.find((item) => item.id === railId);
-  if (rail && (rail.status === 'certified' || rail.status === 'live')) return;
-  throw new ErrorType('El riel directo no está certificado para dinero real.', 422, 'rail_not_connected');
+  const product = readiness.products.find((item) => item.id === productId);
+  if (product?.status === 'go_live') return;
+  throw new ErrorType('Este producto no completó homologación ni Go Live.', 422, 'product_not_homologated');
 }

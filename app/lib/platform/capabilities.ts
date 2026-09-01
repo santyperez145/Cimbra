@@ -133,5 +133,5 @@ export const PLATFORM_SUMMARY = {
   competitorDependency: false,
   networkBoundary: 'direct_regulated_rails_only',
   availabilityModel: CAPABILITY_AVAILABILITY,
-  graduation: 'environment_flip_after_gates',
+  graduation: 'integracion_homologacion_go_live',
 } as const;

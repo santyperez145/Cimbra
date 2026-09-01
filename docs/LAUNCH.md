@@ -5,7 +5,7 @@
 - marca y narrativa comercial orientada a compradores, con capacidades y límites verificables;
 - sitio responsive, sesión contextual y captación persistente;
 - portal developer conectado al OpenAPI real, con las 161 operaciones, parámetros, respuestas, búsqueda, quickstart ejecutable, límites del entorno sandbox y changelog;
-- `GET /api/v1/live-readiness` y `/api/health` exponen gates ejecutables, puertos de riel nativos y `liveReady=false`; pedir live sin evidencia no mueve fondos;
+- `GET /api/v1/live-readiness` y `/api/health` exponen sandbox vs production (BIND/Pismo/Pomelo), etapas Pomelo Integración → Homologación → Go Live y productos del catálogo público; `liveReady=false` porque no hay hostname de producción ni producto homologado;
 - identidad y consola multi-tenant básica;
 - registro e inicio de sesión propio, sesiones revocables y OAuth Google/Apple;
 - sandbox persistente para customers, accounts, statements, book transfers, cards y transfers;

@@ -137,16 +137,27 @@ export type LiveReadiness = {
   liveReady: boolean;
   liveBlocked: boolean;
   blockReason: string | null;
-  gates: Array<{
-    id: string; name: string; kind: 'software' | 'evidence' | 'rail'; requiredForLive: boolean;
-    status: 'ready' | 'missing'; summary: string;
+  goLive: {
+    benchmark: 'Pomelo';
+    documentationUrl: string;
+    current: 'integracion' | 'homologacion' | 'go_live';
+    stages: Array<{ id: 'integracion' | 'homologacion' | 'go_live'; name: string; summary: string }>;
+  };
+  environments: Array<{
+    id: 'sandbox' | 'production';
+    status: 'active' | 'provisioned' | 'not_provisioned';
+    hostname: string | null;
+    pciHostname: string | null;
+    credentialsPrefix: string;
+    benchmark: string;
   }>;
-  rails: Array<{
-    id: string; country: string; kind: string; counterpartyKind: string; counterparty: string;
-    requiredForLiveMoney: boolean; status: 'disconnected' | 'pending_certification' | 'certified' | 'live';
-    evidenceRef: string | null; certifiedAt: string | null;
+  products: Array<{
+    id: string; name: string; country: 'AR' | 'LATAM'; benchmark: string; documentationUrl: string;
+    network: string; sandboxCoverage: string; missingForProduction: string;
+    status: 'integracion' | 'homologacion' | 'go_live';
   }>;
-  summary: { readyGates: number; missingGates: number; disconnectedRails: number; certifiedRails: number };
+  references: Array<{ benchmark: string; url: string; surface: string }>;
+  summary: { integracion: number; homologacion: number; goLive: number };
 };
 export type RiskRule = {
   id: string; name: string; kind: 'amount_threshold' | 'velocity_count' | 'counterparty_match';

@@ -5,7 +5,8 @@ import { initialCardStatus, type CardFormat, type CardProduct } from '@/app/lib/
 import { scheduleWebhookDispatch } from '@/app/lib/platform/dispatch';
 import { IdempotencyError, requestIdempotencyKey } from '@/app/lib/platform/idempotency';
 import { decodePageCursor, pageLimit, paginatedResponse } from '@/app/lib/platform/pagination';
-import { initializeCardIssuingRecords } from '@/db/card-issuing';
+import { initializeCardIssuingRecords, CardIssuingError } from '@/db/card-issuing';
+import { assertSandboxLedgerOrCertifiedRail } from '@/db/platform-rails';
 import { ensureDatabase, getDatabase, OrganizationAccessError, recordAuditEvent } from '@/db/runtime';
 
 export async function GET(request: Request) {
@@ -54,6 +55,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Datos de tarjeta inválidos.' }, { status: 400 });
     }
     await ensureDatabase();
+    await assertSandboxLedgerOrCertifiedRail('card_issuing', CardIssuingError);
     const db = getDatabase();
     const account = await db.prepare(
       'SELECT id, customer_id AS customerId, currency FROM accounts WHERE id = ? AND organization_id = ? LIMIT 1',
@@ -131,6 +133,7 @@ export async function POST(request: Request) {
     const authorizationResponse = authorizationErrorResponse(error);
     if (authorizationResponse) return authorizationResponse;
     if (error instanceof IdempotencyError) return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
+    if (error instanceof CardIssuingError) return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
     if (error instanceof OrganizationAccessError) return NextResponse.json({ error: error.message }, { status: error.status });
     throw error;
   }
