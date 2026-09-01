@@ -174,6 +174,7 @@ test('el SDK cablea CVU, directorio, crédito inmediato, débito interno y QR', 
   const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async (input, init) => {
     const url = String(input); calls.push(`${init?.method ?? 'GET'} ${url}`);
     if (url.endsWith('/rail-instruments')) return Response.json({ ok: true, replayed: false, instruments: [{ id: 'inst_1', value: '00099990' }] }, { status: 201 });
+    if (url.endsWith('/alias')) return Response.json({ ok: true, replayed: false, instruments: [{ id: 'inst_1', kind: 'cvu' }, { id: 'alias_1', kind: 'alias', value: 'COMERCIO.OESTE' }] });
     if (url.includes('/rail-directory')) return Response.json({ found: true, holderName: 'Comercio Sur', taxIdLast4: '5678' });
     if (url.endsWith('/instant-transfers')) return Response.json({ ok: true, replayed: false, transfer: { id: 'ip_1' } }, { status: 201 });
     if (url.endsWith('/debit-requests')) return Response.json({ ok: true, replayed: false, debit: { id: 'db_1' } }, { status: 201 });
@@ -182,6 +183,7 @@ test('el SDK cablea CVU, directorio, crédito inmediato, débito interno y QR', 
     return Response.json({ ok: true, replayed: false, transfer: { id: 'ip_2' } }, { status: 201 });
   } });
   const issued = await client.railInstruments.issue({ accountId: 'acc_1', alias: 'COMERCIO.SUR' });
+  await client.railInstruments.assignAlias(issued.data.instruments[0].id, { alias: 'COMERCIO.OESTE' });
   await client.railDirectory.lookup(issued.data.instruments[0].value);
   await client.instantTransfers.create({
     externalReference: 'IP-001', accountId: 'acc_2', destination: issued.data.instruments[0].value,
@@ -196,6 +198,7 @@ test('el SDK cablea CVU, directorio, crédito inmediato, débito interno y QR', 
   await client.paymentQrs.pay(qr.data.qr.id, { sourceAccountId: 'acc_2', externalReference: 'QR-001' });
   assert.deepEqual(calls, [
     'POST https://api.test/api/v1/rail-instruments',
+    'PATCH https://api.test/api/v1/rail-instruments/inst_1/alias',
     'GET https://api.test/api/v1/rail-directory?q=00099990',
     'POST https://api.test/api/v1/instant-transfers',
     'POST https://api.test/api/v1/debit-requests',

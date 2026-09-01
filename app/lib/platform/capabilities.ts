@@ -50,7 +50,7 @@ export const PLATFORM_CAPABILITIES: readonly PlatformCapability[] = [
   {
     id: 'instant-payments', name: 'Instant Payments & Transfers', domain: 'payments', availability: 'sandbox', delivery: 'cimbra_native',
     summary: 'CVU sandbox, alias tenant-scoped, crédito inmediato, solicitudes de débito internas, QR Cimbra y devoluciones compensatorias.',
-    features: ['sandbox CVU issuance', 'tenant aliases', 'holder confirmation', 'credit push', 'internal debit requests', 'Cimbra QR', 'compensating returns'],
+    features: ['sandbox CVU issuance', 'tenant aliases', 'assign/change alias', 'holder confirmation', 'credit push', 'internal debit requests', 'Cimbra QR', 'compensating returns'],
     interfaces: ['rest_api', 'webhooks', 'sdk', 'console'], regulatoryBoundary: 'El sandbox emite CVU con prefijo 0009999, no asignado por Coelsa, y no consulta el directorio nacional. Transferencias 3.0, DEBIN, QR interoperable y CBU reales exigen membresía, certificación o sponsor local directo. No hay conexión con BIND, Dock, tapi, Pismo, Pomelo ni Wibond.',
   },
   {

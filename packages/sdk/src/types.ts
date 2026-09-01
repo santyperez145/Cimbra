@@ -418,6 +418,7 @@ export type CreateWalletPocketTransferInput = {
   description: string; amount: string; currency: Currency; signals?: RiskSignalsInput;
 };
 export type IssueRailInstrumentInput = { accountId: string; alias?: string | null };
+export type AssignRailAliasInput = { alias: string };
 export type CreateInstantTransferInput = {
   externalReference: string; accountId: string; destination: string; description: string; amount: string;
   currency: 'ARS'; direction?: 'outbound' | 'inbound'; confirmHolder: true; holderName: string; taxIdLast4: string;

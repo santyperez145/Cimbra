@@ -93,6 +93,22 @@ export default function InstantPaymentsPanel({ role, accounts }: { role: Organiz
     setBusy(false);
   }
 
+  async function assignAlias(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); const formElement = event.currentTarget; const form = new FormData(formElement);
+    setBusy(true); setFeedback('');
+    const instrumentId = String(form.get('instrumentId') ?? '');
+    const response = await authenticatedFetch(`/api/v1/rail-instruments/${instrumentId}/alias`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
+      body: JSON.stringify({ alias: String(form.get('alias') ?? '').trim() }),
+    });
+    const result = await response.json() as unknown;
+    setFeedback(response.ok
+      ? 'Alias asignado en este tenant. No es un alias Coelsa; un cambio real queda bloqueado 24 horas.'
+      : apiError(result, 'No pudimos asignar el alias.'));
+    if (response.ok) { formElement.reset(); await load(); }
+    setBusy(false);
+  }
+
   async function lookup(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); const form = new FormData(event.currentTarget);
     setBusy(true); setFeedback(''); setPreview(null);
@@ -198,7 +214,7 @@ export default function InstantPaymentsPanel({ role, accounts }: { role: Organiz
       <article><strong>{debits.filter((item) => item.status === 'pending').length}</strong><span>débitos pendientes</span></article>
       <article><strong>{qrs.filter((item) => item.status === 'active').length}</strong><span>QR activos</span></article>
     </div>
-    <p className="role-boundary-copy">Cimbra emite CVU con prefijo 000 y código PSP 9999, no asignado por Coelsa. El alias vive en el tenant. Un CBU externo se referencia para cash-out a settlement; no se emite CBU porque Cimbra no es banco.</p>
+    <p className="role-boundary-copy">Cimbra emite CVU con prefijo 000 y código PSP 9999, no asignado por Coelsa. El alias se asigna o cambia sobre un CVU existente y vive en el tenant; un cambio real queda bloqueado 24 horas. Un CBU externo se referencia para cash-out a settlement; no se emite CBU porque Cimbra no es banco.</p>
 
     <div className="compliance-grid wallets-grid">
       {canOperate && <article className="integration-card"><div className="card-head"><div><h2>Emitir CVU sandbox</h2><p>Cuenta ARS argentina · alias opcional</p></div></div>
@@ -206,6 +222,16 @@ export default function InstantPaymentsPanel({ role, accounts }: { role: Organiz
           <label>Cuenta<select name="accountId" required defaultValue=""><option value="" disabled>Seleccionar</option>{arsAccounts.map((account) => <option key={account.id} value={account.id}>{account.accountReference}</option>)}</select></label>
           <label>Alias opcional<input name="alias" minLength={6} maxLength={20} placeholder="COMERCIO.SUR" /></label>
           <button className="app-primary" disabled={busy || arsAccounts.length === 0}>{busy ? 'Emitiendo…' : 'Emitir CVU'}</button>
+        </form>
+      </article>}
+      {canOperate && instruments.some((item) => item.kind === 'cvu') && <article className="integration-card"><div className="card-head"><div><h2>Asignar o cambiar alias</h2><p>CVU existente · un cambio cada 24 h · unicidad del tenant</p></div></div>
+        <form className="book-statement-body" onSubmit={assignAlias}>
+          <label>CVU<select name="instrumentId" required defaultValue=""><option value="" disabled>Seleccionar</option>{instruments.filter((item) => item.kind === 'cvu').map((item) => {
+            const alias = instruments.find((candidate) => candidate.kind === 'alias' && candidate.accountId === item.accountId);
+            return <option key={item.id} value={item.id}>{item.value} · {alias ? alias.value : 'sin alias'}</option>;
+          })}</select></label>
+          <label>Alias<input name="alias" required minLength={6} maxLength={20} placeholder="COMERCIO.OESTE" /></label>
+          <button className="app-primary" disabled={busy}>{busy ? 'Guardando…' : 'Guardar alias'}</button>
         </form>
       </article>}
       <article className="integration-card"><div className="card-head"><div><h2>Directorio sandbox</h2><p>Confirmación de titular BCRA-like</p></div></div>

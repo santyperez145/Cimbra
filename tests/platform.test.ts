@@ -24,7 +24,7 @@ import { normalizePayoutBatchInput, normalizePayoutBeneficiaryInput, normalizePa
 import { parseBookTransferInput, statementPeriod } from '../app/lib/platform/book-transfers-input.ts';
 import { normalizeWalletInput, normalizeWalletProgramInput, normalizeWalletTransition, parseWalletPocketTransferInput } from '../app/lib/platform/wallets-input.ts';
 import { classifyRailValue, isSandboxCvu, isWellFormedCbu, issueSandboxCvu, normalizeAlias } from '../app/lib/platform/cbu.ts';
-import { normalizeDebitRequestInput, normalizeInstantTransferInput, normalizeIssueInstrumentInput, normalizePaymentQrInput } from '../app/lib/platform/instant-payments-input.ts';
+import { aliasChangeBlocked, ALIAS_CHANGE_WINDOW_MS, normalizeAssignAliasInput, normalizeDebitRequestInput, normalizeInstantTransferInput, normalizeIssueInstrumentInput, normalizePaymentQrInput } from '../app/lib/platform/instant-payments-input.ts';
 import { normalizePaymentLinkInput, normalizePaymentLinkPayInput } from '../app/lib/platform/collections-input.ts';
 import { normalizeCuit } from '../app/lib/platform/cuit.ts';
 import { normalizeEcheqAcceptInput, normalizeEcheqDepositInput, normalizeEcheqEndorseInput, normalizeEcheqInput } from '../app/lib/platform/echeqs-input.ts';
@@ -300,6 +300,12 @@ test('pagos instantáneos validan CBU/CVU, alias, titular y límites de riel san
   assert.equal(normalizeAlias('comercio.sur'), 'COMERCIO.SUR');
   assert.equal(normalizeAlias('ab'), null);
   assert.deepEqual(normalizeIssueInstrumentInput({ accountId, alias: 'comercio.sur' }), { accountId, alias: 'COMERCIO.SUR' });
+  assert.deepEqual(normalizeAssignAliasInput({ alias: 'comercio.oeste' }), { alias: 'COMERCIO.OESTE' });
+  assert.equal(normalizeAssignAliasInput({ alias: 'ab' }), null);
+  assert.equal(normalizeAssignAliasInput({ alias: 'COMERCIO.OESTE', extra: true }), null);
+  assert.equal(aliasChangeBlocked(null), false);
+  assert.equal(aliasChangeBlocked(new Date(Date.now() - 60_000).toISOString()), true);
+  assert.equal(aliasChangeBlocked(new Date(Date.now() - ALIAS_CHANGE_WINDOW_MS - 1_000).toISOString()), false);
   const transfer = normalizeInstantTransferInput({
     externalReference: 'IP-001', accountId, destination: cvu, description: ' Cobro ', amount: '10.50', currency: 'ars',
     confirmHolder: true, holderName: ' Comercio Sur ', taxIdLast4: '5678',

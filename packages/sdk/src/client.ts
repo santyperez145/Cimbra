@@ -8,7 +8,7 @@ import type {
   CreateRiskStepUpChallengeInput,
   CreateBookTransferInput, CreateRecurringPaymentMandateInput, CreateSettlementCycleInput, CreateTransferInput, CreateWebhookInput,
   CreatePayoutBatchInput, CreatePayoutBeneficiaryInput, CreateWalletInput, CreateWalletPocketTransferInput, CreateWalletProgramInput,
-  CreateDebitRequestInput, CreateInstantTransferInput, CreatePaymentQrInput, IssueRailInstrumentInput, PayPaymentQrInput,
+  AssignRailAliasInput, CreateDebitRequestInput, CreateInstantTransferInput, CreatePaymentQrInput, IssueRailInstrumentInput, PayPaymentQrInput,
   CreatePaymentLinkInput, PayPaymentLinkInput, PaymentLink,
   CreateEcheqInput, AcceptEcheqInput, EndorseEcheqInput, DepositEcheqInput, Echeq,
   InstantTransfer, PaymentQr, RailDirectoryPreview, RailInstrument,
@@ -282,6 +282,9 @@ export class Cimbra {
       this.request<RailInstrument>('GET', `/api/v1/rail-instruments/${encodeURIComponent(id)}`, undefined, options),
     issue: (input: IssueRailInstrumentInput, options?: RequestOptions) =>
       this.post<{ ok: true; instruments: RailInstrument[]; replayed: boolean }>('/api/v1/rail-instruments', input, options, true),
+    assignAlias: (id: string, input: AssignRailAliasInput, options?: RequestOptions) =>
+      this.patch<{ ok: true; instruments: RailInstrument[]; replayed: boolean }>(
+        `/api/v1/rail-instruments/${encodeURIComponent(id)}/alias`, input, options),
   };
 
   readonly railDirectory = {

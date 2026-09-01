@@ -21,6 +21,7 @@ export const WEBHOOK_EVENT_TYPES = [
   'wallet.closed',
   'wallet.pocket_transfer_created',
   'rail.instrument_issued',
+  'rail.alias_assigned',
   'instant.transfer_created',
   'instant.transfer_returned',
   'instant.transfer_settled',

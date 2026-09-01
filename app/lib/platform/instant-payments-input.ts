@@ -22,6 +22,22 @@ function collapsed(value: unknown, min: number, max: number) {
   return text.length >= min && text.length <= max ? text : '';
 }
 
+export const ALIAS_CHANGE_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+export function aliasChangeBlocked(valueChangedAt: string | null | undefined, now = Date.now()) {
+  if (!valueChangedAt) return false;
+  const changedAt = Date.parse(valueChangedAt);
+  return Number.isFinite(changedAt) && now - changedAt < ALIAS_CHANGE_WINDOW_MS;
+}
+
+export function normalizeAssignAliasInput(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const body = value as Record<string, unknown>;
+  if (!hasOnlyKeys(body, ['alias'])) return null;
+  const alias = normalizeAlias(body.alias);
+  return alias ? { alias } : null;
+}
+
 export function normalizeIssueInstrumentInput(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const body = value as Record<string, unknown>;
@@ -121,6 +137,7 @@ export function normalizeQrPayInput(value: unknown) {
 }
 
 export type NormalizedIssueInstrumentInput = NonNullable<ReturnType<typeof normalizeIssueInstrumentInput>>;
+export type NormalizedAssignAliasInput = NonNullable<ReturnType<typeof normalizeAssignAliasInput>>;
 export type NormalizedInstantTransferInput = NonNullable<ReturnType<typeof normalizeInstantTransferInput>>;
 export type NormalizedDebitRequestInput = NonNullable<ReturnType<typeof normalizeDebitRequestInput>>;
 export type NormalizedDebitResponse = NonNullable<ReturnType<typeof normalizeDebitResponse>>;

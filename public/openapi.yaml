@@ -720,6 +720,32 @@ paths:
       responses:
         '200': { description: Rail instrument, content: { application/json: { schema: { $ref: '#/components/schemas/RailInstrument' } } } }
         '404': { description: Instrument not found in tenant }
+  /api/v1/rail-instruments/{id}/alias:
+    patch:
+      operationId: assignRailAlias
+      summary: Assign or change the tenant alias of an existing sandbox CVU
+      description: Own Cimbra contract. Assigns or replaces the alias of a CVU already issued in the tenant. Uniqueness is tenant-scoped, not a national directory. A real change is limited to once per 24 hours; issuing the CVU or the first assignment does not start that window. Repeating the same alias returns 200 without moving the clock.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [alias]
+              properties:
+                alias: { type: string, minLength: 6, maxLength: 20 }
+      responses:
+        '200': { description: Alias assigned, unchanged or replayed }
+        '400': { description: Invalid alias format }
+        '403': { description: Missing transfers:write scope or finance.write permission }
+        '404': { description: Instrument not found in tenant }
+        '409': { description: Inactive instrument or idempotency mismatch }
+        '422': { description: Alias taken in tenant, no active CVU, or more than one change in 24 hours }
   /api/v1/rail-directory:
     get:
       operationId: lookupRailDirectory

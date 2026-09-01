@@ -50,7 +50,7 @@ test('el OpenAPI público usa el sandbox real y operaciones identificables', () 
   assert.equal(spec.info.version, '2026-09-01');
   assert.deepEqual(spec.servers, [{ url: 'https://cimbra-rose.vercel.app', description: 'Current environment is sandbox (BIND APIBANK, Pismo sandbox.pismolabs.io, Pomelo sandbox.api.pomelo.la). Production hostname is not provisioned.' }]);
   const operations = contractOperations();
-  assert.equal(operations.length, 161);
+  assert.equal(operations.length, 162);
   const ids = operations.map(({ operation }) => operation.operationId);
   assert.equal(ids.every(Boolean), true);
   assert.equal(new Set(ids).size, ids.length);
@@ -132,6 +132,7 @@ test('OpenAPI publica book transfers y statements como contratos completos', () 
   assert.match(reference, /path\.includes\('\/wallets'\) \|\| path\.includes\('\/wallet-programs'\)\) return 'Wallets'/);
   assert.match(reference, /path\.includes\('\/wallets'\) \|\| path\.includes\('\/wallet-programs'\)\) return `wallets:\$\{access\}`/);
   assert.equal(spec.paths['/api/v1/rail-instruments'].post.operationId, 'issueRailInstruments');
+  assert.equal(spec.paths['/api/v1/rail-instruments/{id}/alias'].patch.operationId, 'assignRailAlias');
   assert.equal(spec.paths['/api/v1/rail-directory'].get.operationId, 'lookupRailDirectory');
   assert.equal(spec.paths['/api/v1/instant-transfers'].post.operationId, 'createInstantTransfer');
   assert.equal(spec.paths['/api/v1/instant-transfers/{id}/return'].post.operationId, 'returnInstantTransfer');

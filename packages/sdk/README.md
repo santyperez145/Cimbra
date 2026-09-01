@@ -219,6 +219,8 @@ Cada bolsillo es una cuenta de producto. Freeze y close inactivan esas cuentas; 
 ```ts
 const issued = await cimbra.railInstruments.issue({
   accountId: '00000000-0000-4000-8000-000000000001',
+});
+await cimbra.railInstruments.assignAlias(issued.data.instruments[0].id, {
   alias: 'COMERCIO.SUR',
 });
 const preview = await cimbra.railDirectory.lookup(issued.data.instruments[0].value);
@@ -235,7 +237,7 @@ await cimbra.instantTransfers.create({
 });
 ```
 
-El CVU usa prefijo `000` y código PSP `9999` de Cimbra, no un código Coelsa. El alias vive en el tenant. Un débito o QR externo no está soportado.
+El CVU usa prefijo `000` y código PSP `9999` de Cimbra, no un código Coelsa. El alias vive en el tenant: se asigna o cambia sobre un CVU existente, con un cambio real cada 24 horas. Un débito o QR externo no está soportado.
 
 ## Cobranzas sandbox (Argentina)
 

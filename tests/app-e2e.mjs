@@ -561,20 +561,55 @@ try {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-cvu-dest-${runId}` },
     body: JSON.stringify({ accountId: destinationAccount.id }),
   }), 201);
-  const destinationCvu = issuedDestination.instruments.find((item) => item.kind === 'cvu').value;
-  const directory = await json(await request(`/api/v1/rail-directory?q=${destinationCvu}`), 200);
+  const destinationCvu = issuedDestination.instruments.find((item) => item.kind === 'cvu');
+  const destAlias = `QADEST${runId.replaceAll('-', '').slice(0, 8)}`;
+  const assignKey = `qa-alias-assign-${runId}`;
+  const assigned = await json(await request(`/api/v1/rail-instruments/${destinationCvu.id}/alias`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': assignKey },
+    body: JSON.stringify({ alias: destAlias }),
+  }), 200);
+  assert.equal(assigned.replayed, false);
+  assert.equal(assigned.instruments.find((item) => item.kind === 'alias').value, destAlias);
+  const assignedReplay = await json(await request(`/api/v1/rail-instruments/${destinationCvu.id}/alias`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': assignKey },
+    body: JSON.stringify({ alias: destAlias }),
+  }), 200);
+  assert.equal(assignedReplay.replayed, true);
+  const aliasConflict = await json(await request(`/api/v1/rail-instruments/${destinationCvu.id}/alias`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-alias-conflict-${runId}` },
+    body: JSON.stringify({ alias }),
+  }), 422);
+  assert.equal(aliasConflict.error.code, 'alias_conflict');
+  const changedAlias = `QACHG${runId.replaceAll('-', '').slice(0, 8)}`;
+  const changed = await json(await request(`/api/v1/rail-instruments/${destinationCvu.id}/alias`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-alias-change-${runId}` },
+    body: JSON.stringify({ alias: changedAlias }),
+  }), 200);
+  assert.equal(changed.instruments.find((item) => item.kind === 'alias').value, changedAlias);
+  const rateLimited = await json(await request(`/api/v1/rail-instruments/${destinationCvu.id}/alias`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-alias-rate-${runId}` },
+    body: JSON.stringify({ alias: `QA2ND${runId.replaceAll('-', '').slice(0, 8)}` }),
+  }), 422);
+  assert.equal(rateLimited.error.code, 'alias_change_rate_limited');
+  const sameAlias = await json(await request(`/api/v1/rail-instruments/${destinationCvu.id}/alias`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-alias-same-${runId}` },
+    body: JSON.stringify({ alias: changedAlias }),
+  }), 200);
+  assert.equal(sameAlias.replayed, false);
+  const destinationCvuValue = destinationCvu.value;
+  const directory = await json(await request(`/api/v1/rail-directory?q=${destinationCvuValue}`), 200);
   assert.equal(directory.found, true); assert.equal(directory.holderName, 'QA Company'); assert.equal(directory.taxIdLast4, '5678');
   const holderMismatch = await json(await request('/api/v1/instant-transfers', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-ip-mismatch-${runId}` },
     body: JSON.stringify({
-      externalReference: `IP-MIS-${runId}`, accountId: account.id, destination: destinationCvu, description: 'Mismatch',
+      externalReference: `IP-MIS-${runId}`, accountId: account.id, destination: destinationCvuValue, description: 'Mismatch',
       amount: '10.00', currency: 'ARS', confirmHolder: true, holderName: 'Otro Titular', taxIdLast4: '0000',
     }),
   }), 422);
   assert.equal(holderMismatch.error.code, 'holder_mismatch');
   const internalKey = `qa-ip-internal-${runId}`;
   const internalPayload = {
-    externalReference: `IP-IN-${runId}`, accountId: account.id, destination: destinationCvu, description: 'Crédito interno AR',
+    externalReference: `IP-IN-${runId}`, accountId: account.id, destination: destinationCvuValue, description: 'Crédito interno AR',
     amount: '25.00', currency: 'ARS', confirmHolder: true, holderName: 'QA Company', taxIdLast4: '5678',
   };
   const internalCreated = await json(await request('/api/v1/instant-transfers', {
@@ -614,7 +649,7 @@ try {
   const debitCreated = await json(await request('/api/v1/debit-requests', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-debit-${runId}` },
     body: JSON.stringify({
-      externalReference: `DB-${runId}`, collectorAccountId: account.id, payerDestination: destinationCvu,
+      externalReference: `DB-${runId}`, collectorAccountId: account.id, payerDestination: destinationCvuValue,
       description: 'Débito interno', amount: '8.00', currency: 'ARS',
     }),
   }), 201);
@@ -2071,7 +2106,7 @@ try {
 
   console.log(JSON.stringify({
     ok: true,
-    checks: ['auth', 'landing-session-state', 'console-session-guard', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'viewer-read-only', 'member-invitations', 'dual-control', 'maker-checker', 'transfer-approval', 'book-transfer-approval', 'approval-replay', 'approval-fail-closed', 'payout-approval', 'risk-case-approval', 'risk-hold-bypass-guard', 'reconciliation-exception-approval', 'disputes', 'partial-dispute', 'dispute-ledger-credit', 'dispute-compensation', 'dispute-approval', 'dispute-evidence', 'dispute-rbac', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'book-transfers', 'account-statements', 'book-transfer-compensation', 'book-transfer-rbac', 'wallets', 'wallet-pockets', 'wallet-lifecycle', 'wallet-rbac', 'instant-payments', 'cvu-alias', 'holder-confirmation', 'internal-credit', 'sandbox-outbound', 'internal-debit', 'cimbra-qr', 'instant-return', 'instant-rbac', 'collections', 'payment-links', 'collection-internal', 'collection-inbound', 'collection-refund', 'collection-cancel', 'collection-card-denied', 'collection-rbac', 'echeqs', 'echeq-accept', 'echeq-deposit', 'echeq-cancel', 'echeq-return', 'echeq-nsf', 'echeq-discount-denied', 'echeq-rbac', 'payout-beneficiaries', 'protected-payout-destination', 'payout-batches', 'payout-scheduling', 'payout-result-file', 'payout-compensation', 'payout-rbac', 'payout-s2s', 'billers', 'biller-obligations', 'protected-subscriber-reference', 'bill-payments', 'mobile-topups', 'gift-cards', 'recurring-mandates', 'mandate-consent', 'biller-rbac', 'biller-s2s', 'bill-payment-compensation', 'cdd-kyb', 'cdd-evidence', 'cdd-idempotency', 'cdd-maker-checker', 'cdd-s2s-orchestration', 'cdd-session-only-decision', 'cdd-expiry', 'cdd-rbac', 'card-programs', 'card-lifecycle', 'card-controls', 'card-terminal-state', 'card-rbac', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'risk-signals-privacy', 'risk-decision-lists', 'risk-step-up', 'risk-step-up-idempotency', 'risk-step-up-rbac', 'risk-decision-slo', 'risk-confirmed-outcomes', 'risk-supervised-metrics', 'risk-outcome-revisions', 'reconciliation', 'operations-work-queue', 'operations-idempotency', 'operations-evidence', 'operations-rbac', 'csv-import', 'settlement', 'private-evidence', 'audit'],
+    checks: ['auth', 'landing-session-state', 'console-session-guard', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'viewer-read-only', 'member-invitations', 'dual-control', 'maker-checker', 'transfer-approval', 'book-transfer-approval', 'approval-replay', 'approval-fail-closed', 'payout-approval', 'risk-case-approval', 'risk-hold-bypass-guard', 'reconciliation-exception-approval', 'disputes', 'partial-dispute', 'dispute-ledger-credit', 'dispute-compensation', 'dispute-approval', 'dispute-evidence', 'dispute-rbac', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'book-transfers', 'account-statements', 'book-transfer-compensation', 'book-transfer-rbac', 'wallets', 'wallet-pockets', 'wallet-lifecycle', 'wallet-rbac', 'instant-payments', 'cvu-alias', 'alias-assign', 'holder-confirmation', 'internal-credit', 'sandbox-outbound', 'internal-debit', 'cimbra-qr', 'instant-return', 'instant-rbac', 'collections', 'payment-links', 'collection-internal', 'collection-inbound', 'collection-refund', 'collection-cancel', 'collection-card-denied', 'collection-rbac', 'echeqs', 'echeq-accept', 'echeq-deposit', 'echeq-cancel', 'echeq-return', 'echeq-nsf', 'echeq-discount-denied', 'echeq-rbac', 'payout-beneficiaries', 'protected-payout-destination', 'payout-batches', 'payout-scheduling', 'payout-result-file', 'payout-compensation', 'payout-rbac', 'payout-s2s', 'billers', 'biller-obligations', 'protected-subscriber-reference', 'bill-payments', 'mobile-topups', 'gift-cards', 'recurring-mandates', 'mandate-consent', 'biller-rbac', 'biller-s2s', 'bill-payment-compensation', 'cdd-kyb', 'cdd-evidence', 'cdd-idempotency', 'cdd-maker-checker', 'cdd-s2s-orchestration', 'cdd-session-only-decision', 'cdd-expiry', 'cdd-rbac', 'card-programs', 'card-lifecycle', 'card-controls', 'card-terminal-state', 'card-rbac', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'risk-signals-privacy', 'risk-decision-lists', 'risk-step-up', 'risk-step-up-idempotency', 'risk-step-up-rbac', 'risk-decision-slo', 'risk-confirmed-outcomes', 'risk-supervised-metrics', 'risk-outcome-revisions', 'reconciliation', 'operations-work-queue', 'operations-idempotency', 'operations-evidence', 'operations-rbac', 'csv-import', 'settlement', 'private-evidence', 'audit'],
   }));
 } finally {
   await cleanup();

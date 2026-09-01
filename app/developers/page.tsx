@@ -29,6 +29,11 @@ const errorResponses = [
 const changelog = [
   {
     date: '01 SEP 2026',
+    title: 'Asignar o cambiar alias de un CVU sandbox',
+    detail: 'PATCH /api/v1/rail-instruments/{id}/alias asigna o reemplaza el alias de un CVU ya emitido. La unicidad es del tenant, no un directorio nacional. Un cambio real queda limitado a una vez cada 24 horas; emitir el CVU o la primera asignación no arrancan esa ventana. Repetir el mismo alias responde 200 sin mover el reloj.',
+  },
+  {
+    date: '01 SEP 2026',
     title: 'Readiness alineado a BIND, Pismo, Pomelo y tapi',
     detail: 'GET /api/v1/live-readiness deja de inventar gates de software. Expone sandbox vs production como Pismo y BIND, las etapas Integración → Homologación → Go Live de Pomelo, y productos del catálogo público: consulta CBU/CVU/Alias, transferencias, DEBIN, ECHEQ, CVU, QR interoperable, cobro BIND PSP, issuing PCI/BIN y pago de servicios tapi. Production no tiene hostname. Ningún producto está en Go Live.',
   },
@@ -331,6 +336,8 @@ const movement = await cimbra.wallets.transfer(wallet.data.wallet.id, {
 });`;
   const instantExample = `const issued = await cimbra.railInstruments.issue({
   accountId: '<account_uuid>',
+});
+await cimbra.railInstruments.assignAlias(issued.data.instruments[0].id, {
   alias: 'COMERCIO.SUR',
 });
 const preview = await cimbra.railDirectory.lookup(issued.data.instruments[0].value);
@@ -546,9 +553,9 @@ await cimbra.paymentLinks.pay(link.data.link.id, {
 
       <section id="instant-payments" className="docs-section">
         <p className="docs-kicker">ARGENTINA · SANDBOX</p><h2>CVU propio, alias de tenant, sin fingir Coelsa.</h2>
-        <p className="docs-section-lede">Cimbra emite CVU con prefijo 000 y código PSP 9999, confirma titular y liquida el crédito interno sobre el ledger. Un CBU externo sale a settlement. El débito y el QR sólo operan entre cuentas del tenant.</p>
+        <p className="docs-section-lede">Cimbra emite CVU con prefijo 000 y código PSP 9999, asigna o cambia el alias del tenant sobre un CVU existente, confirma titular y liquida el crédito interno sobre el ledger. Un CBU externo sale a settlement. El débito y el QR sólo operan entre cuentas del tenant.</p>
         <div className="webhook-contract-grid">
-          <article><strong>Instrumentos</strong><p>Un CVU por cuenta ARS argentina y un alias opcional único en el tenant. No se emite CBU porque Cimbra no es banco.</p></article>
+          <article><strong>Instrumentos</strong><p>Un CVU por cuenta ARS argentina. El alias se asigna o cambia sobre ese CVU; es único en el tenant y un cambio real queda bloqueado 24 horas. No se emite CBU porque Cimbra no es banco.</p></article>
           <article><strong>Confirmación</strong><p>El crédito exige <code>confirmHolder</code>, nombre y últimos cuatro del CUIT. Un mismatch interno responde <code>422 holder_mismatch</code>.</p></article>
           <article><strong>Débito y QR</strong><p>El débito externo responde <code>external_debit_not_supported</code>. El payload <code>cimbra:qr:v1</code> no es el QR interoperable.</p></article>
           <article><strong>Límite real</strong><p>Transferencias 3.0, DEBIN y directorio nacional entran con membresía o sponsor directo. BIND y el resto siguen como benchmarks, no conectores.</p></article>

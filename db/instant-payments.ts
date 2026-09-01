@@ -4,8 +4,9 @@ import { type Currency, minorToMajorNumber } from '@/app/lib/ledger/money';
 import {
   isSandboxCvu, issueSandboxCvu, namesMatch, railLast4,
 } from '@/app/lib/platform/cbu';
+import { aliasChangeBlocked } from '@/app/lib/platform/instant-payments-input';
 import type {
-  CounterpartyKind, NormalizedDebitRequestInput, NormalizedDebitResponse, NormalizedInstantTransferInput,
+  CounterpartyKind, NormalizedAssignAliasInput, NormalizedDebitRequestInput, NormalizedDebitResponse, NormalizedInstantTransferInput,
   NormalizedIssueInstrumentInput, NormalizedPaymentQrInput, NormalizedQrPayInput, RailScheme,
 } from '@/app/lib/platform/instant-payments-input';
 import { assertSandboxLedgerOrCertifiedRail } from './platform-rails';
@@ -28,7 +29,8 @@ type AccountRow = {
 
 type InstrumentRow = {
   id: string; accountId: string; accountReference: string; customerName: string; kind: 'cvu' | 'alias';
-  value: string; holderName: string; taxIdLast4: string; status: string; requestFingerprint: string; createdAt: string;
+  value: string; holderName: string; taxIdLast4: string; status: string; requestFingerprint: string;
+  valueChangedAt: string | null; createdAt: string;
 };
 
 type TransferRow = {
@@ -48,7 +50,7 @@ type QrRow = {
 
 const instrumentSelect = `SELECT ri.id, ri.account_id AS "accountId", a.account_reference AS "accountReference",
   c.name AS "customerName", ri.kind, ri.value, ri.holder_name AS "holderName", ri.tax_id_last4 AS "taxIdLast4",
-  ri.status, ri.request_fingerprint AS "requestFingerprint", ri.created_at AS "createdAt"
+  ri.status, ri.request_fingerprint AS "requestFingerprint", ri.value_changed_at AS "valueChangedAt", ri.created_at AS "createdAt"
   FROM rail_instruments ri JOIN accounts a ON a.id = ri.account_id JOIN customers c ON c.id = a.customer_id`;
 
 const transferSelect = `SELECT it.id, it.scheme, it.direction, it.source_account_id AS "sourceAccountId",
@@ -71,7 +73,8 @@ const qrSelect = `SELECT q.id, q.account_id AS "accountId", a.account_reference 
   FROM payment_qrs q JOIN accounts a ON a.id = q.account_id`;
 
 function serializeInstrument(row: InstrumentRow) {
-  const { requestFingerprint: _fingerprint, ...publicRow } = row; void _fingerprint;
+  const { requestFingerprint: _fingerprint, valueChangedAt: _changed, ...publicRow } = row;
+  void _fingerprint; void _changed;
   return { ...publicRow, last4: railLast4(row.value) };
 }
 
@@ -189,28 +192,28 @@ export async function issueRailInstruments(input: {
     const createdAt = new Date().toISOString();
     const cvuId = crypto.randomUUID();
     await database.prepare(`INSERT INTO rail_instruments
-      (id, organization_id, account_id, idempotency_key, request_fingerprint, kind, value, holder_name, tax_id_last4, status, created_by, created_at)
-      VALUES (?, ?, ?, ?, ?, 'cvu', ?, ?, ?, 'active', ?, ?)`).bind(
+      (id, organization_id, account_id, idempotency_key, request_fingerprint, kind, value, holder_name, tax_id_last4, status, created_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, 'cvu', ?, ?, ?, 'active', ?, ?, ?)`).bind(
       cvuId, input.organizationId, account.id, input.idempotencyKey, requestFingerprint, cvu,
-      account.customerName, account.taxIdLast4, input.actor.userId, createdAt,
+      account.customerName, account.taxIdLast4, input.actor.userId, createdAt, createdAt,
     ).run();
     const issued = [serializeInstrument({
       id: cvuId, accountId: account.id, accountReference: account.accountReference, customerName: account.customerName,
       kind: 'cvu', value: cvu, holderName: account.customerName, taxIdLast4: account.taxIdLast4, status: 'active',
-      requestFingerprint, createdAt,
+      requestFingerprint, valueChangedAt: null, createdAt,
     })];
     if (input.instrument.alias) {
       const aliasId = crypto.randomUUID();
       await database.prepare(`INSERT INTO rail_instruments
-        (id, organization_id, account_id, idempotency_key, request_fingerprint, kind, value, holder_name, tax_id_last4, status, created_by, created_at)
-        VALUES (?, ?, ?, ?, ?, 'alias', ?, ?, ?, 'active', ?, ?)`).bind(
+        (id, organization_id, account_id, idempotency_key, request_fingerprint, kind, value, holder_name, tax_id_last4, status, created_by, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 'alias', ?, ?, ?, 'active', ?, ?, ?)`).bind(
         aliasId, input.organizationId, account.id, `${input.idempotencyKey}:alias`, requestFingerprint, input.instrument.alias,
-        account.customerName, account.taxIdLast4, input.actor.userId, createdAt,
+        account.customerName, account.taxIdLast4, input.actor.userId, createdAt, createdAt,
       ).run();
       issued.push(serializeInstrument({
         id: aliasId, accountId: account.id, accountReference: account.accountReference, customerName: account.customerName,
         kind: 'alias', value: input.instrument.alias, holderName: account.customerName, taxIdLast4: account.taxIdLast4,
-        status: 'active', requestFingerprint, createdAt,
+        status: 'active', requestFingerprint, valueChangedAt: null, createdAt,
       }));
     }
     await insertAudit(database, {
@@ -219,6 +222,75 @@ export async function issueRailInstruments(input: {
       payload: { accountId: account.id, kinds: issued.map((item) => item.kind), last4: railLast4(cvu) },
     });
     return { instruments: issued, replayed: false };
+  });
+}
+
+export async function assignRailAlias(input: {
+  organizationId: string; actor: AuthUser; idempotencyKey: string; instrumentId: string; alias: NormalizedAssignAliasInput;
+}) {
+  await assertSandboxLedgerOrCertifiedRail('cvu', InstantPaymentError);
+  const requestFingerprint = await sha256(JSON.stringify({ instrumentId: input.instrumentId, alias: input.alias.alias }));
+  return getDatabaseClient().transaction(async (database) => {
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:rail-alias-assign:${input.idempotencyKey}`).first();
+    const replay = await database.prepare(`${instrumentSelect} WHERE ri.organization_id = ? AND ri.assign_idempotency_key = ? LIMIT 1`)
+      .bind(input.organizationId, input.idempotencyKey).first<InstrumentRow>();
+    if (replay) {
+      if (replay.requestFingerprint !== requestFingerprint) {
+        throw new InstantPaymentError('La Idempotency-Key ya fue usada con otro alias.', 409, 'idempotency_mismatch');
+      }
+      const instruments = await database.prepare(`${instrumentSelect} WHERE ri.organization_id = ? AND ri.account_id = ? ORDER BY ri.kind`)
+        .bind(input.organizationId, replay.accountId).all<InstrumentRow>();
+      return { instruments: instruments.results.map(serializeInstrument), replayed: true };
+    }
+    const target = await database.prepare(`${instrumentSelect} WHERE ri.organization_id = ? AND ri.id = ? LIMIT 1 FOR UPDATE OF ri`)
+      .bind(input.organizationId, input.instrumentId).first<InstrumentRow>();
+    if (!target) throw new InstantPaymentError('Instrumento no encontrado.', 404, 'rail_instrument_not_found');
+    if (target.status !== 'active') throw new InstantPaymentError('El instrumento no está activo.', 409, 'rail_instrument_inactive');
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:rail-alias:${target.accountId}`).first();
+    const cvu = await database.prepare(`${instrumentSelect} WHERE ri.organization_id = ? AND ri.account_id = ? AND ri.kind = 'cvu' LIMIT 1 FOR UPDATE OF ri`)
+      .bind(input.organizationId, target.accountId).first<InstrumentRow>();
+    if (!cvu || cvu.status !== 'active') {
+      throw new InstantPaymentError('No existe un CVU activo para asignar el alias.', 422, 'cvu_not_found');
+    }
+    const taken = await database.prepare(
+      "SELECT id FROM rail_instruments WHERE organization_id = ? AND value = ? AND account_id <> ? LIMIT 1",
+    ).bind(input.organizationId, input.alias.alias, target.accountId).first<{ id: string }>();
+    if (taken) throw new InstantPaymentError('El alias ya está asignado en este tenant.', 422, 'alias_conflict');
+    const now = new Date().toISOString();
+    const existingAlias = await database.prepare(`${instrumentSelect} WHERE ri.organization_id = ? AND ri.account_id = ? AND ri.kind = 'alias' LIMIT 1 FOR UPDATE OF ri`)
+      .bind(input.organizationId, target.accountId).first<InstrumentRow>();
+    if (existingAlias && existingAlias.value === input.alias.alias) {
+      const instruments = await database.prepare(`${instrumentSelect} WHERE ri.organization_id = ? AND ri.account_id = ? ORDER BY ri.kind`)
+        .bind(input.organizationId, target.accountId).all<InstrumentRow>();
+      return { instruments: instruments.results.map(serializeInstrument), replayed: false };
+    }
+    if (existingAlias && aliasChangeBlocked(existingAlias.valueChangedAt)) {
+      throw new InstantPaymentError('El alias no puede modificarse más de una vez en 24 horas.', 422, 'alias_change_rate_limited');
+    }
+    if (existingAlias) {
+      await database.prepare(`UPDATE rail_instruments
+        SET value = ?, request_fingerprint = ?, assign_idempotency_key = ?, value_changed_at = ?, updated_at = ?
+        WHERE id = ?`).bind(input.alias.alias, requestFingerprint, input.idempotencyKey, now, now, existingAlias.id).run();
+    } else {
+      const aliasId = crypto.randomUUID();
+      await database.prepare(`INSERT INTO rail_instruments
+        (id, organization_id, account_id, idempotency_key, request_fingerprint, kind, value, holder_name, tax_id_last4,
+         status, assign_idempotency_key, created_by, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 'alias', ?, ?, ?, 'active', ?, ?, ?, ?)`).bind(
+        aliasId, input.organizationId, target.accountId, `alias-assign:${input.idempotencyKey}`, requestFingerprint,
+        input.alias.alias, cvu.holderName, cvu.taxIdLast4, input.idempotencyKey, input.actor.userId, now, now,
+      ).run();
+    }
+    await insertAudit(database, {
+      organizationId: input.organizationId, actorId: input.actor.userId, action: 'rail.alias_assigned',
+      resourceType: 'rail_instrument', resourceId: cvu.id,
+      payload: { accountId: target.accountId, aliasLast4: railLast4(input.alias.alias), previousLast4: existingAlias ? railLast4(existingAlias.value) : null },
+    });
+    const instruments = await database.prepare(`${instrumentSelect} WHERE ri.organization_id = ? AND ri.account_id = ? ORDER BY ri.kind`)
+      .bind(input.organizationId, target.accountId).all<InstrumentRow>();
+    return { instruments: instruments.results.map(serializeInstrument), replayed: false };
   });
 }
 
