@@ -10,6 +10,7 @@ import type {
   CreatePayoutBatchInput, CreatePayoutBeneficiaryInput, CreateWalletInput, CreateWalletPocketTransferInput, CreateWalletProgramInput,
   CreateDebitRequestInput, CreateInstantTransferInput, CreatePaymentQrInput, IssueRailInstrumentInput, PayPaymentQrInput,
   CreatePaymentLinkInput, PayPaymentLinkInput, PaymentLink,
+  CreateEcheqInput, AcceptEcheqInput, EndorseEcheqInput, DepositEcheqInput, Echeq,
   InstantTransfer, PaymentQr, RailDirectoryPreview, RailInstrument,
   PayoutBatch, PayoutBeneficiary,
   Customer, DueDiligenceCase, DueDiligenceCheck, DueDiligenceParty, DueDiligenceState,
@@ -326,6 +327,30 @@ export class Cimbra {
     refund: (id: string, options?: RequestOptions) =>
       this.post<{ ok: true; link: PaymentLink; reversal: Transaction; replayed: boolean }>(
         `/api/v1/payment-links/${encodeURIComponent(id)}/refund`, undefined, options, true),
+  };
+
+  readonly echeqs = {
+    list: (options?: ListOptions) => this.request<Page<Echeq>>('GET', listPath('/api/v1/echeqs', options), undefined, options),
+    listAll: (options?: ListOptions) => this.iterate((page) => this.echeqs.list({ ...options, cursor: page })),
+    retrieve: (id: string, options?: RequestOptions) =>
+      this.request<Echeq>('GET', `/api/v1/echeqs/${encodeURIComponent(id)}`, undefined, options),
+    issue: (input: CreateEcheqInput, options?: RequestOptions) =>
+      this.post<{ ok: true; echeq: Echeq; replayed: boolean }>('/api/v1/echeqs', input, options, true),
+    accept: (id: string, input: AcceptEcheqInput, options?: RequestOptions) =>
+      this.post<{ ok: true; echeq: Echeq; replayed: boolean }>(
+        `/api/v1/echeqs/${encodeURIComponent(id)}/accept`, input, options, true),
+    endorse: (id: string, input: EndorseEcheqInput, options?: RequestOptions) =>
+      this.post<{ ok: true; echeq: Echeq; replayed: boolean }>(
+        `/api/v1/echeqs/${encodeURIComponent(id)}/endorse`, input, options, true),
+    deposit: (id: string, input: DepositEcheqInput, options?: RequestOptions) =>
+      this.post<{ ok: true; echeq: Echeq; replayed: boolean }>(
+        `/api/v1/echeqs/${encodeURIComponent(id)}/deposit`, input, options, true),
+    cancel: (id: string, options?: RequestOptions) =>
+      this.post<{ ok: true; echeq: Echeq; replayed: boolean }>(
+        `/api/v1/echeqs/${encodeURIComponent(id)}/cancel`, undefined, options, true),
+    return: (id: string, options?: RequestOptions) =>
+      this.post<{ ok: true; echeq: Echeq; replayed: boolean }>(
+        `/api/v1/echeqs/${encodeURIComponent(id)}/return`, undefined, options, true),
   };
 
   readonly billers = {

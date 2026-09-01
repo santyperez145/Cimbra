@@ -16,6 +16,7 @@ La independencia tecnológica no elimina la realidad de los rieles. Para mover f
 | Payment Orchestration | intents, cash-in/out, transfers, routing, estados y doble aprobación | API, webhooks, SDK, consola | Sandbox operativo |
 | Beneficiaries & Payout Batches | destinos protegidos, lotes inmutables, agenda/deadline, doble aprobación, ejecución y resultado por ítem | API, webhooks, SDK, archivos, consola | Sandbox operativo; sin riel de dinero real |
 | Instant Payments | CVU sandbox, alias tenant, confirmación de titular, crédito, débito interno, QR Cimbra, returns | API, webhooks, SDK, consola | Sandbox operativo; sin Coelsa, DEBIN, directorio nacional ni QR interoperable |
+| ECHEQ | emisión, aceptación, endoso, depósito interno, NSF, anulación y devolución previa | API, webhooks, SDK, consola | Sandbox operativo; sin Coelsa, CMC7, descuento, custodia ni compensación de cámara |
 | Card Issuing | programas, lifecycle, límites y controles por canal/MCC; tokenización futura | API, webhooks, SDK, consola | Sandbox operativo sin PAN/CVV ni red |
 | Disputes & Chargebacks | disputas parciales, lifecycle, evidencia, créditos compensables, SLA | API, SDK, eventos, consola | Sandbox |
 | Card Processing | autorización, stand-in, clearing, presentments, 3DS | API, ISO 8583, eventos, archivos | Roadmap |

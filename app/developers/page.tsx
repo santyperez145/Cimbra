@@ -29,6 +29,11 @@ const errorResponses = [
 const changelog = [
   {
     date: '01 SEP 2026',
+    title: 'ECHEQ sandbox para Argentina',
+    detail: 'Emisión, aceptación, endoso, depósito interno, anulación y devolución previa. Payload cimbra:echeq:v1, CUIT AFIP y rechazo por fondos insuficientes. Descuento, custodia, USD y Coelsa responden 422. No es un cheque compensable en cámara.',
+  },
+  {
+    date: '01 SEP 2026',
     title: 'Cobranzas sandbox para Argentina',
     detail: 'Links de cobro con payload cimbra:link:v1, eco cerrado entre cuentas Cimbra, inbound ledger y devoluciones compensatorias. Tarjetas, POS y QR interoperable responden 422. No es adquirencia de red.',
   },

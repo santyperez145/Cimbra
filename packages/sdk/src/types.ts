@@ -267,7 +267,16 @@ export type PaymentLink = {
   allowedMethods: CollectionMethod[]; payload: string;
   status: 'open' | 'pending' | 'paid' | 'expired' | 'cancelled' | 'refunded'; expiresAt: string;
   paidMethod: CollectionMethod | null; payerAccountId: string | null; payerAccountReference: string | null;
-  transactionId: string | null; reversalTransactionId: string | null; createdAt: string; updatedAt: string;
+  transactionId: string | null; reversalTransactionId: string | null;   createdAt: string; updatedAt: string;
+};
+export type EcheqStatus = 'issued' | 'accepted' | 'endorsed' | 'pending' | 'deposited' | 'cancelled' | 'returned' | 'rejected' | 'expired';
+export type Echeq = {
+  id: string; drawerAccountId: string; drawerAccountReference: string; drawerCustomerName: string;
+  holderAccountId: string | null; holderAccountReference: string | null;
+  amountMinor: string; amount: number; currency: 'ARS'; description: string; externalReference: string;
+  payload: string; toOrder: boolean; paymentDate: string; expiresAt: string; status: EcheqStatus;
+  beneficiaryName: string; beneficiaryTaxLast4: string; endorsementCount: number; rejectReason: string | null;
+  transactionId: string | null; rail: 'cimbra_sandbox'; createdAt: string; updatedAt: string;
 };
 export type DisputeReason = 'card_not_present' | 'duplicate' | 'amount_mismatch' | 'service_not_received' | 'credit_not_processed' | 'cash_not_received' | 'other';
 export type DisputeStatus = 'opened' | 'under_review' | 'network_ready' | 'won' | 'lost' | 'rejected' | 'cancelled';
@@ -399,6 +408,16 @@ export type CreatePaymentLinkInput = {
   expiresInMinutes?: number; methods?: CollectionMethod[];
 };
 export type PayPaymentLinkInput = { method: CollectionMethod | 'card' | 'pos' | 'tap_to_phone' | 'qr_interoperable'; payerAccountId?: string; signals?: RiskSignalsInput };
+export type CreateEcheqInput = {
+  drawerAccountId: string; externalReference: string; description: string; amount: string; currency?: 'ARS' | 'USD';
+  beneficiaryName: string; beneficiaryTaxId: string; paymentDate?: string; toOrder?: boolean;
+  discount?: boolean; custody?: boolean; clearing?: 'coelsa' | 'camara';
+};
+export type AcceptEcheqInput = { accountId: string; taxId: string };
+export type EndorseEcheqInput = { beneficiaryName: string; beneficiaryTaxId: string; discount?: boolean };
+export type DepositEcheqInput = {
+  accountId: string; taxId: string; destinationKind?: 'cimbra_account' | 'cbu' | 'cvu' | 'coelsa'; signals?: RiskSignalsInput;
+};
 export type CreatePaymentInput = { accountId: string; direction: 'cash_in' | 'cash_out'; counterparty: string; description: string; amount: string; currency: Currency; signals?: RiskSignalsInput };
 export type CreateBillerInput = {
   code: string; name: string; country: string; category: Biller['category']; serviceType: Biller['serviceType']; currency: Currency;

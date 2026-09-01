@@ -120,6 +120,8 @@ async function cleanup() {
       await transaction`DELETE FROM payout_beneficiaries WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM payment_qrs WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM payment_links WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM echeq_endorsements WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM echeqs WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM instant_transfers WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM rail_instruments WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM wallet_lifecycle_events WHERE organization_id = ${organizationId}`;
@@ -696,6 +698,124 @@ try {
   }), 201);
   assert.equal(cancelled.link.status, 'cancelled');
   assert.ok((await json(await request('/api/v1/payment-links?limit=10'), 200)).data.some((item) => item.id === linkCreated.link.id));
+
+  const beneficiaryCuit = '30000075678';
+  const echeqPayload = {
+    drawerAccountId: account.id, externalReference: `CHQ-${runId}`, description: 'Alquiler QA',
+    amount: '20.00', currency: 'ARS', beneficiaryName: 'QA Company', beneficiaryTaxId: beneficiaryCuit, toOrder: true,
+  };
+  const echeqIssued = await json(await request('/api/v1/echeqs', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-echeq-${runId}` },
+    body: JSON.stringify(echeqPayload),
+  }), 201);
+  assert.equal(echeqIssued.echeq.status, 'issued'); assert.match(echeqIssued.echeq.payload, /^cimbra:echeq:v1:/);
+  assert.equal(echeqIssued.echeq.rail, 'cimbra_sandbox'); assert.equal(echeqIssued.echeq.beneficiaryTaxLast4, '5678');
+  const echeqReplay = await json(await request('/api/v1/echeqs', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-echeq-${runId}` },
+    body: JSON.stringify(echeqPayload),
+  }), 200);
+  assert.equal(echeqReplay.replayed, true);
+  const discountDenied = await json(await request('/api/v1/echeqs', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-echeq-discount-${runId}` },
+    body: JSON.stringify({ ...echeqPayload, externalReference: `CHQ-DISC-${runId}`, discount: true }),
+  }), 422);
+  assert.equal(discountDenied.error.code, 'echeq_discount_not_supported');
+  const accepted = await json(await request(`/api/v1/echeqs/${echeqIssued.echeq.id}/accept`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-echeq-accept-${runId}` },
+    body: JSON.stringify({ accountId: destinationAccount.id, taxId: beneficiaryCuit }),
+  }), 201);
+  assert.equal(accepted.echeq.status, 'accepted');
+  const acceptedReplay = await json(await request(`/api/v1/echeqs/${echeqIssued.echeq.id}/accept`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-echeq-accept-${runId}` },
+    body: JSON.stringify({ accountId: destinationAccount.id, taxId: beneficiaryCuit }),
+  }), 200);
+  assert.equal(acceptedReplay.replayed, true);
+  const chamberDenied = await json(await request(`/api/v1/echeqs/${echeqIssued.echeq.id}/deposit`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-echeq-cbu-${runId}` },
+    body: JSON.stringify({ accountId: destinationAccount.id, taxId: beneficiaryCuit, destinationKind: 'cbu' }),
+  }), 422);
+  assert.equal(chamberDenied.error.code, 'coelsa_clearing_not_supported');
+  const deposited = await json(await request(`/api/v1/echeqs/${echeqIssued.echeq.id}/deposit`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-echeq-deposit-${runId}` },
+    body: JSON.stringify({ accountId: destinationAccount.id, taxId: beneficiaryCuit }),
+  }), 201);
+  assert.equal(deposited.echeq.status, 'deposited');
+  const depositedReplay = await json(await request(`/api/v1/echeqs/${echeqIssued.echeq.id}/deposit`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-echeq-deposit-${runId}` },
+    body: JSON.stringify({ accountId: destinationAccount.id, taxId: beneficiaryCuit }),
+  }), 200);
+  assert.equal(depositedReplay.replayed, true);
+  const genericEcheqReverseDenied = await json(await request(`/api/v1/transfers/${deposited.echeq.transactionId}/reverse`, {
+    method: 'POST', headers: { 'Idempotency-Key': `qa-echeq-generic-reverse-${runId}` },
+  }), 409);
+  assert.equal(genericEcheqReverseDenied.error.code, 'echeq_deposit_irreversible');
+  const cancelledIssue = await json(await request('/api/v1/echeqs', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-echeq-cancel-${runId}` },
+    body: JSON.stringify({ ...echeqPayload, externalReference: `CHQ-CAN-${runId}` }),
+  }), 201);
+  const cancelledEcheq = await json(await request(`/api/v1/echeqs/${cancelledIssue.echeq.id}/cancel`, {
+    method: 'POST', headers: { 'Idempotency-Key': `qa-echeq-cancel-run-${runId}` },
+  }), 201);
+  assert.equal(cancelledEcheq.echeq.status, 'cancelled');
+  const returnedIssue = await json(await request('/api/v1/echeqs', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-echeq-return-${runId}` },
+    body: JSON.stringify({ ...echeqPayload, externalReference: `CHQ-RET-${runId}` }),
+  }), 201);
+  await json(await request(`/api/v1/echeqs/${returnedIssue.echeq.id}/accept`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-echeq-return-accept-${runId}` },
+    body: JSON.stringify({ accountId: destinationAccount.id, taxId: beneficiaryCuit }),
+  }), 201);
+  const returnedEcheq = await json(await request(`/api/v1/echeqs/${returnedIssue.echeq.id}/return`, {
+    method: 'POST', headers: { 'Idempotency-Key': `qa-echeq-return-run-${runId}` },
+  }), 201);
+  assert.equal(returnedEcheq.echeq.status, 'returned');
+  const noOrder = await json(await request('/api/v1/echeqs', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-echeq-noorder-${runId}` },
+    body: JSON.stringify({ ...echeqPayload, externalReference: `CHQ-NO-${runId}`, toOrder: false }),
+  }), 201);
+  await json(await request(`/api/v1/echeqs/${noOrder.echeq.id}/accept`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-echeq-noorder-accept-${runId}` },
+    body: JSON.stringify({ accountId: destinationAccount.id, taxId: beneficiaryCuit }),
+  }), 201);
+  const endorseDenied = await json(await request(`/api/v1/echeqs/${noOrder.echeq.id}/endorse`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-echeq-endorse-${runId}` },
+    body: JSON.stringify({ beneficiaryName: 'Otro Beneficiario', beneficiaryTaxId: '20123456786' }),
+  }), 422);
+  assert.equal(endorseDenied.error.code, 'echeq_not_to_order');
+  const addDays = (iso, days) => {
+    const [year, month, day] = iso.split('-').map(Number);
+    return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
+  };
+  const todayAr = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Argentina/Buenos_Aires', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date());
+  const deferred = await json(await request('/api/v1/echeqs', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-echeq-deferred-${runId}` },
+    body: JSON.stringify({ ...echeqPayload, externalReference: `CHQ-DEF-${runId}`, paymentDate: addDays(todayAr, 10) }),
+  }), 201);
+  await json(await request(`/api/v1/echeqs/${deferred.echeq.id}/accept`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-echeq-deferred-accept-${runId}` },
+    body: JSON.stringify({ accountId: destinationAccount.id, taxId: beneficiaryCuit }),
+  }), 201);
+  const notDue = await json(await request(`/api/v1/echeqs/${deferred.echeq.id}/deposit`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-echeq-deferred-deposit-${runId}` },
+    body: JSON.stringify({ accountId: destinationAccount.id, taxId: beneficiaryCuit }),
+  }), 422);
+  assert.equal(notDue.error.code, 'echeq_not_due');
+  const nsf = await json(await request('/api/v1/echeqs', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-echeq-nsf-${runId}` },
+    body: JSON.stringify({ ...echeqPayload, externalReference: `CHQ-NSF-${runId}`, amount: '9999999.00' }),
+  }), 201);
+  await json(await request(`/api/v1/echeqs/${nsf.echeq.id}/accept`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-echeq-nsf-accept-${runId}` },
+    body: JSON.stringify({ accountId: destinationAccount.id, taxId: beneficiaryCuit }),
+  }), 201);
+  const rejected = await json(await request(`/api/v1/echeqs/${nsf.echeq.id}/deposit`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-echeq-nsf-deposit-${runId}` },
+    body: JSON.stringify({ accountId: destinationAccount.id, taxId: beneficiaryCuit }),
+  }), 201);
+  assert.equal(rejected.echeq.status, 'rejected'); assert.equal(rejected.echeq.rejectReason, 'insufficient_funds');
+  assert.ok((await json(await request('/api/v1/echeqs?limit=10'), 200)).data.some((item) => item.id === echeqIssued.echeq.id));
 
   const servicesKey = await json(await request('/api/platform/api-keys', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1808,6 +1928,7 @@ try {
   await json(await request('/api/v1/debit-requests'), 200);
   await json(await request('/api/v1/payment-qrs'), 200);
   await json(await request('/api/v1/payment-links'), 200);
+  await json(await request('/api/v1/echeqs'), 200);
   await json(await request(`/api/v1/accounts/${account.id}/statement`), 200);
   await json(await request(`/api/v1/cards/${card.id}/lifecycle`), 200);
   assert.equal((await request('/console')).status, 200);
@@ -1842,6 +1963,14 @@ try {
     }),
   }), 403);
   assert.equal(viewerCollectionDenied.error.code, 'insufficient_role');
+  const viewerEcheqDenied = await json(await request('/api/v1/echeqs', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-viewer-echeq-${runId}` },
+    body: JSON.stringify({
+      drawerAccountId: account.id, externalReference: `CHQ-VIEWER-${runId}`, description: 'Viewer',
+      amount: '1.00', currency: 'ARS', beneficiaryName: 'QA Company', beneficiaryTaxId: '30000075678',
+    }),
+  }), 403);
+  assert.equal(viewerEcheqDenied.error.code, 'insufficient_role');
   const viewerOperationsDenied = await json(await request(`/api/v1/operations/work-items/risk-case/${operationalCase.id}`, {
     method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-viewer-work-${runId}` }, body: JSON.stringify({ priority: 'low' }),
   }), 403);
@@ -1940,7 +2069,7 @@ try {
 
   console.log(JSON.stringify({
     ok: true,
-    checks: ['auth', 'landing-session-state', 'console-session-guard', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'viewer-read-only', 'member-invitations', 'dual-control', 'maker-checker', 'transfer-approval', 'book-transfer-approval', 'approval-replay', 'approval-fail-closed', 'payout-approval', 'risk-case-approval', 'risk-hold-bypass-guard', 'reconciliation-exception-approval', 'disputes', 'partial-dispute', 'dispute-ledger-credit', 'dispute-compensation', 'dispute-approval', 'dispute-evidence', 'dispute-rbac', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'book-transfers', 'account-statements', 'book-transfer-compensation', 'book-transfer-rbac', 'wallets', 'wallet-pockets', 'wallet-lifecycle', 'wallet-rbac', 'instant-payments', 'cvu-alias', 'holder-confirmation', 'internal-credit', 'sandbox-outbound', 'internal-debit', 'cimbra-qr', 'instant-return', 'instant-rbac', 'collections', 'payment-links', 'collection-internal', 'collection-inbound', 'collection-refund', 'collection-cancel', 'collection-card-denied', 'collection-rbac', 'payout-beneficiaries', 'protected-payout-destination', 'payout-batches', 'payout-scheduling', 'payout-result-file', 'payout-compensation', 'payout-rbac', 'payout-s2s', 'billers', 'biller-obligations', 'protected-subscriber-reference', 'bill-payments', 'mobile-topups', 'gift-cards', 'recurring-mandates', 'mandate-consent', 'biller-rbac', 'biller-s2s', 'bill-payment-compensation', 'cdd-kyb', 'cdd-evidence', 'cdd-idempotency', 'cdd-maker-checker', 'cdd-s2s-orchestration', 'cdd-session-only-decision', 'cdd-expiry', 'cdd-rbac', 'card-programs', 'card-lifecycle', 'card-controls', 'card-terminal-state', 'card-rbac', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'risk-signals-privacy', 'risk-decision-lists', 'risk-step-up', 'risk-step-up-idempotency', 'risk-step-up-rbac', 'risk-decision-slo', 'risk-confirmed-outcomes', 'risk-supervised-metrics', 'risk-outcome-revisions', 'reconciliation', 'operations-work-queue', 'operations-idempotency', 'operations-evidence', 'operations-rbac', 'csv-import', 'settlement', 'private-evidence', 'audit'],
+    checks: ['auth', 'landing-session-state', 'console-session-guard', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'viewer-read-only', 'member-invitations', 'dual-control', 'maker-checker', 'transfer-approval', 'book-transfer-approval', 'approval-replay', 'approval-fail-closed', 'payout-approval', 'risk-case-approval', 'risk-hold-bypass-guard', 'reconciliation-exception-approval', 'disputes', 'partial-dispute', 'dispute-ledger-credit', 'dispute-compensation', 'dispute-approval', 'dispute-evidence', 'dispute-rbac', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'book-transfers', 'account-statements', 'book-transfer-compensation', 'book-transfer-rbac', 'wallets', 'wallet-pockets', 'wallet-lifecycle', 'wallet-rbac', 'instant-payments', 'cvu-alias', 'holder-confirmation', 'internal-credit', 'sandbox-outbound', 'internal-debit', 'cimbra-qr', 'instant-return', 'instant-rbac', 'collections', 'payment-links', 'collection-internal', 'collection-inbound', 'collection-refund', 'collection-cancel', 'collection-card-denied', 'collection-rbac', 'echeqs', 'echeq-accept', 'echeq-deposit', 'echeq-cancel', 'echeq-return', 'echeq-nsf', 'echeq-discount-denied', 'echeq-rbac', 'payout-beneficiaries', 'protected-payout-destination', 'payout-batches', 'payout-scheduling', 'payout-result-file', 'payout-compensation', 'payout-rbac', 'payout-s2s', 'billers', 'biller-obligations', 'protected-subscriber-reference', 'bill-payments', 'mobile-topups', 'gift-cards', 'recurring-mandates', 'mandate-consent', 'biller-rbac', 'biller-s2s', 'bill-payment-compensation', 'cdd-kyb', 'cdd-evidence', 'cdd-idempotency', 'cdd-maker-checker', 'cdd-s2s-orchestration', 'cdd-session-only-decision', 'cdd-expiry', 'cdd-rbac', 'card-programs', 'card-lifecycle', 'card-controls', 'card-terminal-state', 'card-rbac', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'risk-signals-privacy', 'risk-decision-lists', 'risk-step-up', 'risk-step-up-idempotency', 'risk-step-up-rbac', 'risk-decision-slo', 'risk-confirmed-outcomes', 'risk-supervised-metrics', 'risk-outcome-revisions', 'reconciliation', 'operations-work-queue', 'operations-idempotency', 'operations-evidence', 'operations-rbac', 'csv-import', 'settlement', 'private-evidence', 'audit'],
   }));
 } finally {
   await cleanup();

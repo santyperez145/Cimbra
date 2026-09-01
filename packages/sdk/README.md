@@ -255,6 +255,29 @@ await cimbra.paymentLinks.pay(link.data.link.id, {
 
 El payload `cimbra:link:v1` no es un checkout de red. Tarjeta, POS y QR interoperable responden `422`.
 
+## ECHEQ sandbox (Argentina)
+
+```ts
+const issued = await cimbra.echeqs.issue({
+  drawerAccountId: '00000000-0000-4000-8000-000000000001',
+  externalReference: 'CHQ-001',
+  description: 'Alquiler septiembre',
+  amount: '18500.00',
+  beneficiaryName: 'Comercio Sur',
+  beneficiaryTaxId: '30000075678',
+});
+await cimbra.echeqs.accept(issued.data.echeq.id, {
+  accountId: '00000000-0000-4000-8000-000000000002',
+  taxId: '30000075678',
+});
+await cimbra.echeqs.deposit(issued.data.echeq.id, {
+  accountId: '00000000-0000-4000-8000-000000000002',
+  taxId: '30000075678',
+});
+```
+
+El payload `cimbra:echeq:v1` no es un CMC7 ni un ID Coelsa. Descuento, custodia, USD y depósito en CBU/CVU responden `422`. La acreditación sandbox es inmediata sobre el ledger.
+
 ## Beneficiarios y payouts masivos
 
 ```ts

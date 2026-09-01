@@ -75,7 +75,13 @@ export const PLATFORM_CAPABILITIES: readonly PlatformCapability[] = [
     id: 'acquiring', name: 'Acquiring & Collections', domain: 'commerce', availability: 'sandbox', delivery: 'cimbra_native',
     summary: 'Links de cobro sandbox, eco cerrado entre cuentas Cimbra, inbound ledger y devoluciones compensatorias.',
     features: ['payment links', 'internal collect', 'sandbox inbound cash-in', 'compensating refunds'],
-    interfaces: ['rest_api', 'webhooks', 'sdk', 'console'], regulatoryBoundary: 'El sandbox cobra entre cuentas Cimbra o simula un inbound sobre el ledger. No procesa tarjetas, POS, Tap to Phone ni QR interoperable. Adquirencia real exige licencia o sponsor, PCI/EMV y acuerdos con marcas. BIND, Dock, tapi, Pismo, Pomelo y Wibond no son conectores.',
+    interfaces: ['rest_api', 'webhooks', 'sdk', 'console'],     regulatoryBoundary: 'El sandbox cobra entre cuentas Cimbra o simula un inbound sobre el ledger. No procesa tarjetas, POS, Tap to Phone ni QR interoperable. Adquirencia real exige licencia o sponsor, PCI/EMV y acuerdos con marcas. BIND, Dock, tapi, Pismo, Pomelo y Wibond no son conectores.',
+  },
+  {
+    id: 'echeqs', name: 'ECHEQ sandbox', domain: 'payments', availability: 'sandbox', delivery: 'cimbra_native',
+    summary: 'Cheques electrónicos internos: emisión, aceptación, endoso, depósito ledger-backed, anulación y devolución previa al depósito.',
+    features: ['issue against ARS accounts', 'CUIT validation', 'accept and endorse', 'to-order restriction', 'internal deposit', 'NSF rejection', 'pre-deposit return'],
+    interfaces: ['rest_api', 'webhooks', 'sdk', 'console'], regulatoryBoundary: 'El sandbox no emite ECHEQ reales ni habla con Coelsa. El payload cimbra:echeq:v1 no es CMC7. Descuento, custodia, USD y depósito en CBU/CVU de cámara responden 422. Compensación real exige cuenta corriente, membresía o sponsor y riel directo. BIND, Dock, tapi, Pismo, Pomelo y Wibond no son conectores.',
   },
   {
     id: 'bill-payments', name: 'Bill Payments, Top-ups & Recurring', domain: 'commerce', availability: 'sandbox', delivery: 'cimbra_native',

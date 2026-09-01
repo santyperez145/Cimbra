@@ -24,6 +24,8 @@ import { normalizeWalletInput, normalizeWalletProgramInput, normalizeWalletTrans
 import { classifyRailValue, isSandboxCvu, isWellFormedCbu, issueSandboxCvu, normalizeAlias } from '../app/lib/platform/cbu.ts';
 import { normalizeDebitRequestInput, normalizeInstantTransferInput, normalizeIssueInstrumentInput, normalizePaymentQrInput } from '../app/lib/platform/instant-payments-input.ts';
 import { normalizePaymentLinkInput, normalizePaymentLinkPayInput } from '../app/lib/platform/collections-input.ts';
+import { normalizeCuit } from '../app/lib/platform/cuit.ts';
+import { normalizeEcheqAcceptInput, normalizeEcheqDepositInput, normalizeEcheqEndorseInput, normalizeEcheqInput } from '../app/lib/platform/echeqs-input.ts';
 import { isLocalPostgres, postgresClientOptions, resolvePostgresUrl } from '../db/postgres-connection.mjs';
 
 process.env.CIMBRA_ENCRYPTION_KEY = '3ea72fc13c567057870342c6ebd34d88f58f6d80b1dba61c4be4e1c2f1406afb';
@@ -286,6 +288,45 @@ test('cobranzas validan links de cobro, medios sandbox y rechazan adquirencia de
   assert.equal(normalizePaymentLinkPayInput({ method: 'internal' }), null);
   assert.deepEqual(normalizePaymentLinkPayInput({ method: 'card' }), { unsupportedMethod: 'card' });
   assert.deepEqual(normalizePaymentLinkPayInput({ method: 'sandbox_inbound' }), { method: 'sandbox_inbound', payerAccountId: null });
+});
+
+test('ECHEQ valida CUIT, ciclo sandbox y rechaza descuento o cámara', () => {
+  assert.equal(normalizeCuit('30000075678'), '30000075678');
+  assert.equal(normalizeCuit('30-00007567-8'), '30000075678');
+  assert.equal(normalizeCuit('30712345678'), null);
+  const accountId = '00000000-0000-4000-8000-000000000010';
+  const holderId = '00000000-0000-4000-8000-000000000011';
+  const issued = normalizeEcheqInput({
+    drawerAccountId: accountId, externalReference: 'CHQ-001', description: ' Alquiler ', amount: '1500.50',
+    currency: 'ars', beneficiaryName: ' Comercio Sur ', beneficiaryTaxId: '30-00007567-8',
+  });
+  assert.ok(issued); assert.ok(!('unsupportedFeature' in issued));
+  if (!('unsupportedFeature' in issued)) {
+    assert.equal(issued.amountMinor, 150050n);
+    assert.equal(issued.beneficiaryTaxId, '30000075678');
+    assert.equal(issued.toOrder, true);
+  }
+  assert.deepEqual(normalizeEcheqInput({
+    drawerAccountId: accountId, externalReference: 'CHQ-002', description: 'Descuento', amount: '10',
+    beneficiaryName: 'Sur', beneficiaryTaxId: '30000075678', discount: true,
+  }), { unsupportedFeature: 'discount' });
+  assert.deepEqual(normalizeEcheqInput({
+    drawerAccountId: accountId, externalReference: 'CHQ-003', description: 'USD', amount: '10', currency: 'USD',
+    beneficiaryName: 'Sur', beneficiaryTaxId: '30000075678',
+  }), { unsupportedFeature: 'usd' });
+  const accepted = normalizeEcheqAcceptInput({ accountId: holderId, taxId: '30000075678' });
+  assert.ok(accepted); assert.equal(accepted.taxId, '30000075678');
+  assert.equal(normalizeEcheqAcceptInput({ accountId: holderId, taxId: '30712345678' }), null);
+  const endorsed = normalizeEcheqEndorseInput({ beneficiaryName: 'Otro', beneficiaryTaxId: '20123456786' });
+  assert.ok(endorsed); assert.ok(!('unsupportedFeature' in endorsed));
+  assert.deepEqual(normalizeEcheqEndorseInput({
+    beneficiaryName: 'Otro', beneficiaryTaxId: '20123456786', discount: true,
+  }), { unsupportedFeature: 'discount' });
+  const deposited = normalizeEcheqDepositInput({ accountId: holderId, taxId: '30000075678' });
+  assert.ok(deposited); assert.ok(!('unsupportedFeature' in deposited));
+  assert.deepEqual(normalizeEcheqDepositInput({
+    accountId: holderId, taxId: '30000075678', destinationKind: 'cbu',
+  }), { unsupportedFeature: 'coelsa_clearing' });
 });
 
 test('servicios y mandatos validan catálogo, referencias protegidas, importes y consentimiento', () => {

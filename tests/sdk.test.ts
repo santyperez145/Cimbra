@@ -230,6 +230,35 @@ test('el SDK cablea links de cobro, eco cerrado, inbound sandbox y devoluciones'
   ]);
 });
 
+test('el SDK cablea ECHEQ sandbox, aceptación, depósito y devolución previa', async () => {
+  const calls: string[] = [];
+  const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async (input, init) => {
+    const url = String(input); calls.push(`${init?.method ?? 'GET'} ${url}`);
+    if (url.endsWith('/echeqs') && init?.method === 'POST') {
+      return Response.json({ ok: true, replayed: false, echeq: { id: 'eq_1', status: 'issued' } }, { status: 201 });
+    }
+    if (url.endsWith('/accept')) return Response.json({ ok: true, replayed: false, echeq: { id: 'eq_1', status: 'accepted' } }, { status: 201 });
+    if (url.endsWith('/deposit')) return Response.json({ ok: true, replayed: false, echeq: { id: 'eq_1', status: 'deposited' } }, { status: 201 });
+    if (url.endsWith('/return')) return Response.json({ ok: true, replayed: false, echeq: { id: 'eq_1', status: 'returned' } }, { status: 201 });
+    return Response.json({ id: 'eq_1', status: 'issued' });
+  } });
+  const issued = await client.echeqs.issue({
+    drawerAccountId: 'acc_1', externalReference: 'CHQ-001', description: 'Alquiler', amount: '1500.00',
+    beneficiaryName: 'Comercio Sur', beneficiaryTaxId: '30000075678',
+  });
+  await client.echeqs.retrieve(issued.data.echeq.id);
+  await client.echeqs.accept(issued.data.echeq.id, { accountId: 'acc_2', taxId: '30000075678' });
+  await client.echeqs.deposit(issued.data.echeq.id, { accountId: 'acc_2', taxId: '30000075678' });
+  await client.echeqs.return(issued.data.echeq.id);
+  assert.deepEqual(calls, [
+    'POST https://api.test/api/v1/echeqs',
+    'GET https://api.test/api/v1/echeqs/eq_1',
+    'POST https://api.test/api/v1/echeqs/eq_1/accept',
+    'POST https://api.test/api/v1/echeqs/eq_1/deposit',
+    'POST https://api.test/api/v1/echeqs/eq_1/return',
+  ]);
+});
+
 test('el SDK representa transferencias pendientes de aprobación humana', async () => {
   const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async () =>
     Response.json({ ok: true, requiresApproval: true, replayed: false, deduplicated: false,

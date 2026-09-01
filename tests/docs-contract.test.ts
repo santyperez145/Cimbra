@@ -50,7 +50,7 @@ test('el OpenAPI público usa el sandbox real y operaciones identificables', () 
   assert.equal(spec.info.version, '2026-09-01');
   assert.deepEqual(spec.servers, [{ url: 'https://cimbra-rose.vercel.app', description: 'Persistent sandbox. Does not move real funds.' }]);
   const operations = contractOperations();
-  assert.equal(operations.length, 152);
+  assert.equal(operations.length, 160);
   const ids = operations.map(({ operation }) => operation.operationId);
   assert.equal(ids.every(Boolean), true);
   assert.equal(new Set(ids).size, ids.length);
@@ -141,8 +141,16 @@ test('OpenAPI publica book transfers y statements como contratos completos', () 
   assert.equal(spec.paths['/api/v1/payment-links/{id}'].get.operationId, 'retrievePaymentLink');
   assert.equal(spec.paths['/api/v1/payment-links/{id}/pay'].post.operationId, 'payPaymentLink');
   assert.equal(spec.paths['/api/v1/payment-links/{id}/refund'].post.operationId, 'refundPaymentLink');
+  assert.equal(spec.paths['/api/v1/echeqs'].post.operationId, 'issueEcheq');
+  assert.equal(spec.paths['/api/v1/echeqs/{id}'].get.operationId, 'retrieveEcheq');
+  assert.equal(spec.paths['/api/v1/echeqs/{id}/accept'].post.operationId, 'acceptEcheq');
+  assert.equal(spec.paths['/api/v1/echeqs/{id}/endorse'].post.operationId, 'endorseEcheq');
+  assert.equal(spec.paths['/api/v1/echeqs/{id}/deposit'].post.operationId, 'depositEcheq');
+  assert.equal(spec.paths['/api/v1/echeqs/{id}/return'].post.operationId, 'returnEcheq');
   assert.match(reference, /path\.includes\('\/instant-transfers'\) \|\| path\.includes\('\/rail-instruments'\)/);
   assert.match(reference, /return 'Instant payments'/);
+  assert.match(reference, /path\.includes\('\/echeqs'\)\) return 'ECHEQ'/);
+  assert.match(reference, /path\.includes\('\/echeqs'\)\) return `transfers:\$\{access\}`/);
 });
 
 test('el sistema de diseño declara el token navy usado por formularios y autenticación', () => {

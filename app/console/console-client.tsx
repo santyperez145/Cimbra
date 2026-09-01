@@ -23,11 +23,12 @@ import SecurityPanel from './security-panel';
 import WalletsPanel from './wallets-panel';
 import InstantPaymentsPanel from './instant-payments-panel';
 import CollectionsPanel from './collections-panel';
+import EcheqsPanel from './echeqs-panel';
 
 type Role = OrganizationRole;
 const nav: Array<{ icon: string; label: string; capability?: AccessCapability }> = [
   { icon: '▦', label: 'Vista general' }, { icon: '↔', label: 'Movimientos' }, { icon: '⇄', label: 'Payments' }, { icon: '≡', label: 'Payouts' }, { icon: '⌁', label: 'Servicios' },
-  { icon: '◉', label: 'Cuentas' }, { icon: '▣', label: 'Wallets' }, { icon: '⚡', label: 'Pagos AR' }, { icon: '◎', label: 'Cobranzas' }, { icon: '▰', label: 'Tarjetas' }, { icon: '◇', label: 'Riesgo' },
+  { icon: '◉', label: 'Cuentas' }, { icon: '▣', label: 'Wallets' }, { icon: '⚡', label: 'Pagos AR' }, { icon: '◎', label: 'Cobranzas' }, { icon: '▭', label: 'ECHEQ' }, { icon: '▰', label: 'Tarjetas' }, { icon: '◇', label: 'Riesgo' },
   { icon: '◫', label: 'Disputas', capability: 'disputes.read' }, { icon: '≋', label: 'Conciliación' }, { icon: '☷', label: 'Operaciones' }, { icon: '⚖', label: 'Aprobaciones' }, { icon: '✓', label: 'Compliance' }, { icon: '⌘', label: 'Plataforma' },
   { icon: '⌁', label: 'Developers', capability: 'credentials.manage' }, { icon: '♙', label: 'Accesos', capability: 'organization.manage' },
   { icon: '⌾', label: 'Seguridad' },
@@ -217,6 +218,8 @@ function SecondaryConsoleView({ active, data, role, busy, feedback, onTransfer, 
   if (active === 'Pagos AR') return <InstantPaymentsPanel role={role} accounts={data.accounts} />;
 
   if (active === 'Cobranzas') return <CollectionsPanel role={role} accounts={data.accounts} />;
+
+  if (active === 'ECHEQ') return <EcheqsPanel role={role} accounts={data.accounts} />;
 
   if (active === 'Developers') return <DevelopersPanel journalCount={data.journalCount} />;
 

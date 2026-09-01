@@ -1064,6 +1064,180 @@ paths:
         '403': { description: Missing payments:write scope or finance.write permission }
         '404': { description: Payment link not found }
         '409': { description: Link is not paid }
+  /api/v1/echeqs:
+    get:
+      operationId: listEcheqs
+      summary: List sandbox electronic checks
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200': { description: ECHEQ page }
+        '403': { description: Missing transfers:read scope or console role }
+    post:
+      operationId: issueEcheq
+      summary: Issue a sandbox ECHEQ against an Argentine ARS account
+      description: Payload format cimbra:echeq:v1 is not a CMC7 or Coelsa identifier. Discount, custody, USD and chamber clearing return 422. Only current-account holders can issue real ECHEQ.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [drawerAccountId, externalReference, description, amount, beneficiaryName, beneficiaryTaxId]
+              properties:
+                drawerAccountId: { type: string, format: uuid }
+                externalReference: { type: string, minLength: 2, maxLength: 100 }
+                description: { type: string, minLength: 2, maxLength: 180 }
+                amount:
+                  oneOf:
+                    - { type: string, pattern: '^\d+(?:\.\d+)?$' }
+                    - { type: number, exclusiveMinimum: 0, maximum: 10000000 }
+                currency: { type: string, enum: [ARS, USD] }
+                beneficiaryName: { type: string, minLength: 2, maxLength: 120 }
+                beneficiaryTaxId: { type: string, minLength: 11, maxLength: 13 }
+                paymentDate: { type: string, format: date }
+                toOrder: { type: boolean }
+                discount: { type: boolean }
+                custody: { type: boolean }
+                clearing: { type: string, enum: [coelsa, camara] }
+      responses:
+        '201': { description: ECHEQ issued }
+        '200': { description: Idempotent replay }
+        '400': { description: Invalid payload }
+        '403': { description: Missing transfers:write scope or finance.write permission }
+        '422': { description: Discount, custody, USD or Coelsa clearing requested }
+  /api/v1/echeqs/{id}:
+    get:
+      operationId: retrieveEcheq
+      summary: Retrieve a sandbox ECHEQ
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses:
+        '200':
+          description: ECHEQ
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Echeq' }
+        '403': { description: Missing transfers:read scope or console role }
+        '404': { description: ECHEQ not found }
+  /api/v1/echeqs/{id}/accept:
+    post:
+      operationId: acceptEcheq
+      summary: Accept a sandbox ECHEQ as the current beneficiary
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [accountId, taxId]
+              properties:
+                accountId: { type: string, format: uuid }
+                taxId: { type: string, minLength: 11, maxLength: 13 }
+      responses:
+        '201': { description: ECHEQ accepted }
+        '200': { description: Idempotent replay }
+        '400': { description: Invalid payload }
+        '403': { description: Missing transfers:write scope or finance.write permission }
+        '404': { description: ECHEQ not found }
+        '409': { description: ECHEQ is not acceptable }
+        '422': { description: Holder or tax mismatch }
+  /api/v1/echeqs/{id}/endorse:
+    post:
+      operationId: endorseEcheq
+      summary: Endorse an accepted to-order sandbox ECHEQ
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [beneficiaryName, beneficiaryTaxId]
+              properties:
+                beneficiaryName: { type: string, minLength: 2, maxLength: 120 }
+                beneficiaryTaxId: { type: string, minLength: 11, maxLength: 13 }
+                discount: { type: boolean }
+      responses:
+        '201': { description: ECHEQ endorsed }
+        '200': { description: Idempotent replay }
+        '400': { description: Invalid payload }
+        '403': { description: Missing transfers:write scope or finance.write permission }
+        '404': { description: ECHEQ not found }
+        '409': { description: ECHEQ is not endorsable }
+        '422': { description: Not to order or discount requested }
+  /api/v1/echeqs/{id}/deposit:
+    post:
+      operationId: depositEcheq
+      summary: Deposit a sandbox ECHEQ into a Cimbra account
+      description: Settles immediately on the Cimbra ledger. Deposit to CBU/CVU/Coelsa returns 422. Insufficient drawer funds mark the ECHEQ rejected.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [accountId, taxId]
+              properties:
+                accountId: { type: string, format: uuid }
+                taxId: { type: string, minLength: 11, maxLength: 13 }
+                destinationKind: { type: string, enum: [cimbra_account, cbu, cvu, coelsa] }
+                signals: { $ref: '#/components/schemas/RiskSignalsInput' }
+      responses:
+        '201': { description: ECHEQ deposited or rejected for NSF }
+        '200': { description: Idempotent replay }
+        '400': { description: Invalid payload }
+        '403': { description: Missing transfers:write scope or finance.write permission }
+        '404': { description: ECHEQ not found }
+        '409': { description: ECHEQ is not depositable }
+        '422': { description: Not due, Coelsa clearing, mismatch, insufficient funds or risk decline }
+  /api/v1/echeqs/{id}/cancel:
+    post:
+      operationId: cancelEcheq
+      summary: Cancel an issued sandbox ECHEQ before acceptance
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '201': { description: ECHEQ cancelled }
+        '200': { description: Idempotent replay }
+        '403': { description: Missing transfers:write scope or finance.write permission }
+        '404': { description: ECHEQ not found }
+        '409': { description: ECHEQ is not cancellable }
+  /api/v1/echeqs/{id}/return:
+    post:
+      operationId: returnEcheq
+      summary: Return an accepted or endorsed sandbox ECHEQ before deposit
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '201': { description: ECHEQ returned }
+        '200': { description: Idempotent replay }
+        '403': { description: Missing transfers:write scope or finance.write permission }
+        '404': { description: ECHEQ not found }
+        '409': { description: ECHEQ is not returnable }
   /api/v1/payments:
     post:
       operationId: createPayment
@@ -3361,6 +3535,35 @@ components:
         payerAccountReference: { type: [string, 'null'] }
         transactionId: { type: [string, 'null'], format: uuid }
         reversalTransactionId: { type: [string, 'null'], format: uuid }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    Echeq:
+      type: object
+      required: [id, drawerAccountId, drawerAccountReference, drawerCustomerName, holderAccountId, holderAccountReference, amountMinor, amount, currency, description, externalReference, payload, toOrder, paymentDate, expiresAt, status, beneficiaryName, beneficiaryTaxLast4, endorsementCount, rejectReason, transactionId, rail, createdAt, updatedAt]
+      additionalProperties: false
+      properties:
+        id: { type: string, format: uuid }
+        drawerAccountId: { type: string, format: uuid }
+        drawerAccountReference: { type: string }
+        drawerCustomerName: { type: string }
+        holderAccountId: { type: [string, 'null'], format: uuid }
+        holderAccountReference: { type: [string, 'null'] }
+        amountMinor: { type: string }
+        amount: { type: number }
+        currency: { type: string, enum: [ARS] }
+        description: { type: string }
+        externalReference: { type: string }
+        payload: { type: string }
+        toOrder: { type: boolean }
+        paymentDate: { type: string, format: date }
+        expiresAt: { type: string, format: date-time }
+        status: { type: string, enum: [issued, accepted, endorsed, pending, deposited, cancelled, returned, rejected, expired] }
+        beneficiaryName: { type: string }
+        beneficiaryTaxLast4: { type: string }
+        endorsementCount: { type: integer }
+        rejectReason: { type: [string, 'null'] }
+        transactionId: { type: [string, 'null'], format: uuid }
+        rail: { type: string, enum: [cimbra_sandbox] }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
     OperationalWorkItem:

@@ -528,6 +528,9 @@ export async function reverseTransactionInTransaction(input: ReverseTransactionI
       const paymentLink = await transaction.prepare('SELECT id FROM payment_links WHERE organization_id = ? AND transaction_id = ? LIMIT 1')
         .bind(input.organizationId, original.id).first<{ id: string }>();
       if (paymentLink) throw new LedgerError('Esta transacción debe revertirse desde su link de cobro.', 409, 'collection_refund_required');
+      const echeq = await transaction.prepare('SELECT id FROM echeqs WHERE organization_id = ? AND transaction_id = ? LIMIT 1')
+        .bind(input.organizationId, original.id).first<{ id: string }>();
+      if (echeq) throw new LedgerError('El depósito de un ECHEQ no se revierte por la reversa genérica.', 409, 'echeq_deposit_irreversible');
     }
     if (original.status !== 'settled') throw new LedgerError('Sólo se puede revertir una transferencia liquidada.', 409, 'transaction_not_reversible');
     const alreadyReversed = await transaction.prepare('SELECT id FROM transactions WHERE reversal_of = ? LIMIT 1')
@@ -611,6 +614,12 @@ export async function reverseTransactionInTransaction(input: ReverseTransactionI
         organizationId: input.organizationId, actorId: input.actor.userId, action: 'collection.link_refunded',
         resourceType: 'payment_link', resourceId: paymentLink.id, payload: { transactionId: original.id, reversalId: id },
       });
+    }
+    const echeqDeposit = await transaction.prepare(`SELECT id, status FROM echeqs
+      WHERE organization_id = ? AND transaction_id = ? LIMIT 1 FOR UPDATE`)
+      .bind(input.organizationId, original.id).first<{ id: string; status: string }>();
+    if (echeqDeposit) {
+      throw new LedgerError('El depósito de un ECHEQ no se revierte por la reversa genérica.', 409, 'echeq_deposit_irreversible');
     }
     const payoutItem = await transaction.prepare(`SELECT id, batch_id AS "batchId", external_reference AS "externalReference", status
       FROM payout_items WHERE organization_id = ? AND transaction_id = ? LIMIT 1 FOR UPDATE`)
@@ -767,14 +776,26 @@ export async function resolveHold(input: {
       await transaction.prepare('SELECT id FROM financial_accounts WHERE id = ? FOR UPDATE')
         .bind(collectionLink.destinationLedgerAccountId).first();
     }
-    const internalDestination = bookTransfer ?? instantTransfer ?? collectionLink;
+    const pendingEcheq = await transaction.prepare(`SELECT e.id, e.holder_account_id AS "destinationAccountId",
+        holder.ledger_account_id AS "destinationLedgerAccountId", e.status
+      FROM echeqs e JOIN accounts holder ON holder.id = e.holder_account_id
+      WHERE e.organization_id = ? AND e.transaction_id = ? AND e.holder_account_id IS NOT NULL
+      LIMIT 1 FOR UPDATE OF e`)
+      .bind(input.organizationId, hold.transactionId).first<{
+        id: string; destinationAccountId: string; destinationLedgerAccountId: string; status: string;
+      }>();
+    if (pendingEcheq) {
+      await transaction.prepare('SELECT id FROM financial_accounts WHERE id = ? FOR UPDATE')
+        .bind(pendingEcheq.destinationLedgerAccountId).first();
+    }
+    const internalDestination = bookTransfer ?? instantTransfer ?? collectionLink ?? pendingEcheq;
     if (input.action === 'capture') {
       const accounts = internalDestination ? null : await getOrCreateCoreAccounts(input.organizationId, hold.currency, transaction);
       await postJournal({
         organizationId: input.organizationId,
         transactionId: hold.transactionId,
         idempotencyKey: `hold:capture:${hold.id}`,
-        kind: bookTransfer ? 'book_transfer' : instantTransfer ? 'instant_transfer' : collectionLink ? 'collection' : 'hold_capture',
+        kind: bookTransfer ? 'book_transfer' : instantTransfer ? 'instant_transfer' : collectionLink ? 'collection' : pendingEcheq ? 'echeq' : 'hold_capture',
         description: hold.description,
         currency: hold.currency,
         postings: internalDestination ? [
@@ -834,6 +855,25 @@ export async function resolveHold(input: {
         organizationId: input.organizationId, actorId: input.actor.userId, action: `collection.link_${linkStatus === 'paid' ? 'paid' : 'cancelled'}`,
         resourceType: 'payment_link', resourceId: pendingCollection.id,
         payload: { transactionId: hold.transactionId, holdId: hold.id, status: linkStatus },
+      });
+    }
+    const reviewEcheq = await transaction.prepare(`SELECT id, status FROM echeqs
+      WHERE organization_id = ? AND transaction_id = ? LIMIT 1 FOR UPDATE`)
+      .bind(input.organizationId, hold.transactionId).first<{ id: string; status: string }>();
+    if (reviewEcheq && reviewEcheq.status === 'pending') {
+      if (input.action === 'capture') {
+        await transaction.prepare("UPDATE echeqs SET status = 'deposited', updated_at = ? WHERE id = ?")
+          .bind(now, reviewEcheq.id).run();
+      } else {
+        await transaction.prepare(`UPDATE echeqs SET status = 'accepted', transaction_id = NULL,
+          deposit_idempotency_key = NULL, deposit_fingerprint = NULL, updated_at = ? WHERE id = ?`)
+          .bind(now, reviewEcheq.id).run();
+      }
+      await insertAudit(transaction, {
+        organizationId: input.organizationId, actorId: input.actor.userId,
+        action: input.action === 'capture' ? 'echeq.deposited' : 'echeq.accepted',
+        resourceType: 'echeq', resourceId: reviewEcheq.id,
+        payload: { transactionId: hold.transactionId, holdId: hold.id, status: input.action === 'capture' ? 'deposited' : 'accepted' },
       });
     }
     const billPayment = await transaction.prepare(`SELECT id, obligation_id AS "obligationId", status FROM bill_payment_orders
