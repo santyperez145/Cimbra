@@ -1,4 +1,4 @@
-export const CAPABILITY_AVAILABILITY = ['sandbox', 'foundation', 'roadmap'] as const;
+export const CAPABILITY_AVAILABILITY = ['live', 'sandbox', 'foundation', 'roadmap'] as const;
 export type CapabilityAvailability = typeof CAPABILITY_AVAILABILITY[number];
 
 export const CAPABILITY_INTERFACES = ['rest_api', 'webhooks', 'sdk', 'console', 'iso8583', 'files', 'streaming'] as const;
@@ -78,7 +78,7 @@ export const PLATFORM_CAPABILITIES: readonly PlatformCapability[] = [
     interfaces: ['rest_api', 'webhooks', 'sdk', 'console'],     regulatoryBoundary: 'El sandbox cobra entre cuentas Cimbra o simula un inbound sobre el ledger. No procesa tarjetas, POS, Tap to Phone ni QR interoperable. Adquirencia real exige licencia o sponsor, PCI/EMV y acuerdos con marcas. BIND, Dock, tapi, Pismo, Pomelo y Wibond no son conectores.',
   },
   {
-    id: 'echeqs', name: 'ECHEQ sandbox', domain: 'payments', availability: 'sandbox', delivery: 'cimbra_native',
+    id: 'echeqs', name: 'ECHEQ', domain: 'payments', availability: 'sandbox', delivery: 'cimbra_native',
     summary: 'Cheques electrónicos internos: emisión, aceptación, endoso, depósito ledger-backed, anulación y devolución previa al depósito.',
     features: ['issue against ARS accounts', 'CUIT validation', 'accept and endorse', 'to-order restriction', 'internal deposit', 'NSF rejection', 'pre-deposit return'],
     interfaces: ['rest_api', 'webhooks', 'sdk', 'console'], regulatoryBoundary: 'El sandbox no emite ECHEQ reales ni habla con Coelsa. El payload cimbra:echeq:v1 no es CMC7. Descuento, custodia, USD y depósito en CBU/CVU de cámara responden 422. Compensación real exige cuenta corriente, membresía o sponsor y riel directo. BIND, Dock, tapi, Pismo, Pomelo y Wibond no son conectores.',
@@ -122,7 +122,7 @@ export const PLATFORM_CAPABILITIES: readonly PlatformCapability[] = [
   {
     id: 'developer-platform', name: 'Developer Platform', domain: 'platform', availability: 'sandbox', delivery: 'cimbra_native',
     summary: 'API versionada, SDK oficial, webhooks firmados, sandbox, observabilidad e idempotencia.',
-    features: ['REST API v1', 'TypeScript SDK', 'signed webhooks', 'sandbox', 'request tracing'],
+    features: ['REST API v1', 'TypeScript SDK', 'signed webhooks', 'sandbox and live environments', 'request tracing'],
     interfaces: ['rest_api', 'webhooks', 'sdk', 'console'], regulatoryBoundary: 'Disponible para integración técnica; los endpoints sandbox no autorizan ni liquidan fondos reales.',
   },
 ] as const;
@@ -133,4 +133,5 @@ export const PLATFORM_SUMMARY = {
   competitorDependency: false,
   networkBoundary: 'direct_regulated_rails_only',
   availabilityModel: CAPABILITY_AVAILABILITY,
+  graduation: 'environment_flip_after_gates',
 } as const;

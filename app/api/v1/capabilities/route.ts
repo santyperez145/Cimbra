@@ -2,11 +2,20 @@ import { NextResponse } from 'next/server';
 import { authorizationErrorResponse, authorizeApiRequest, rateLimitHeaders } from '@/app/lib/platform/authorization';
 import { PLATFORM_CAPABILITIES, PLATFORM_SUMMARY } from '@/app/lib/platform/capabilities';
 import { versionedApi } from '@/app/lib/platform/versioned-api';
+import { platformLiveReadiness } from '@/db/platform-rails';
 
 async function listCapabilities(request: Request) {
   try {
     const principal = await authorizeApiRequest(request, { scope: 'platform:read', capability: 'console.read' });
-    return NextResponse.json({ data: PLATFORM_CAPABILITIES, meta: PLATFORM_SUMMARY }, {
+    const readiness = await platformLiveReadiness();
+    return NextResponse.json({
+      data: PLATFORM_CAPABILITIES,
+      meta: {
+        ...PLATFORM_SUMMARY,
+        environment: readiness.effectiveMode,
+        liveReady: readiness.liveReady,
+      },
+    }, {
       headers: { 'Cache-Control': 'private, max-age=300', ...rateLimitHeaders(principal) },
     });
   } catch (error) {

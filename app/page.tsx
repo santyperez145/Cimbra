@@ -102,8 +102,8 @@ export default async function Home() {
           </div>
         </div>
 
-        <div className="proof-strip" aria-label="Controles comprobables del sandbox">
-          <div className="proof-intro"><span><i /> SANDBOX OPERATIVO</span><strong>La base técnica ya se puede probar.</strong></div>
+        <div className="proof-strip" aria-label="Controles comprobables de la plataforma">
+          <div className="proof-intro"><span><i /> ENTORNO SANDBOX</span><strong>El core ya es el producto real. Live permanece fail-closed.</strong></div>
           <article><small>01 · CONTRATO</small><b>API v1 + OpenAPI</b><span>SDK TypeScript generado y scopes por recurso.</span></article>
           <article><small>02 · DINERO</small><b>Ledger inmutable</b><span>Partida doble, holds, reversas y monedas segregadas.</span></article>
           <article><small>03 · CONTROL</small><b>RBAC + 4-eyes</b><span>Permisos por rol y maker/checker para acciones sensibles.</span></article>

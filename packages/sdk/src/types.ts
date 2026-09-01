@@ -129,7 +129,24 @@ export type PayoutBatch = {
 export type PlatformCapability = {
   id: string; name: string; domain: 'core' | 'payments' | 'cards' | 'commerce' | 'credit' | 'risk' | 'operations' | 'platform';
   summary: string; features: string[]; interfaces: Array<'rest_api' | 'webhooks' | 'sdk' | 'console' | 'iso8583' | 'files' | 'streaming'>;
-  availability: 'sandbox' | 'foundation' | 'roadmap'; delivery: 'cimbra_native'; regulatoryBoundary: string;
+  availability: 'live' | 'sandbox' | 'foundation' | 'roadmap'; delivery: 'cimbra_native'; regulatoryBoundary: string;
+};
+export type LiveReadiness = {
+  requestedMode: 'sandbox' | 'live';
+  effectiveMode: 'sandbox' | 'live';
+  liveReady: boolean;
+  liveBlocked: boolean;
+  blockReason: string | null;
+  gates: Array<{
+    id: string; name: string; kind: 'software' | 'evidence' | 'rail'; requiredForLive: boolean;
+    status: 'ready' | 'missing'; summary: string;
+  }>;
+  rails: Array<{
+    id: string; country: string; kind: string; counterpartyKind: string; counterparty: string;
+    requiredForLiveMoney: boolean; status: 'disconnected' | 'pending_certification' | 'certified' | 'live';
+    evidenceRef: string | null; certifiedAt: string | null;
+  }>;
+  summary: { readyGates: number; missingGates: number; disconnectedRails: number; certifiedRails: number };
 };
 export type RiskRule = {
   id: string; name: string; kind: 'amount_threshold' | 'velocity_count' | 'counterparty_match';

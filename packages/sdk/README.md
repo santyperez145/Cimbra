@@ -118,7 +118,7 @@ await cimbra.payments.create({
 
 ```ts
 const catalog = await cimbra.capabilities.list();
-const available = catalog.data.data.filter((service) => service.availability === 'sandbox');
+const available = catalog.data.data.filter((service) => service.availability === 'sandbox' || service.availability === 'live');
 ```
 
 El catálogo declara qué dominios son nativos de Cimbra, sus interfaces (`rest_api`, `webhooks`, `sdk`, `console`, `iso8583`, archivos o streaming), el grado real de disponibilidad y su límite regulatorio. No registra ni requiere conexiones con plataformas competidoras.

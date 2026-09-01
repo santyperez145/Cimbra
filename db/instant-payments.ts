@@ -8,6 +8,7 @@ import type {
   CounterpartyKind, NormalizedDebitRequestInput, NormalizedDebitResponse, NormalizedInstantTransferInput,
   NormalizedIssueInstrumentInput, NormalizedPaymentQrInput, NormalizedQrPayInput, RailScheme,
 } from '@/app/lib/platform/instant-payments-input';
+import { assertSandboxLedgerOrCertifiedRail } from './platform-rails';
 import type { ProtectedRiskSignals } from '@/app/lib/platform/risk-signals';
 import { type DatabaseClient, getDatabaseClient } from './client';
 import {
@@ -153,6 +154,7 @@ export async function lookupRailDirectory(organizationId: string, destination: {
 export async function issueRailInstruments(input: {
   organizationId: string; actor: AuthUser; idempotencyKey: string; instrument: NormalizedIssueInstrumentInput;
 }) {
+  await assertSandboxLedgerOrCertifiedRail('ar_coelsa_transfers', InstantPaymentError);
   const requestFingerprint = await sha256(JSON.stringify(input.instrument));
   return getDatabaseClient().transaction(async (database) => {
     await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
@@ -324,6 +326,7 @@ export async function createInstantTransfer(input: {
   organizationId: string; actor: AuthUser; idempotencyKey: string;
   transfer: NormalizedInstantTransferInput; signals?: ProtectedRiskSignals;
 }) {
+  await assertSandboxLedgerOrCertifiedRail('ar_coelsa_transfers', InstantPaymentError);
   const fingerprint = await sha256(JSON.stringify({
     ...input.transfer, amountMinor: input.transfer.amountMinor.toString(), signals: input.signals ?? {},
   }));
@@ -481,6 +484,7 @@ export async function returnInstantTransfer(input: {
 export async function createDebitRequest(input: {
   organizationId: string; actor: AuthUser; idempotencyKey: string; debit: NormalizedDebitRequestInput;
 }) {
+  await assertSandboxLedgerOrCertifiedRail('ar_coelsa_debin', InstantPaymentError);
   const fingerprint = await sha256(JSON.stringify({ ...input.debit, amountMinor: input.debit.amountMinor.toString() }));
   return getDatabaseClient().transaction(async (database) => {
     await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
@@ -604,6 +608,7 @@ export async function listPaymentQrs(input: { organizationId: string; limit: num
 export async function createPaymentQr(input: {
   organizationId: string; actor: AuthUser; idempotencyKey: string; qr: NormalizedPaymentQrInput;
 }) {
+  await assertSandboxLedgerOrCertifiedRail('ar_coelsa_transfers', InstantPaymentError);
   const fingerprint = await sha256(JSON.stringify({
     accountId: input.qr.accountId, amountMinor: input.qr.amountMinor?.toString() ?? null,
     description: input.qr.description, expiresInMinutes: input.qr.expiresInMinutes,

@@ -2,6 +2,7 @@ import { sha256 } from '@/app/lib/auth/crypto';
 import type { AuthUser } from '@/app/lib/auth/types';
 import { type Currency, minorToMajorNumber } from '@/app/lib/ledger/money';
 import { cuitLast4 } from '@/app/lib/platform/cuit';
+import { assertSandboxLedgerOrCertifiedRail } from './platform-rails';
 import type {
   NormalizedEcheqAcceptInput, NormalizedEcheqDepositInput, NormalizedEcheqEndorseInput, NormalizedEcheqInput,
 } from '@/app/lib/platform/echeqs-input';
@@ -188,6 +189,7 @@ export async function retrieveEcheq(organizationId: string, id: string, database
 export async function issueEcheq(input: {
   organizationId: string; actor: AuthUser; idempotencyKey: string; echeq: NormalizedEcheqInput;
 }) {
+  await assertSandboxLedgerOrCertifiedRail('ar_coelsa_echeq', EcheqError);
   const fingerprint = await sha256(JSON.stringify({
     ...input.echeq, amountMinor: input.echeq.amountMinor.toString(),
   }));

@@ -14,14 +14,21 @@ function constantTimeEqual(left: string, right: string) {
   return difference === 0;
 }
 
-export function createApiKey() {
+export type ApiKeyEnvironment = 'test' | 'live';
+
+export function createApiKey(environment: ApiKeyEnvironment = 'test') {
   const prefix = randomToken(9);
   const secret = randomToken(32);
-  return { prefix, token: `cim_sk_test_${prefix}_${secret}` };
+  return { prefix, environment, token: `cim_sk_${environment}_${prefix}_${secret}` };
+}
+
+export function apiKeyEnvironment(token: string): ApiKeyEnvironment | null {
+  const match = /^cim_sk_(test|live)_([A-Za-z0-9_-]{12})_([A-Za-z0-9_-]{43})$/.exec(token);
+  return match ? match[1] as ApiKeyEnvironment : null;
 }
 
 export function apiKeyPrefix(token: string) {
-  const match = /^cim_sk_test_([A-Za-z0-9_-]{12})_([A-Za-z0-9_-]{43})$/.exec(token);
+  const match = /^cim_sk_(?:test|live)_([A-Za-z0-9_-]{12})_([A-Za-z0-9_-]{43})$/.exec(token);
   return match?.[1] ?? null;
 }
 

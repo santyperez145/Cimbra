@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getDatabase } from '@/db/runtime';
+import { platformLiveReadiness } from '@/db/platform-rails';
+import { evaluateLiveReadiness } from '@/app/lib/platform/live-readiness';
 import { validateRuntimeConfiguration } from '@/app/lib/security/runtime-config';
 
 export const dynamic = 'force-dynamic';
@@ -36,7 +38,9 @@ export async function GET() {
         AND to_regclass('public.instant_transfers') IS NOT NULL
         AND to_regclass('public.payment_qrs') IS NOT NULL
         AND to_regclass('public.payment_links') IS NOT NULL
-        AND to_regclass('public.echeqs') IS NOT NULL AS ready`,
+        AND to_regclass('public.echeqs') IS NOT NULL
+        AND to_regclass('public.platform_rails') IS NOT NULL
+        AND to_regclass('public.live_gate_evidence') IS NOT NULL AS ready`,
     ).first<{ ready: boolean }>();
     if (!readiness?.ready) throw new Error('schema_not_ready');
   } catch (error) {
@@ -44,9 +48,14 @@ export async function GET() {
     console.error('Database health check failed', error instanceof Error ? error.message : String(error));
   }
 
+  const live = dependencies.database === 'ok'
+    ? await platformLiveReadiness()
+    : evaluateLiveReadiness();
   const healthy = Object.values(dependencies).every((state) => state === 'ok');
   return NextResponse.json({
     status: healthy ? 'ok' : 'degraded', service: 'cimbra-platform', version: '2026-09-01',
+    environment: live.effectiveMode, requestedEnvironment: live.requestedMode, liveReady: live.liveReady,
+    liveBlocked: live.liveBlocked, blockReason: live.blockReason,
     dependencies, latencyMs: Math.round(performance.now() - startedAt), timestamp: new Date().toISOString(),
-  }, { status: healthy ? 200 : 503, headers: { 'Cache-Control': 'no-store' } });
+  }, { status: healthy ? 200 : 503, headers: { 'Cache-Control': 'no-store', 'Cimbra-Environment': live.effectiveMode } });
 }

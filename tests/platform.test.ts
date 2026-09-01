@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { apiKeyPrefix, createApiKey, decryptPlatformSecret, encryptPlatformSecret, hashApiKey, signWebhook, verifyApiKey, verifyWebhookSignature } from '../app/lib/platform/crypto.ts';
+import { apiKeyEnvironment, apiKeyPrefix, createApiKey, decryptPlatformSecret, encryptPlatformSecret, hashApiKey, signWebhook, verifyApiKey, verifyWebhookSignature } from '../app/lib/platform/crypto.ts';
 import { decodePageCursor, encodePageCursor, pageLimit, paginatedResponse } from '../app/lib/platform/pagination.ts';
 import { isPrivateAddress, normalizeWebhookUrl } from '../app/lib/platform/webhook-url.ts';
 import { versionedApi } from '../app/lib/platform/versioned-api.ts';
 import { CAPABILITY_AVAILABILITY, PLATFORM_CAPABILITIES, PLATFORM_SUMMARY } from '../app/lib/platform/capabilities.ts';
+import { DIRECT_RAILS, evaluateLiveReadiness, requireLiveApiKeysEnabled, requireSandboxLedgerOrCertifiedRail } from '../app/lib/platform/live-readiness.ts';
+import { PlatformRailError } from '../app/lib/platform/operating-mode.ts';
 import { matchReconciliationEntries } from '../app/lib/platform/reconciliation.ts';
 import { systemAmountRisk } from '../app/lib/platform/risk-engine.ts';
 import { csvObjects, CsvError } from '../app/lib/platform/csv.ts';
@@ -37,6 +39,11 @@ test('crea API keys opacas y sólo valida el hash correcto', async () => {
   assert.equal(await verifyApiKey(key.token, hash), true);
   assert.equal(await verifyApiKey(`${key.token}x`, hash), false);
   assert.equal(apiKeyPrefix('cim_sk_test_invalid'), null);
+  assert.equal(apiKeyEnvironment(key.token), 'test');
+  const live = createApiKey('live');
+  assert.equal(apiKeyEnvironment(live.token), 'live');
+  assert.match(live.token, /^cim_sk_live_/);
+  assert.equal(apiKeyPrefix(live.token), live.prefix);
 });
 
 test('cifra secretos de webhook con AES-GCM y detecta alteraciones', async () => {
@@ -88,6 +95,7 @@ test('la API v1 informa replay y política de reintento en headers', async () =>
   const reject = await versionedApi(new Request('https://api.test/api/v1/test'), () =>
     Response.json({ error: 'Inválido' }, { status: 400 }));
   assert.equal(reject.headers.get('cimbra-should-retry'), 'false');
+  assert.equal(replay.headers.get('cimbra-environment'), 'sandbox');
 });
 
 test('el catálogo sólo declara servicios propios y estados verificables', () => {
@@ -102,6 +110,39 @@ test('el catálogo sólo declara servicios propios y estados verificables', () =
     assert.ok(capability.features.length > 0);
     assert.ok(capability.interfaces.length > 0);
     assert.ok(capability.regulatoryBoundary.length > 20);
+  }
+  assert.equal(PLATFORM_CAPABILITIES.every((capability) => capability.availability !== 'live'), true);
+  assert.deepEqual([...PLATFORM_SUMMARY.availabilityModel], ['live', 'sandbox', 'foundation', 'roadmap']);
+});
+
+test('live permanece fail-closed aunque se pida el modo productivo', () => {
+  const previous = process.env.CIMBRA_OPERATING_MODE;
+  try {
+    delete process.env.CIMBRA_OPERATING_MODE;
+    const current = evaluateLiveReadiness();
+    assert.equal(current.effectiveMode, 'sandbox');
+    assert.equal(current.liveReady, false);
+    assert.ok(current.gates.some((gate) => gate.kind === 'software' && gate.status === 'ready'));
+    assert.ok(current.gates.some((gate) => gate.kind === 'evidence' && gate.status === 'missing'));
+    assert.equal(current.rails.every((rail) => rail.status === 'disconnected'), true);
+    requireSandboxLedgerOrCertifiedRail('ar_coelsa_transfers');
+    assert.throws(() => requireLiveApiKeysEnabled(), (error: unknown) => error instanceof PlatformRailError && error.code === 'live_environment_disabled');
+    process.env.CIMBRA_OPERATING_MODE = 'live';
+    const blocked = evaluateLiveReadiness();
+    assert.equal(blocked.requestedMode, 'live');
+    assert.equal(blocked.effectiveMode, 'sandbox');
+    assert.equal(blocked.liveBlocked, true);
+    const withRails = evaluateLiveReadiness(DIRECT_RAILS.map((rail) => ({
+      id: rail.id, status: 'certified' as const, evidenceRef: 'ops', certifiedAt: '2026-09-01T00:00:00.000Z',
+    })));
+    assert.equal(withRails.gates.find((gate) => gate.id === 'certified_direct_rail')?.status, 'ready');
+    assert.equal(withRails.liveReady, false);
+    const withEvidence = evaluateLiveReadiness([], ['license_or_sponsor', 'safeguarding']);
+    assert.equal(withEvidence.gates.find((gate) => gate.id === 'license_or_sponsor')?.status, 'ready');
+    assert.equal(withEvidence.liveReady, false);
+  } finally {
+    if (previous === undefined) delete process.env.CIMBRA_OPERATING_MODE;
+    else process.env.CIMBRA_OPERATING_MODE = previous;
   }
 });
 

@@ -5,7 +5,8 @@ import type { AuthUser } from '@/app/lib/auth/types';
 import { ensureDatabase, getDatabase, OrganizationAccessError, requireOrganizationRole, type OrganizationRole } from '@/db/runtime';
 import { AccessControlError } from '@/db/access';
 import { rolesFor, type AccessCapability } from './access-policy';
-import { apiKeyPrefix, verifyApiKey } from './crypto';
+import { apiKeyEnvironment, apiKeyPrefix, verifyApiKey } from './crypto';
+import { currentOperatingMode } from './live-readiness';
 import type { ApiScope } from './scopes';
 
 export type ApiPrincipal = {
@@ -43,6 +44,9 @@ function parseScopes(value: string) {
 async function authenticateApiKey(token: string, requiredScope?: ApiScope): Promise<ApiPrincipal> {
   const prefix = apiKeyPrefix(token);
   if (!prefix) throw new ApiAuthorizationError('API key inválida.', 401, 'invalid_api_key');
+  if (apiKeyEnvironment(token) === 'live' && currentOperatingMode() !== 'live') {
+    throw new ApiAuthorizationError('Las API keys live no están habilitadas.', 401, 'live_environment_disabled');
+  }
   await ensureDatabase();
   const key = await getDatabase().prepare(
     `SELECT k.id, k.organization_id AS "organizationId", k.secret_hash AS "secretHash", k.scopes,

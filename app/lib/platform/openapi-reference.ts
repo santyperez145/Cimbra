@@ -146,7 +146,7 @@ function authenticationLabel(value: unknown): ApiReferenceOperation['authenticat
 }
 
 function operationGroup(path: string) {
-  if (path.startsWith('/api/auth/') || path === '/api/health' || path.endsWith('/capabilities')) return 'Identidad y estado';
+  if (path.startsWith('/api/auth/') || path === '/api/health' || path.endsWith('/capabilities') || path.endsWith('/live-readiness')) return 'Identidad y estado';
   if (path.includes('/due-diligence')) return 'Compliance';
   if (path.includes('/customers')) return 'Customers';
   if (path.includes('/accounts')) return 'Accounts';
@@ -197,7 +197,7 @@ function operationScope(path: string, method: string) {
   if (path.includes('/events')) return 'events:read';
   if (path.includes('/compliance')) return 'compliance:write';
   if (path.includes('/webhooks')) return 'webhooks:manage';
-  if (path.includes('/capabilities')) return 'platform:read';
+  if (path.includes('/capabilities') || path.includes('/live-readiness')) return 'platform:read';
   if (path.includes('/operations')) return `operations:${access}`;
   return null;
 }

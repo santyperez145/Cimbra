@@ -1,6 +1,7 @@
 import type { AuthUser } from '@/app/lib/auth/types';
 import { getDatabase, recordAuditEvent } from '@/db/runtime';
 import { createApiKey, hashApiKey } from './crypto';
+import { requireLiveApiKeysEnabled } from './live-readiness';
 import type { ApiScope } from './scopes';
 
 export type SafeApiKey = {
@@ -37,12 +38,13 @@ async function insertApiKey(database: ReturnType<typeof getDatabase>, input: {
 }) {
   const id = crypto.randomUUID();
   const createdAt = new Date().toISOString();
-  const { prefix, token } = createApiKey();
+  const { prefix, token, environment } = createApiKey('test');
+  if (environment === 'live') requireLiveApiKeysEnabled();
   await database.prepare(
     `INSERT INTO api_keys
-      (id, organization_id, name, prefix, secret_hash, scopes, status, created_by, expires_at, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)`,
-  ).bind(id, input.organizationId, input.name, prefix, await hashApiKey(token), JSON.stringify(input.scopes), input.actor.userId, input.expiresAt, createdAt).run();
+      (id, organization_id, name, prefix, secret_hash, scopes, status, created_by, expires_at, created_at, environment)
+     VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)`,
+  ).bind(id, input.organizationId, input.name, prefix, await hashApiKey(token), JSON.stringify(input.scopes), input.actor.userId, input.expiresAt, createdAt, environment).run();
   await recordAuditEvent({
     organizationId: input.organizationId, actorId: input.actor.userId, action: 'api_key.created', resourceType: 'api_key', resourceId: id,
     payload: { name: input.name, prefix, scopes: input.scopes, expiresAt: input.expiresAt },

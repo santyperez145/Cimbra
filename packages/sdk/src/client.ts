@@ -14,7 +14,7 @@ import type {
   InstantTransfer, PaymentQr, RailDirectoryPreview, RailInstrument,
   PayoutBatch, PayoutBeneficiary,
   Customer, DueDiligenceCase, DueDiligenceCheck, DueDiligenceParty, DueDiligenceState,
-  Dispute, DisputeEventName, DisputeTimelineEvent, DisputeTransitionResult, Hold, HoldResolution, LedgerBalance, LedgerJournal, ListOptions, Page, PlatformCapability,
+  Dispute, DisputeEventName, DisputeTimelineEvent, DisputeTransitionResult, Hold, HoldResolution, LedgerBalance, LedgerJournal, ListOptions, Page, PlatformCapability, LiveReadiness,
   OperationalEvidence, OperationalNote, OperationalState, OperationalWorkItem, TransitionCardInput, TransitionWalletInput, UpdateCardControlsInput,
   UpdateOperationalWorkItemInput, WorkItemType,
   ReconciliationException, ReconciliationExceptionResolutionResult, ReconciliationRun, RequestOptions, RiskCase,
@@ -169,8 +169,19 @@ export class Cimbra {
   readonly capabilities = {
     list: (options?: RequestOptions) => this.request<{
       data: PlatformCapability[];
-      meta: { owner: 'Cimbra'; strategy: 'build_native'; competitorDependency: false; networkBoundary: 'direct_regulated_rails_only' };
+      meta: {
+        owner: 'Cimbra'; strategy: 'build_native'; competitorDependency: false;
+        networkBoundary: 'direct_regulated_rails_only'; availabilityModel: Array<'live' | 'sandbox' | 'foundation' | 'roadmap'>;
+        graduation: 'environment_flip_after_gates'; environment: 'sandbox' | 'live'; liveReady: boolean;
+      };
     }>('GET', '/api/v1/capabilities', undefined, options),
+  };
+
+  readonly liveReadiness = {
+    retrieve: (options?: RequestOptions) => this.request<{
+      data: LiveReadiness;
+      meta: { owner: 'Cimbra'; competitorDependency: false; networkBoundary: 'direct_regulated_rails_only'; graduation: 'environment_flip_after_gates' };
+    }>('GET', '/api/v1/live-readiness', undefined, options),
   };
 
   readonly risk = {

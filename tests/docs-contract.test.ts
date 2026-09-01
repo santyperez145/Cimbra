@@ -48,9 +48,9 @@ function routeFiles(directory: string): string[] {
 test('el OpenAPI público usa el sandbox real y operaciones identificables', () => {
   assert.equal(spec.openapi, '3.1.0');
   assert.equal(spec.info.version, '2026-09-01');
-  assert.deepEqual(spec.servers, [{ url: 'https://cimbra-rose.vercel.app', description: 'Persistent sandbox. Does not move real funds.' }]);
+  assert.deepEqual(spec.servers, [{ url: 'https://cimbra-rose.vercel.app', description: 'Current environment is sandbox. Live money stays fail-closed until license, direct rail, certification and SLO evidence exist.' }]);
   const operations = contractOperations();
-  assert.equal(operations.length, 160);
+  assert.equal(operations.length, 161);
   const ids = operations.map(({ operation }) => operation.operationId);
   assert.equal(ids.every(Boolean), true);
   assert.equal(new Set(ids).size, ids.length);
@@ -147,6 +147,7 @@ test('OpenAPI publica book transfers y statements como contratos completos', () 
   assert.equal(spec.paths['/api/v1/echeqs/{id}/endorse'].post.operationId, 'endorseEcheq');
   assert.equal(spec.paths['/api/v1/echeqs/{id}/deposit'].post.operationId, 'depositEcheq');
   assert.equal(spec.paths['/api/v1/echeqs/{id}/return'].post.operationId, 'returnEcheq');
+  assert.equal(spec.paths['/api/v1/live-readiness'].get.operationId, 'getLiveReadiness');
   assert.match(reference, /path\.includes\('\/instant-transfers'\) \|\| path\.includes\('\/rail-instruments'\)/);
   assert.match(reference, /return 'Instant payments'/);
   assert.match(reference, /path\.includes\('\/echeqs'\)\) return 'ECHEQ'/);

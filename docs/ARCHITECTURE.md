@@ -7,7 +7,9 @@
 3. Todos los dominios de producto son propios; sólo los bancos, cámaras, esquemas y fuentes reguladas se conectan detrás de puertos de red aislados.
 4. Los flujos largos se orquestan con estados explícitos, compensaciones y reintentos seguros.
 5. PII, secretos, fondos y telemetría viven en límites de seguridad separados.
-6. Sandbox y producción tienen credenciales, datos, rieles y señales visuales distintas.
+6. Sandbox y live tienen credenciales, datos, rieles y señales visuales distintas. El contrato API es el mismo; live es un flip de entorno fail-closed.
+
+El modo operativo efectivo se publica en `Cimbra-Environment` y en `/api/health`. `CIMBRA_OPERATING_MODE=live` no autoriza fondos: `evaluateLiveReadiness` exige evidencia y al menos un riel directo certificado (banco, cámara, esquema o sponsor). Sin eso el entorno efectivo permanece `sandbox` y no se emiten claves `cim_sk_live_`.
 
 ## Arquitectura del MVP alojado
 
@@ -67,7 +69,7 @@ Los deployments productivos de Vercel ejecutan las migraciones versionadas antes
 
 ## Arquitectura objetivo para dinero real
 
-El ledger actual es un núcleo financiero real para sandbox, pero no debe convertirse por crecimiento accidental en un core que mueva dinero. La plataforma de producción se separa en seis dominios desplegables:
+El ledger actual es el núcleo financiero real. El entorno de despliegue sigue en sandbox hasta que los gates live y un riel directo estén certificados. La plataforma de producción se separa en seis dominios desplegables:
 
 - Identity & Tenancy: organizaciones, roles, permisos, claves, políticas y segregación.
 - Financial Core: cuentas, ledger de doble partida, holds, límites, fees, intereses y cierres.

@@ -10,7 +10,7 @@ import PlatformStatus from './platform-status';
 
 export const metadata = {
   title: 'Developers — API, SDK y webhooks de Cimbra',
-  description: 'Contrato OpenAPI, SDK TypeScript descargable, quickstarts y referencia verificable del sandbox de Cimbra.',
+  description: 'Contrato OpenAPI, SDK TypeScript descargable, quickstarts y referencia verificable de Cimbra. El entorno actual es sandbox; live permanece fail-closed.',
 };
 
 export const dynamic = 'force-dynamic';
@@ -27,6 +27,11 @@ const errorResponses = [
 ] as const;
 
 const changelog = [
+  {
+    date: '01 SEP 2026',
+    title: 'Contrato live fail-closed y entorno sandbox',
+    detail: 'El producto deja de ser “un sandbox”. GET /api/v1/live-readiness expone gates ejecutables y puertos de riel nativos. CIMBRA_OPERATING_MODE=live no mueve fondos ni emite cim_sk_live_ hasta licencia, riel directo certificado, safeguarding, conciliación de tres vías, pentest y SLO. Ninguna capacidad está live hoy.',
+  },
   {
     date: '01 SEP 2026',
     title: 'ECHEQ sandbox para Argentina',
@@ -408,14 +413,14 @@ await cimbra.paymentLinks.pay(link.data.link.id, {
           <article><strong>{API_SCOPES.length}</strong><span>Scopes S2S canónicos</span></article>
           <article><strong>{WEBHOOK_EVENT_TYPES.length}</strong><span>Tipos de evento emitidos</span></article>
         </div>
-        <div className="docs-callout"><i>i</i><div><strong>Sandbox persistente, no dinero real</strong><p>Customers, KYC/KYB, cuentas, wallets, book transfers, estados de cuenta, tarjetas sandbox, beneficiarios, lotes de payouts, servicios, obligaciones, recargas, mandatos, movimientos, ledger, riesgo, conciliación, disputas, operaciones, aprobaciones y webhooks se persisten. No existen fuentes de identidad, cobertura comercial o rieles homologados, PAN/CVV ni instrumentos emitidos en redes de pago.</p></div></div>
+        <div className="docs-callout"><i>i</i><div><strong>Entorno sandbox, contrato de producción</strong><p>Customers, KYC/KYB, cuentas, wallets, book transfers, estados de cuenta, tarjetas, beneficiarios, lotes de payouts, servicios, obligaciones, recargas, mandatos, movimientos, ledger, riesgo, conciliación, disputas, operaciones, aprobaciones y webhooks se persisten sobre el núcleo real. No existen fuentes de identidad, cobertura comercial o rieles homologados, PAN/CVV ni instrumentos emitidos en redes de pago. Live se habilita por flip de entorno cuando GET /api/v1/live-readiness marque liveReady.</p></div></div>
       </section>
 
       <section id="environments" className="docs-section">
-        <p className="docs-kicker">ENTORNOS</p><h2>Una URL activa. Ninguna promesa ficticia.</h2>
+        <p className="docs-kicker">ENTORNOS</p><h2>Un contrato. Un entorno activo. Live fail-closed.</h2>
         <div className="environment-grid">
-          <article className="environment-card available"><div><i /> SANDBOX PÚBLICO</div><code>{reference.baseUrl}</code><p>Base de datos persistente, API keys de prueba, ledger y eventos. Los secretos usan el prefijo <code>cim_sk_test_</code>.</p><a href="/api/health">Consultar healthcheck JSON ↗</a></article>
-          <article className="environment-card unavailable"><div><i /> PRODUCCIÓN</div><strong>No habilitada</strong><p>Se habilitará por jurisdicción y producto sólo después de riel directo, contrato, licencia o sponsor, certificación, SLO, runbooks y pruebas operativas.</p><span>Sin URL ni credenciales productivas hoy</span></article>
+          <article className="environment-card available"><div><i /> ENTORNO ACTIVO · SANDBOX</div><code>{reference.baseUrl}</code><p>Misma API, ledger y eventos que producción. Las claves usan <code>cim_sk_test_</code>. No mueve fondos de riel.</p><a href="/api/health">Consultar healthcheck JSON ↗</a></article>
+          <article className="environment-card unavailable"><div><i /> LIVE</div><strong>Bloqueado por gates</strong><p>Se habilita sin reescribir el contrato, cuando exista riel directo, licencia o sponsor, certificación, SLO y evidencia en <code>GET /api/v1/live-readiness</code>.</p><span>Sin hostname live ni credenciales <code>cim_sk_live_</code> hoy</span></article>
         </div>
         <div className="artifact-matrix">
           <div><span>OpenAPI YAML</span><b className="available">Disponible</b><a href="/openapi.yaml">Descargar</a></div>
@@ -622,14 +627,14 @@ await cimbra.paymentLinks.pay(link.data.link.id, {
       <section id="changelog" className="docs-section">
         <p className="docs-kicker">CHANGELOG</p><h2>Cambios que ya están en el runtime.</h2>
         <div className="docs-changelog">{changelog.map((entry) => <article key={`${entry.date}-${entry.title}`}><time>{entry.date}</time><div><h3>{entry.title}</h3><p>{entry.detail}</p></div></article>)}</div>
-        <div className="docs-note"><strong>Versionado actual</strong><p>La ruta mayor es <code>/api/v1</code> y cada respuesta publica <code>Cimbra-Version: {reference.version}</code>. Todavía no hay una política de deprecación productiva porque no existe un ambiente de producción habilitado.</p></div>
+        <div className="docs-note"><strong>Versionado actual</strong><p>La ruta mayor es <code>/api/v1</code> y cada respuesta publica <code>Cimbra-Version: {reference.version}</code> y <code>Cimbra-Environment</code>. Live no está habilitado; el flip de entorno reutiliza este contrato.</p></div>
       </section>
     </article>
 
     <aside className="docs-toc">
       <strong>EN ESTA PÁGINA</strong>
       <a href="#overview">Overview</a><a href="#environments">Entornos</a><a href="#quickstart">Quickstart</a><a href="#authentication">Autenticación</a><a href="#idempotency">Idempotencia</a><a href="#errors">Errores</a><a href="#sdk">SDK</a><a href="#book-transfers">Book transfers</a><a href="#wallets">Wallets</a><a href="#instant-payments">Pagos AR</a><a href="#collections">Cobranzas</a><a href="#payouts">Payouts</a><a href="#billers">Servicios</a><a href="#due-diligence">KYC/KYB</a><a href="#risk-step-up">Step-up</a><a href="#webhooks">Webhooks</a><a href="#reference">API reference</a><a href="#changelog">Changelog</a>
-      <div><span>{user ? `Sesión activa · ${user.displayName.split(' ')[0]}` : '¿Necesitás credenciales?'}</span><Link href={user ? '/console' : '/login?return_to=%2Fconsole'}>{user ? 'Abrir Developers' : 'Ingresar al sandbox'} →</Link></div>
+      <div><span>{user ? `Sesión activa · ${user.displayName.split(' ')[0]}` : '¿Necesitás credenciales?'}</span><Link href={user ? '/console' : '/login?return_to=%2Fconsole'}>{user ? 'Abrir Developers' : 'Ingresar'} →</Link></div>
     </aside>
   </main>;
 }

@@ -1,6 +1,7 @@
 import { sha256 } from '@/app/lib/auth/crypto';
 import type { AuthUser } from '@/app/lib/auth/types';
 import { type Currency, minorToMajorNumber } from '@/app/lib/ledger/money';
+import { assertSandboxLedgerOrCertifiedRail } from './platform-rails';
 import type { CollectionMethod, NormalizedPaymentLinkInput, NormalizedPaymentLinkPayInput } from '@/app/lib/platform/collections-input';
 import type { ProtectedRiskSignals } from '@/app/lib/platform/risk-signals';
 import { type DatabaseClient, getDatabaseClient } from './client';
@@ -263,6 +264,9 @@ export async function payPaymentLink(input: {
     const allowed = parseMethods(current.allowedMethods);
     if (!allowed.includes(input.payment.method)) {
       throw new CollectionError('El medio de cobro no está habilitado en este link.', 422, 'method_not_allowed');
+    }
+    if (input.payment.method !== 'internal') {
+      await assertSandboxLedgerOrCertifiedRail('ar_coelsa_transfers', CollectionError);
     }
     const merchant = await loadAccount(database, input.organizationId, current.accountId, true);
     assertCollector(merchant);

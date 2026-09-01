@@ -164,11 +164,13 @@ try {
   const health = await json(await request('/api/health'), 200);
   assert.equal(health.status, 'ok');
   assert.equal(health.dependencies.database, 'ok');
+  assert.equal(health.environment, 'sandbox');
+  assert.equal(health.liveReady, false);
   const publicLanding = await request('/');
   assert.equal(publicLanding.status, 200);
   const publicLandingHtml = await publicLanding.text();
   assert.match(publicLandingHtml, />Ingresar</);
-  assert.match(publicLandingHtml, /SANDBOX OPERATIVO/);
+  assert.match(publicLandingHtml, /ENTORNO SANDBOX/);
 
   trackAuthAttempt('register', email);
   const registration = await request('/api/auth/register', {

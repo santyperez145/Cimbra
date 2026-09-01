@@ -1,3 +1,5 @@
+import { currentOperatingMode } from './live-readiness.ts';
+
 type RouteResult = Response | Promise<Response>;
 
 function errorCode(status: number) {
@@ -14,6 +16,7 @@ function errorCode(status: number) {
 function versionHeaders(response: Response, requestId: string) {
   response.headers.set('X-Request-Id', requestId);
   response.headers.set('Cimbra-Version', '2026-09-01');
+  response.headers.set('Cimbra-Environment', currentOperatingMode());
   response.headers.set('Cache-Control', response.headers.get('Cache-Control') ?? 'no-store');
   if (response.status === 408 || response.status === 429 || response.status >= 500) response.headers.set('Cimbra-Should-Retry', 'true');
   else if (response.status >= 400) response.headers.set('Cimbra-Should-Retry', 'false');
@@ -40,11 +43,12 @@ export async function versionedApi(request: Request, handler: () => RouteResult)
     const headers = new Headers(response.headers);
     headers.set('X-Request-Id', requestId);
     headers.set('Cimbra-Version', '2026-09-01');
+    headers.set('Cimbra-Environment', currentOperatingMode());
     headers.set('Cache-Control', 'no-store');
     return versionHeaders(Response.json({ error: { type: 'cimbra_api_error', code, message, requestId } }, { status: response.status, headers }), requestId);
   } catch {
     return versionHeaders(Response.json({
       error: { type: 'cimbra_api_error', code: 'internal_error', message: 'Ocurrió un error interno.', requestId },
-    }, { status: 500, headers: { 'X-Request-Id': requestId, 'Cimbra-Version': '2026-09-01', 'Cache-Control': 'no-store' } }), requestId);
+    }, { status: 500, headers: { 'X-Request-Id': requestId, 'Cimbra-Version': '2026-09-01', 'Cimbra-Environment': currentOperatingMode(), 'Cache-Control': 'no-store' } }), requestId);
   }
 }

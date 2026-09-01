@@ -1,20 +1,20 @@
 # Cimbra
 
-Cimbra es una plataforma de infraestructura financiera modular para Latinoamérica. Este repositorio contiene el sitio comercial, documentación, consola autenticada y un sandbox persistente con tenancy/RBAC, cuentas, ledger de doble partida, wallets con bolsillos, book transfers atómicos, estados de cuenta paginados, transferencias idempotentes, cobranzas sandbox por link, beneficiarios protegidos, payouts masivos asíncronos, motor de riesgo, step-up OTP y SLO de decisión medido, casos, holds, conciliación, excepciones, disputas parciales con créditos compensables, cola operativa con SLA, reversas, doble aprobación maker/checker, programas y lifecycle de tarjetas, controles versionados, evidencia privada, credenciales S2S y webhooks firmados.
+Cimbra es una plataforma de infraestructura financiera modular para Latinoamérica. Este repositorio contiene el sitio comercial, documentación, consola autenticada y el núcleo productivo ejecutándose hoy en entorno sandbox: tenancy/RBAC, cuentas, ledger de doble partida, wallets con bolsillos, book transfers atómicos, estados de cuenta paginados, transferencias idempotentes, cobranzas por link, beneficiarios protegidos, payouts masivos asíncronos, motor de riesgo, step-up OTP y SLO de decisión medido, casos, holds, conciliación, excepciones, disputas parciales con créditos compensables, cola operativa con SLA, reversas, doble aprobación maker/checker, programas y lifecycle de tarjetas, controles versionados, evidencia privada, credenciales S2S y webhooks firmados.
 
 ## Estado del producto
 
-La aplicación es un MVP lanzable para venta, discovery e integración en sandbox. No mueve fondos reales ni sustituye licencias, contratos con bancos patrocinadores, procesadores, redes de tarjetas o proveedores KYC/AML. La interfaz separa explícitamente sandbox y producción para evitar confusión.
+La aplicación es un MVP lanzable para venta, discovery e integración. El contrato API es el de producción; el entorno activo es sandbox y no mueve fondos de riel. Live se habilita por flip de entorno cuando `GET /api/v1/live-readiness` marque `liveReady`, nunca reescribiendo la API ni conectando competidores. La interfaz separa explícitamente sandbox y live.
 
 Superficies disponibles:
 
 - `/` — propuesta comercial profesional, estado de sesión contextual, prueba técnica, casos de uso, modelo de acceso y captación persistente de leads.
-- `/developers` — portal técnico generado desde OpenAPI con entornos, quickstart ejecutable, auth/RBAC/scopes, errores, rate limits, SDK descargable, webhooks, catálogo de eventos y las 160 operaciones publicadas.
+- `/developers` — portal técnico generado desde OpenAPI con entornos, quickstart ejecutable, auth/RBAC/scopes, errores, rate limits, SDK descargable, webhooks, catálogo de eventos y las 161 operaciones publicadas.
 - `/login` — registro e inicio de sesión propio con usuario/email y contraseña; OAuth Google y Apple se activa al configurar sus credenciales.
 - `/forgot-password`, `/reset-password` y `/verify-email` — ciclo de vida de cuenta con tokens opacos, expiración, uso único y respuestas anti-enumeración.
 - `/console` — consola protegida y consciente del rol; owner/admin administran miembros e invitaciones, operator ejecuta, viewer trabaja en modo lectura y Operaciones unifica ownership, SLA y expedientes de riesgo/conciliación.
-- `/api/health` — readiness sin caché para esquema PostgreSQL y secretos críticos de cifrado/dispatcher, sin exponer sus valores.
-- `/api/v1/*` — API pública versionada para customers, KYC/KYB, accounts, statements, wallets, book transfers, pagos instantáneos sandbox AR (CVU/alias/QR/débito interno), cobranzas sandbox (links de cobro, eco cerrado e inbound ledger), cards, transfers, payments, beneficiarios y lotes de payouts, billers, obligaciones, recargas, mandatos recurrentes, riesgo, conciliación CSV/API, work items operativos, settlement sandbox, aprobaciones, holds, ledger, events, compliance y webhooks.
+- `/api/health` — readiness sin caché para esquema PostgreSQL, secretos críticos y modo operativo (`environment`, `liveReady`), sin exponer valores secretos.
+- `/api/v1/*` — API pública versionada. Incluye `GET /api/v1/live-readiness` (gates y puertos de riel) además de customers, KYC/KYB, accounts, statements, wallets, book transfers, pagos instantáneos AR, cobranzas, cards, transfers, payments, payouts, billers, riesgo, conciliación, operaciones, settlement, aprobaciones, holds, ledger, events, compliance y webhooks.
 - `/api/sandbox/*` — alias de compatibilidad deprecado; las integraciones nuevas deben usar v1.
 - `/api/platform/api-keys` — claves Bearer con scopes, vencimiento, rate limit, rotación y revocación inmediata.
 - `/api/platform/access` — miembros, invitaciones verificadas, jerarquía de roles, revocación y trazabilidad del tenant.

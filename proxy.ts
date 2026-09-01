@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
+import { currentOperatingMode } from '@/app/lib/platform/live-readiness';
 
 const requestIdPattern = /^[A-Za-z0-9_-]{8,100}$/;
 
@@ -12,6 +13,7 @@ export function proxy(request: NextRequest) {
   const response = NextResponse.next({ request: { headers: requestHeaders } });
   response.headers.set('X-Request-Id', requestId);
   response.headers.set('Cimbra-Version', '2026-09-01');
+  response.headers.set('Cimbra-Environment', currentOperatingMode());
   if (request.nextUrl.pathname.startsWith('/api/sandbox/')) {
     response.headers.set('Deprecation', 'true');
     response.headers.set('Link', '</api/v1>; rel="successor-version"');

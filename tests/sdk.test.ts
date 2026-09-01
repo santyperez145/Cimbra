@@ -324,6 +324,17 @@ test('el SDK expone el catálogo de servicios nativos de Cimbra', async () => {
   assert.equal(result.data.data[0].id, 'financial-core');
 });
 
+test('el SDK consulta el readiness live fail-closed', async () => {
+  let requestUrl = '';
+  const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async (input) => {
+    requestUrl = String(input);
+    return Response.json({ data: { requestedMode: 'sandbox', effectiveMode: 'sandbox', liveReady: false, liveBlocked: false, blockReason: 'sandbox_environment', gates: [], rails: [], summary: { readyGates: 0, missingGates: 0, disconnectedRails: 0, certifiedRails: 0 } }, meta: { owner: 'Cimbra', competitorDependency: false, networkBoundary: 'direct_regulated_rails_only', graduation: 'environment_flip_after_gates' } });
+  } });
+  const result = await client.liveReadiness.retrieve();
+  assert.equal(requestUrl, 'https://api.test/api/v1/live-readiness');
+  assert.equal(result.data.data.liveReady, false);
+});
+
 test('el SDK crea reglas de riesgo y conciliaciones con idempotencia', async () => {
   const calls: Array<{ url: string; idempotencyKey: string | null }> = [];
   const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async (input, init) => {
