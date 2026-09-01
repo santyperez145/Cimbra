@@ -7,6 +7,7 @@ export const ACCESS_POLICY = {
   'payouts.beneficiaries.manage': ['owner', 'admin'],
   'billers.manage': ['owner', 'admin'],
   'cards.program.manage': ['owner', 'admin'],
+  'wallets.program.manage': ['owner', 'admin'],
   'compliance.write': ['owner', 'admin', 'operator'],
   'risk.cases.resolve': ['owner', 'admin', 'operator'],
   'risk.rules.manage': ['owner', 'admin'],

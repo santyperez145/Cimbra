@@ -145,6 +145,91 @@ test('el SDK cablea book transfers, reversas y statements paginados', async () =
   assert.equal(calls[2].idempotencyKey, null);
 });
 
+test('el SDK cablea programas, wallets, lifecycle y movimientos entre bolsillos', async () => {
+  const calls: Array<{ url: string; method: string; idempotencyKey: string | null }> = [];
+  const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async (input, init) => {
+    const url = String(input); const method = init?.method ?? 'GET';
+    calls.push({ url, method, idempotencyKey: new Headers(init?.headers).get('idempotency-key') });
+    if (url.endsWith('/wallet-programs')) return Response.json({ ok: true, replayed: false, program: { id: 'program_1' } }, { status: 201 });
+    if (url.endsWith('/wallets')) return Response.json({ ok: true, replayed: false, wallet: { id: 'wallet_1' }, pockets: [{ id: 'pocket_1' }, { id: 'pocket_2' }] }, { status: 201 });
+    if (url.endsWith('/lifecycle')) return Response.json({ ok: true, replayed: false, event: { id: 'event_1', toStatus: 'frozen' } });
+    return Response.json({ ok: true, requiresApproval: false, transfer: { id: 'bt_1', status: 'settled' }, walletId: 'wallet_1',
+      sourcePocketId: 'pocket_1', destinationPocketId: 'pocket_2', replayed: false }, { status: 201 });
+  } });
+  const program = await client.walletPrograms.create({ name: 'Wallet ARS', displayName: 'Billetera Sur', defaultCurrency: 'ARS',
+    pocketKinds: ['available', 'rewards'] });
+  const wallet = await client.wallets.create({ programId: program.data.program.id, customerId: 'customer_1', externalReference: 'WALLET-001' });
+  await client.wallets.transition(wallet.data.wallet.id, { status: 'frozen', reason: 'internal_control' });
+  await client.wallets.transfer(wallet.data.wallet.id, { externalReference: 'WP-001', sourcePocketId: 'pocket_1',
+    destinationPocketId: 'pocket_2', description: 'Distribución', amount: '10.00', currency: 'ARS' });
+  assert.deepEqual(calls.map(({ method, url }) => `${method} ${url}`), [
+    'POST https://api.test/api/v1/wallet-programs', 'POST https://api.test/api/v1/wallets',
+    'POST https://api.test/api/v1/wallets/wallet_1/lifecycle', 'POST https://api.test/api/v1/wallets/wallet_1/transfers',
+  ]);
+  for (const call of calls) assert.match(call.idempotencyKey ?? '', /^idem_[a-f0-9]{32}$/);
+});
+
+test('el SDK cablea CVU, directorio, crédito inmediato, débito interno y QR', async () => {
+  const calls: string[] = [];
+  const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async (input, init) => {
+    const url = String(input); calls.push(`${init?.method ?? 'GET'} ${url}`);
+    if (url.endsWith('/rail-instruments')) return Response.json({ ok: true, replayed: false, instruments: [{ id: 'inst_1', value: '00099990' }] }, { status: 201 });
+    if (url.includes('/rail-directory')) return Response.json({ found: true, holderName: 'Comercio Sur', taxIdLast4: '5678' });
+    if (url.endsWith('/instant-transfers')) return Response.json({ ok: true, replayed: false, transfer: { id: 'ip_1' } }, { status: 201 });
+    if (url.endsWith('/debit-requests')) return Response.json({ ok: true, replayed: false, debit: { id: 'db_1' } }, { status: 201 });
+    if (url.endsWith('/respond')) return Response.json({ ok: true, replayed: false, debit: { id: 'db_1', status: 'settled' } }, { status: 201 });
+    if (url.endsWith('/payment-qrs')) return Response.json({ ok: true, replayed: false, qr: { id: 'qr_1' } }, { status: 201 });
+    return Response.json({ ok: true, replayed: false, transfer: { id: 'ip_2' } }, { status: 201 });
+  } });
+  const issued = await client.railInstruments.issue({ accountId: 'acc_1', alias: 'COMERCIO.SUR' });
+  await client.railDirectory.lookup(issued.data.instruments[0].value);
+  await client.instantTransfers.create({
+    externalReference: 'IP-001', accountId: 'acc_2', destination: issued.data.instruments[0].value,
+    description: 'Cobro', amount: '10.00', currency: 'ARS', confirmHolder: true, holderName: 'Comercio Sur', taxIdLast4: '5678',
+  });
+  const debit = await client.debitRequests.create({
+    externalReference: 'DB-001', collectorAccountId: 'acc_1', payerDestination: 'COMERCIO.SUR',
+    description: 'Débito', amount: '5.00', currency: 'ARS',
+  });
+  await client.debitRequests.respond(debit.data.debit.id, { decision: 'accept' });
+  const qr = await client.paymentQrs.create({ accountId: 'acc_1', description: 'Mostrador', amount: '8.00' });
+  await client.paymentQrs.pay(qr.data.qr.id, { sourceAccountId: 'acc_2', externalReference: 'QR-001' });
+  assert.deepEqual(calls, [
+    'POST https://api.test/api/v1/rail-instruments',
+    'GET https://api.test/api/v1/rail-directory?q=00099990',
+    'POST https://api.test/api/v1/instant-transfers',
+    'POST https://api.test/api/v1/debit-requests',
+    'POST https://api.test/api/v1/debit-requests/db_1/respond',
+    'POST https://api.test/api/v1/payment-qrs',
+    'POST https://api.test/api/v1/payment-qrs/qr_1/pay',
+  ]);
+});
+
+test('el SDK cablea links de cobro, eco cerrado, inbound sandbox y devoluciones', async () => {
+  const calls: string[] = [];
+  const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async (input, init) => {
+    const url = String(input); calls.push(`${init?.method ?? 'GET'} ${url}`);
+    if (url.endsWith('/payment-links') && init?.method === 'POST') {
+      return Response.json({ ok: true, replayed: false, link: { id: 'pl_1', status: 'open' } }, { status: 201 });
+    }
+    if (url.endsWith('/pay')) return Response.json({ ok: true, replayed: false, link: { id: 'pl_1', status: 'paid' } }, { status: 201 });
+    if (url.endsWith('/refund')) return Response.json({ ok: true, replayed: false, link: { id: 'pl_1', status: 'refunded' }, reversal: { id: 'tx_r' } }, { status: 201 });
+    return Response.json({ id: 'pl_1', status: 'open' });
+  } });
+  const created = await client.paymentLinks.create({
+    accountId: 'acc_1', externalReference: 'FAC-001', description: 'Honorarios', amount: '1500.00', currency: 'ARS',
+  });
+  await client.paymentLinks.retrieve(created.data.link.id);
+  await client.paymentLinks.pay(created.data.link.id, { method: 'internal', payerAccountId: 'acc_2' });
+  await client.paymentLinks.refund(created.data.link.id);
+  assert.deepEqual(calls, [
+    'POST https://api.test/api/v1/payment-links',
+    'GET https://api.test/api/v1/payment-links/pl_1',
+    'POST https://api.test/api/v1/payment-links/pl_1/pay',
+    'POST https://api.test/api/v1/payment-links/pl_1/refund',
+  ]);
+});
+
 test('el SDK representa transferencias pendientes de aprobación humana', async () => {
   const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async () =>
     Response.json({ ok: true, requiresApproval: true, replayed: false, deduplicated: false,

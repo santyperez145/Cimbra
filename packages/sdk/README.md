@@ -186,6 +186,75 @@ if (!transfer.data.requiresApproval) {
 
 El book transfer debita origen y acredita destino dentro de un solo journal, exige cuentas activas del mismo tenant/moneda, descuenta holds del saldo disponible y comparte riesgo y `transfer.create` maker/checker. Una reversa mediante `cimbra.bookTransfers.reverse(id)` agrega postings compensatorios. El statement pagina postings inmutables y calcula apertura/cierre para un período máximo de 366 días. Es un rail interno del sandbox: no representa CBU/CVU, Pix, SPEI ni custodia de dinero real.
 
+## Wallets y bolsillos
+
+```ts
+const program = await cimbra.walletPrograms.create({
+  name: 'Wallet marketplace ARS',
+  displayName: 'Billetera Comercio Sur',
+  defaultCurrency: 'ARS',
+  pocketKinds: ['available', 'pending'],
+});
+
+const wallet = await cimbra.wallets.create({
+  programId: program.data.program.id,
+  customerId: '00000000-0000-4000-8000-000000000010',
+  externalReference: 'WALLET-001',
+});
+
+await cimbra.wallets.transfer(wallet.data.wallet.id, {
+  externalReference: 'WP-001',
+  sourcePocketId: wallet.data.pockets[0].id,
+  destinationPocketId: wallet.data.pockets[1].id,
+  description: 'Reserva operativa',
+  amount: '25.00',
+  currency: 'ARS',
+});
+```
+
+Cada bolsillo es una cuenta de producto. Freeze y close inactivan esas cuentas; cerrar exige saldo cero y sin holds. El sandbox no custodia fondos ni publica una app de consumidor.
+
+## Pagos instantáneos sandbox (Argentina)
+
+```ts
+const issued = await cimbra.railInstruments.issue({
+  accountId: '00000000-0000-4000-8000-000000000001',
+  alias: 'COMERCIO.SUR',
+});
+const preview = await cimbra.railDirectory.lookup(issued.data.instruments[0].value);
+await cimbra.instantTransfers.create({
+  externalReference: 'IP-001',
+  accountId: '00000000-0000-4000-8000-000000000002',
+  destination: issued.data.instruments[0].value,
+  description: 'Cobro inmediato',
+  amount: '1500.00',
+  currency: 'ARS',
+  confirmHolder: true,
+  holderName: preview.data.holderName!,
+  taxIdLast4: preview.data.taxIdLast4!,
+});
+```
+
+El CVU usa prefijo `000` y código PSP `9999` de Cimbra, no un código Coelsa. El alias vive en el tenant. Un débito o QR externo no está soportado.
+
+## Cobranzas sandbox (Argentina)
+
+```ts
+const link = await cimbra.paymentLinks.create({
+  accountId: '00000000-0000-4000-8000-000000000001',
+  externalReference: 'FAC-001',
+  description: 'Honorarios agosto',
+  amount: '18500.00',
+  currency: 'ARS',
+});
+await cimbra.paymentLinks.pay(link.data.link.id, {
+  method: 'internal',
+  payerAccountId: '00000000-0000-4000-8000-000000000002',
+});
+```
+
+El payload `cimbra:link:v1` no es un checkout de red. Tarjeta, POS y QR interoperable responden `422`.
+
 ## Beneficiarios y payouts masivos
 
 ```ts

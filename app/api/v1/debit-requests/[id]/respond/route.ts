@@ -1,0 +1,37 @@
+import { NextResponse } from 'next/server';
+import { authorizationErrorResponse, authorizeApiRequest, rateLimitHeaders } from '@/app/lib/platform/authorization';
+import { scheduleWebhookDispatch } from '@/app/lib/platform/dispatch';
+import { IdempotencyError, requestIdempotencyKey } from '@/app/lib/platform/idempotency';
+import { normalizeRawRiskSignals, protectRiskSignals } from '@/app/lib/platform/risk-signals';
+import { versionedApi } from '@/app/lib/platform/versioned-api';
+import { normalizeDebitResponse } from '@/app/lib/platform/instant-payments-input';
+import { InstantPaymentError, respondDebitRequest } from '@/db/instant-payments';
+
+async function create(request: Request, debitId: string) {
+  try {
+    const principal = await authorizeApiRequest(request, { scope: 'transfers:write', capability: 'finance.write', mutation: true });
+    const idempotencyKey = requestIdempotencyKey(request, principal)!;
+    const body = await request.json().catch(() => null) as Record<string, unknown> | null;
+    const parsed = normalizeDebitResponse(body); const rawSignals = normalizeRawRiskSignals(body?.signals);
+    if (!parsed || !rawSignals) return NextResponse.json({ error: 'Decisión de débito inválida.', code: 'invalid_debit_response' }, { status: 400 });
+    const signals = await protectRiskSignals(principal.organizationId, rawSignals);
+    const result = await respondDebitRequest({
+      organizationId: principal.organizationId, actor: principal.user, debitId, idempotencyKey, response: parsed, signals,
+    });
+    if (!result.replayed) scheduleWebhookDispatch(principal.organizationId);
+    if ('declined' in result) return NextResponse.json({ error: 'La operación fue rechazada por la política de riesgo.',
+      code: 'risk_declined', evaluation: result.declined }, { status: 422, headers: rateLimitHeaders(principal) });
+    return NextResponse.json({ ok: true, ...result }, { status: result.replayed ? 200 : 201, headers: rateLimitHeaders(principal) });
+  } catch (error) {
+    const authorization = authorizationErrorResponse(error);
+    if (authorization) return authorization;
+    if (error instanceof IdempotencyError || error instanceof InstantPaymentError) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
+    }
+    throw error;
+  }
+}
+
+export function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  return versionedApi(request, async () => create(request, (await params).id));
+}

@@ -7,15 +7,19 @@ import type {
   CreateReconciliationCsvImportInput, CreateReconciliationRunInput, CreateRiskEvaluationInput, CreateRiskListEntryInput, CreateRiskRuleInput, CreateRiskSimulationInput,
   CreateRiskStepUpChallengeInput,
   CreateBookTransferInput, CreateRecurringPaymentMandateInput, CreateSettlementCycleInput, CreateTransferInput, CreateWebhookInput,
-  CreatePayoutBatchInput, CreatePayoutBeneficiaryInput, PayoutBatch, PayoutBeneficiary,
+  CreatePayoutBatchInput, CreatePayoutBeneficiaryInput, CreateWalletInput, CreateWalletPocketTransferInput, CreateWalletProgramInput,
+  CreateDebitRequestInput, CreateInstantTransferInput, CreatePaymentQrInput, IssueRailInstrumentInput, PayPaymentQrInput,
+  CreatePaymentLinkInput, PayPaymentLinkInput, PaymentLink,
+  InstantTransfer, PaymentQr, RailDirectoryPreview, RailInstrument,
+  PayoutBatch, PayoutBeneficiary,
   Customer, DueDiligenceCase, DueDiligenceCheck, DueDiligenceParty, DueDiligenceState,
   Dispute, DisputeEventName, DisputeTimelineEvent, DisputeTransitionResult, Hold, HoldResolution, LedgerBalance, LedgerJournal, ListOptions, Page, PlatformCapability,
-  OperationalEvidence, OperationalNote, OperationalState, OperationalWorkItem, TransitionCardInput, UpdateCardControlsInput,
+  OperationalEvidence, OperationalNote, OperationalState, OperationalWorkItem, TransitionCardInput, TransitionWalletInput, UpdateCardControlsInput,
   UpdateOperationalWorkItemInput, WorkItemType,
   ReconciliationException, ReconciliationExceptionResolutionResult, ReconciliationRun, RequestOptions, RiskCase,
   ReportRiskOutcomeInput, RiskCaseResolutionResult, RiskEvaluation, RiskListEntry, RiskMetrics, RiskOutcome, RiskRule, RiskSimulation,
   RecurringPaymentMandate, RiskStepUpAttempt, RiskStepUpChallenge, SettlementCycle, SettlementExecutionResult, VerifyRiskStepUpChallengeInput,
-  RecordDueDiligenceCheckInput, Transaction, TransferCreationResult, WebhookOperationalState,
+  RecordDueDiligenceCheckInput, Transaction, TransferCreationResult, Wallet, WalletLifecycleEvent, WalletPocket, WalletPocketTransferCreationResult, WalletProgram, WebhookOperationalState,
 } from './types.ts';
 
 type Fetch = typeof globalThis.fetch;
@@ -52,10 +56,11 @@ function shouldRetryResponse(response: Response) {
   return response.status === 408 || response.status === 429 || response.status >= 500;
 }
 
-function listPath(path: string, options?: ListOptions) {
+function listPath(path: string, options?: ListOptions & { scheme?: string }) {
   const parameters = new URLSearchParams();
   if (options?.limit !== undefined) parameters.set('limit', String(options.limit));
   if (options?.cursor) parameters.set('cursor', options.cursor);
+  if (options?.scheme) parameters.set('scheme', options.scheme);
   const query = parameters.toString();
   return query ? `${path}?${query}` : path;
 }
@@ -230,6 +235,97 @@ export class Cimbra {
     reverse: (id: string, options?: RequestOptions) =>
       this.post<{ ok: true; transfer: BookTransfer; reversal: Transaction; replayed: boolean }>(
         `/api/v1/book-transfers/${encodeURIComponent(id)}/reverse`, undefined, options, true),
+  };
+
+  readonly walletPrograms = {
+    list: (options?: RequestOptions) => this.request<{ data: WalletProgram[] }>('GET', '/api/v1/wallet-programs', undefined, options),
+    retrieve: (id: string, options?: RequestOptions) =>
+      this.request<WalletProgram>('GET', `/api/v1/wallet-programs/${encodeURIComponent(id)}`, undefined, options),
+    create: (input: CreateWalletProgramInput, options?: RequestOptions) =>
+      this.post<{ ok: true; program: WalletProgram; replayed: boolean }>('/api/v1/wallet-programs', input, options, true),
+  };
+
+  readonly wallets = {
+    list: (options?: ListOptions) => this.request<Page<Wallet>>('GET', listPath('/api/v1/wallets', options), undefined, options),
+    listAll: (options?: ListOptions) => this.iterate((page) => this.wallets.list({ ...options, cursor: page })),
+    retrieve: (id: string, options?: RequestOptions) =>
+      this.request<Wallet>('GET', `/api/v1/wallets/${encodeURIComponent(id)}`, undefined, options),
+    create: (input: CreateWalletInput, options?: RequestOptions) =>
+      this.post<{ ok: true; wallet: Wallet; pockets: WalletPocket[]; replayed: boolean }>('/api/v1/wallets', input, options, true),
+    lifecycle: (id: string, options?: RequestOptions) =>
+      this.request<{ data: WalletLifecycleEvent[] }>('GET', `/api/v1/wallets/${encodeURIComponent(id)}/lifecycle`, undefined, options),
+    transition: (id: string, input: TransitionWalletInput, options?: RequestOptions) =>
+      this.post<{ ok: true; event: WalletLifecycleEvent; replayed: boolean }>(
+        `/api/v1/wallets/${encodeURIComponent(id)}/lifecycle`, input, options, true),
+    pockets: (id: string, options?: RequestOptions) =>
+      this.request<{ data: WalletPocket[] }>('GET', `/api/v1/wallets/${encodeURIComponent(id)}/pockets`, undefined, options),
+    transfer: (id: string, input: CreateWalletPocketTransferInput, options?: RequestOptions) =>
+      this.post<WalletPocketTransferCreationResult>(`/api/v1/wallets/${encodeURIComponent(id)}/transfers`, input, options, true),
+  };
+
+  readonly railInstruments = {
+    list: (options?: ListOptions) => this.request<Page<RailInstrument>>('GET', listPath('/api/v1/rail-instruments', options), undefined, options),
+    listAll: (options?: ListOptions) => this.iterate((page) => this.railInstruments.list({ ...options, cursor: page })),
+    retrieve: (id: string, options?: RequestOptions) =>
+      this.request<RailInstrument>('GET', `/api/v1/rail-instruments/${encodeURIComponent(id)}`, undefined, options),
+    issue: (input: IssueRailInstrumentInput, options?: RequestOptions) =>
+      this.post<{ ok: true; instruments: RailInstrument[]; replayed: boolean }>('/api/v1/rail-instruments', input, options, true),
+  };
+
+  readonly railDirectory = {
+    lookup: (q: string, options?: RequestOptions) =>
+      this.request<RailDirectoryPreview>('GET', `/api/v1/rail-directory?q=${encodeURIComponent(q)}`, undefined, options),
+  };
+
+  readonly instantTransfers = {
+    list: (options?: ListOptions & { scheme?: InstantTransfer['scheme'] }) =>
+      this.request<Page<InstantTransfer>>('GET', listPath('/api/v1/instant-transfers', options), undefined, options),
+    listAll: (options?: ListOptions & { scheme?: InstantTransfer['scheme'] }) => this.iterate((page) => this.instantTransfers.list({ ...options, cursor: page })),
+    retrieve: (id: string, options?: RequestOptions) =>
+      this.request<InstantTransfer>('GET', `/api/v1/instant-transfers/${encodeURIComponent(id)}`, undefined, options),
+    create: (input: CreateInstantTransferInput, options?: RequestOptions) =>
+      this.post<{ ok: true; transfer: InstantTransfer; replayed: boolean }>('/api/v1/instant-transfers', input, options, true),
+    return: (id: string, options?: RequestOptions) =>
+      this.post<{ ok: true; transfer: InstantTransfer; reversal: Transaction; replayed: boolean }>(
+        `/api/v1/instant-transfers/${encodeURIComponent(id)}/return`, undefined, options, true),
+  };
+
+  readonly debitRequests = {
+    list: (options?: ListOptions) => this.request<Page<InstantTransfer>>('GET', listPath('/api/v1/debit-requests', options), undefined, options),
+    listAll: (options?: ListOptions) => this.iterate((page) => this.debitRequests.list({ ...options, cursor: page })),
+    create: (input: CreateDebitRequestInput, options?: RequestOptions) =>
+      this.post<{ ok: true; debit: InstantTransfer; replayed: boolean }>('/api/v1/debit-requests', input, options, true),
+    respond: (id: string, input: { decision: 'accept' | 'reject' }, options?: RequestOptions) =>
+      this.post<{ ok: true; debit: InstantTransfer; replayed: boolean }>(
+        `/api/v1/debit-requests/${encodeURIComponent(id)}/respond`, input, options, true),
+  };
+
+  readonly paymentQrs = {
+    list: (options?: ListOptions) => this.request<Page<PaymentQr>>('GET', listPath('/api/v1/payment-qrs', options), undefined, options),
+    listAll: (options?: ListOptions) => this.iterate((page) => this.paymentQrs.list({ ...options, cursor: page })),
+    create: (input: CreatePaymentQrInput, options?: RequestOptions) =>
+      this.post<{ ok: true; qr: PaymentQr; replayed: boolean }>('/api/v1/payment-qrs', input, options, true),
+    pay: (id: string, input: PayPaymentQrInput, options?: RequestOptions) =>
+      this.post<{ ok: true; transfer: InstantTransfer; replayed: boolean }>(
+        `/api/v1/payment-qrs/${encodeURIComponent(id)}/pay`, input, options, true),
+  };
+
+  readonly paymentLinks = {
+    list: (options?: ListOptions) => this.request<Page<PaymentLink>>('GET', listPath('/api/v1/payment-links', options), undefined, options),
+    listAll: (options?: ListOptions) => this.iterate((page) => this.paymentLinks.list({ ...options, cursor: page })),
+    retrieve: (id: string, options?: RequestOptions) =>
+      this.request<PaymentLink>('GET', `/api/v1/payment-links/${encodeURIComponent(id)}`, undefined, options),
+    create: (input: CreatePaymentLinkInput, options?: RequestOptions) =>
+      this.post<{ ok: true; link: PaymentLink; replayed: boolean }>('/api/v1/payment-links', input, options, true),
+    cancel: (id: string, options?: RequestOptions) =>
+      this.post<{ ok: true; link: PaymentLink; replayed: boolean }>(
+        `/api/v1/payment-links/${encodeURIComponent(id)}/cancel`, undefined, options, true),
+    pay: (id: string, input: PayPaymentLinkInput, options?: RequestOptions) =>
+      this.post<{ ok: true; link: PaymentLink; replayed: boolean }>(
+        `/api/v1/payment-links/${encodeURIComponent(id)}/pay`, input, options, true),
+    refund: (id: string, options?: RequestOptions) =>
+      this.post<{ ok: true; link: PaymentLink; reversal: Transaction; replayed: boolean }>(
+        `/api/v1/payment-links/${encodeURIComponent(id)}/refund`, undefined, options, true),
   };
 
   readonly billers = {

@@ -100,7 +100,7 @@ export default function DevelopersPanel({ journalCount }: { journalCount: number
   }
 
   return <div className="module-view developer-console">
-    <div className="module-view-head"><div><p>PLATFORM INTEGRATION</p><h1>API y webhooks</h1><span>Credenciales S2S con scopes y eventos firmados, persistidos y reintentables.</span></div><span className="module-health"><i /> v2026-08-30</span></div>
+    <div className="module-view-head"><div><p>PLATFORM INTEGRATION</p><h1>API y webhooks</h1><span>Credenciales S2S con scopes y eventos firmados, persistidos y reintentables.</span></div><span className="module-health"><i /> v2026-09-01</span></div>
     <div className="module-metrics"><article><strong>{apiKeys.filter((key) => key.status === 'active').length}</strong><span>API keys activas</span></article><article><strong>{endpoints.filter((endpoint) => endpoint.status === 'active').length}</strong><span>endpoints activos</span></article><article><strong>{journalCount}</strong><span>journals del tenant</span></article></div>
     {feedback && <div className="form-feedback ledger-feedback">{feedback}</div>}
     {secret && <aside className="secret-reveal"><div><strong>{secret.title}</strong><span>Se muestra una sola vez.</span></div><code>{secret.value}</code><button onClick={() => void navigator.clipboard.writeText(secret.value)}>Copiar</button><button onClick={() => setSecret(null)}>Cerrar</button></aside>}

@@ -1,6 +1,6 @@
 # Cimbra
 
-Cimbra es una plataforma de infraestructura financiera modular para Latinoamérica. Este repositorio contiene el sitio comercial, documentación, consola autenticada y un sandbox persistente con tenancy/RBAC, cuentas, ledger de doble partida, book transfers atómicos, estados de cuenta paginados, transferencias idempotentes, beneficiarios protegidos, payouts masivos asíncronos, motor de riesgo, step-up OTP y SLO de decisión medido, casos, holds, conciliación, excepciones, disputas parciales con créditos compensables, cola operativa con SLA, reversas, doble aprobación maker/checker, programas y lifecycle de tarjetas, controles versionados, evidencia privada, credenciales S2S y webhooks firmados.
+Cimbra es una plataforma de infraestructura financiera modular para Latinoamérica. Este repositorio contiene el sitio comercial, documentación, consola autenticada y un sandbox persistente con tenancy/RBAC, cuentas, ledger de doble partida, wallets con bolsillos, book transfers atómicos, estados de cuenta paginados, transferencias idempotentes, cobranzas sandbox por link, beneficiarios protegidos, payouts masivos asíncronos, motor de riesgo, step-up OTP y SLO de decisión medido, casos, holds, conciliación, excepciones, disputas parciales con créditos compensables, cola operativa con SLA, reversas, doble aprobación maker/checker, programas y lifecycle de tarjetas, controles versionados, evidencia privada, credenciales S2S y webhooks firmados.
 
 ## Estado del producto
 
@@ -9,12 +9,12 @@ La aplicación es un MVP lanzable para venta, discovery e integración en sandbo
 Superficies disponibles:
 
 - `/` — propuesta comercial profesional, estado de sesión contextual, prueba técnica, casos de uso, modelo de acceso y captación persistente de leads.
-- `/developers` — portal técnico generado desde OpenAPI con entornos, quickstart ejecutable, auth/RBAC/scopes, errores, rate limits, SDK descargable, webhooks, catálogo de eventos y las 122 operaciones publicadas.
+- `/developers` — portal técnico generado desde OpenAPI con entornos, quickstart ejecutable, auth/RBAC/scopes, errores, rate limits, SDK descargable, webhooks, catálogo de eventos y las 152 operaciones publicadas.
 - `/login` — registro e inicio de sesión propio con usuario/email y contraseña; OAuth Google y Apple se activa al configurar sus credenciales.
 - `/forgot-password`, `/reset-password` y `/verify-email` — ciclo de vida de cuenta con tokens opacos, expiración, uso único y respuestas anti-enumeración.
 - `/console` — consola protegida y consciente del rol; owner/admin administran miembros e invitaciones, operator ejecuta, viewer trabaja en modo lectura y Operaciones unifica ownership, SLA y expedientes de riesgo/conciliación.
 - `/api/health` — readiness sin caché para esquema PostgreSQL y secretos críticos de cifrado/dispatcher, sin exponer sus valores.
-- `/api/v1/*` — API pública versionada para customers, KYC/KYB, accounts, statements, book transfers, cards, transfers, payments, beneficiarios y lotes de payouts, billers, obligaciones, recargas, mandatos recurrentes, riesgo, conciliación CSV/API, work items operativos, settlement sandbox, aprobaciones, holds, ledger, events, compliance y webhooks.
+- `/api/v1/*` — API pública versionada para customers, KYC/KYB, accounts, statements, wallets, book transfers, pagos instantáneos sandbox AR (CVU/alias/QR/débito interno), cobranzas sandbox (links de cobro, eco cerrado e inbound ledger), cards, transfers, payments, beneficiarios y lotes de payouts, billers, obligaciones, recargas, mandatos recurrentes, riesgo, conciliación CSV/API, work items operativos, settlement sandbox, aprobaciones, holds, ledger, events, compliance y webhooks.
 - `/api/sandbox/*` — alias de compatibilidad deprecado; las integraciones nuevas deben usar v1.
 - `/api/platform/api-keys` — claves Bearer con scopes, vencimiento, rate limit, rotación y revocación inmediata.
 - `/api/platform/access` — miembros, invitaciones verificadas, jerarquía de roles, revocación y trazabilidad del tenant.
@@ -54,10 +54,10 @@ Settlement, transferencias salientes, book transfers, lotes de payouts, resoluci
 
 ## Infraestructura y despliegue
 
-La aplicación corre sobre Next.js en Vercel, PostgreSQL administrado y Vercel Blob privado. La capa de datos acepta una URL PostgreSQL estándar y no acopla el dominio a un proveedor concreto. `DATABASE_URL` no significa crear otra base: es el nombre estándar de la variable secreta con la que Vercel entrega a la aplicación la conexión de la base ya vinculada.
+La aplicación corre sobre Next.js en Vercel, PostgreSQL administrado y Vercel Blob privado. La capa de datos acepta una URL PostgreSQL estándar y no acopla el dominio a un proveedor concreto. `DATABASE_URL` no significa crear otra base: es el nombre estándar de la variable secreta con la que Vercel entrega a la aplicación la conexión de la base ya vinculada. Si el marketplace expone también `DATABASE_URL_UNPOOLED` o `POSTGRES_URL_NON_POOLING`, las migraciones y las pruebas de integración usan esa URL directa; el runtime puede usar el pooler porque desactiva prepared statements, exige TLS y mantiene los advisory locks dentro de la transacción.
 
 1. Importá este repositorio como un proyecto de Vercel.
-2. Agregá una integración PostgreSQL desde Vercel Marketplace y verificá que exponga `DATABASE_URL`.
+2. Agregá una integración PostgreSQL desde Vercel Marketplace y verificá que exponga `DATABASE_URL`. No hace falta una base local aparte.
 3. Creá un Blob store privado y vinculalo al proyecto para obtener `BLOB_READ_WRITE_TOKEN`.
 4. Cargá `CIMBRA_PUBLIC_URL` y `NEXT_PUBLIC_CIMBRA_PUBLIC_URL` con el dominio público HTTPS.
 5. Generá valores aleatorios independientes de 32 bytes para `CIMBRA_ENCRYPTION_KEY` y `CRON_SECRET`; guardalos como secretos del entorno.
@@ -87,6 +87,8 @@ Apple requiere un Services ID asociado a una app habilitada para Sign in with Ap
 - importación CSV UTF-8 con checksum y ciclos de settlement sandbox únicos, programables, auditados y emitidos por webhook.
 - disputas parciales sobre débitos liquidados, ventana explícita, estados inmutables, crédito provisional o definitivo en doble partida y compensación contable si el reclamo se pierde;
 - políticas maker/checker fail-closed para settlement, transferencias, book transfers, lotes de payouts, casos de riesgo, excepciones de conciliación y disputas, con locks concurrentes, revalidación y autorización atómica.
+- wallets por customer con programas tenant, bolsillos mapeados a cuentas de producto, freeze/close y movimientos internos; el sandbox no custodia fondos.
+- pagos instantáneos sandbox para Argentina: CVU 0009999, alias de tenant, confirmación de titular, crédito interno o cash-out a settlement, débito interno, QR Cimbra y devoluciones compensatorias; no hay Coelsa, DEBIN ni QR interoperable.
 - work queue multitenant para casos de riesgo, excepciones y disputas, con responsable, prioridad, SLA, escalamiento, comentarios inmutables y vínculos a evidencia privada.
 
 ## Garantías de integración

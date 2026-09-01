@@ -1,4 +1,5 @@
 import postgres from 'postgres';
+import { postgresClientOptions, resolvePostgresUrl } from './postgres-connection.mjs';
 
 type SqlClient = ReturnType<typeof postgres>;
 type SqlExecutor = Pick<SqlClient, 'unsafe'>;
@@ -7,13 +8,7 @@ type SqlParameter = postgres.ParameterOrJSON<never>;
 const globalDatabase = globalThis as typeof globalThis & { cimbraSql?: SqlClient; cimbraDatabase?: DatabaseClient };
 
 function connectionString() {
-  const value = process.env.DATABASE_URL ?? process.env.POSTGRES_URL;
-  if (value) return value;
-  const { DB_HOST: host, DB_PORT: port = '5432', DB_NAME: database, DB_USER: user, DB_PASSWORD: password } = process.env;
-  if (host && database && user && password) {
-    return `postgresql://${encodeURIComponent(user)}:${encodeURIComponent(password)}@${host}:${port}/${encodeURIComponent(database)}`;
-  }
-  throw new Error('DATABASE_URL or the DB_HOST/DB_NAME/DB_USER/DB_PASSWORD set is not configured.');
+  return resolvePostgresUrl();
 }
 
 function normalizeSql(source: string) {
@@ -26,13 +21,7 @@ function normalizeSql(source: string) {
 function sqlClient() {
   if (!globalDatabase.cimbraSql) {
     const url = connectionString();
-    globalDatabase.cimbraSql = postgres(url, {
-      max: 5,
-      idle_timeout: 20,
-      connect_timeout: 10,
-      prepare: false,
-      ssl: /localhost|127\.0\.0\.1/.test(url) ? false : 'require',
-    });
+    globalDatabase.cimbraSql = postgres(url, postgresClientOptions(url, { max: 5 }));
   }
   return globalDatabase.cimbraSql;
 }

@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import postgres from 'postgres';
+import { postgresClientOptions, resolvePostgresUrl } from '../db/postgres-connection.mjs';
 
-const sql = postgres(process.env.DATABASE_URL, { max: 1 });
+const databaseUrl = resolvePostgresUrl({ preferDirect: true });
+const sql = postgres(databaseUrl, postgresClientOptions(databaseUrl, { max: 1 }));
 
 async function expectDatabaseRejection(work, pattern) {
   await assert.rejects(() => sql.begin(work), pattern);

@@ -488,7 +488,7 @@ export type ReverseTransactionInput = {
   actor: AuthUser;
   transactionId: string;
   idempotencyKey: string;
-  auditAction?: 'transfer.reversed' | 'bill_payment.reversed' | 'book_transfer.reversed';
+  auditAction?: 'transfer.reversed' | 'bill_payment.reversed' | 'book_transfer.reversed' | 'instant_transfer.returned' | 'collection.refunded';
 };
 
 export async function reverseTransfer(input: ReverseTransactionInput) {
@@ -522,6 +522,12 @@ export async function reverseTransactionInTransaction(input: ReverseTransactionI
       const bookTransfer = await transaction.prepare('SELECT id FROM book_transfers WHERE organization_id = ? AND transaction_id = ? LIMIT 1')
         .bind(input.organizationId, original.id).first<{ id: string }>();
       if (bookTransfer) throw new LedgerError('Esta transacción debe revertirse desde su book transfer.', 409, 'book_transfer_reverse_required');
+      const instantTransfer = await transaction.prepare('SELECT id FROM instant_transfers WHERE organization_id = ? AND transaction_id = ? LIMIT 1')
+        .bind(input.organizationId, original.id).first<{ id: string }>();
+      if (instantTransfer) throw new LedgerError('Esta transacción debe revertirse desde su transferencia instantánea.', 409, 'instant_transfer_return_required');
+      const paymentLink = await transaction.prepare('SELECT id FROM payment_links WHERE organization_id = ? AND transaction_id = ? LIMIT 1')
+        .bind(input.organizationId, original.id).first<{ id: string }>();
+      if (paymentLink) throw new LedgerError('Esta transacción debe revertirse desde su link de cobro.', 409, 'collection_refund_required');
     }
     if (original.status !== 'settled') throw new LedgerError('Sólo se puede revertir una transferencia liquidada.', 409, 'transaction_not_reversible');
     const alreadyReversed = await transaction.prepare('SELECT id FROM transactions WHERE reversal_of = ? LIMIT 1')
@@ -578,6 +584,34 @@ export async function reverseTransactionInTransaction(input: ReverseTransactionI
         resourceType: 'book_transfer', resourceId: bookTransfer.id, payload: { transactionId: original.id, reversalId: id },
       });
     }
+    const instantTransfer = await transaction.prepare(`SELECT id, status FROM instant_transfers
+      WHERE organization_id = ? AND transaction_id = ? LIMIT 1 FOR UPDATE`)
+      .bind(input.organizationId, original.id).first<{ id: string; status: string }>();
+    if (instantTransfer) {
+      if (input.auditAction !== 'instant_transfer.returned') {
+        throw new LedgerError('La devolución de la transferencia instantánea debe usar su operación canónica.', 409, 'instant_transfer_return_required');
+      }
+      await transaction.prepare(`UPDATE instant_transfers SET status = 'returned', reversal_transaction_id = ?, updated_at = ? WHERE id = ?`)
+        .bind(id, now, instantTransfer.id).run();
+      await insertAudit(transaction, {
+        organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.transfer_returned',
+        resourceType: 'instant_transfer', resourceId: instantTransfer.id, payload: { transactionId: original.id, reversalId: id },
+      });
+    }
+    const paymentLink = await transaction.prepare(`SELECT id, status FROM payment_links
+      WHERE organization_id = ? AND transaction_id = ? LIMIT 1 FOR UPDATE`)
+      .bind(input.organizationId, original.id).first<{ id: string; status: string }>();
+    if (paymentLink) {
+      if (input.auditAction !== 'collection.refunded') {
+        throw new LedgerError('La devolución del cobro debe usar su operación canónica.', 409, 'collection_refund_required');
+      }
+      await transaction.prepare(`UPDATE payment_links SET status = 'refunded', reversal_transaction_id = ?, updated_at = ? WHERE id = ?`)
+        .bind(id, now, paymentLink.id).run();
+      await insertAudit(transaction, {
+        organizationId: input.organizationId, actorId: input.actor.userId, action: 'collection.link_refunded',
+        resourceType: 'payment_link', resourceId: paymentLink.id, payload: { transactionId: original.id, reversalId: id },
+      });
+    }
     const payoutItem = await transaction.prepare(`SELECT id, batch_id AS "batchId", external_reference AS "externalReference", status
       FROM payout_items WHERE organization_id = ? AND transaction_id = ? LIMIT 1 FOR UPDATE`)
       .bind(input.organizationId, original.id).first<{ id: string; batchId: string; externalReference: string; status: string }>();
@@ -616,7 +650,7 @@ export async function reverseTransactionInTransaction(input: ReverseTransactionI
         payload: { status: batchStatus, counts, reversalId: id },
       });
     }
-    if (!bookTransfer) {
+    if (!bookTransfer && !instantTransfer && !paymentLink) {
       await insertAudit(transaction, {
         organizationId: input.organizationId,
         actorId: input.actor.userId,
@@ -709,18 +743,43 @@ export async function resolveHold(input: {
       await transaction.prepare('SELECT id FROM financial_accounts WHERE id = ? FOR UPDATE')
         .bind(bookTransfer.destinationLedgerAccountId).first();
     }
+    const instantTransfer = await transaction.prepare(`SELECT it.id, it.destination_account_id AS "destinationAccountId",
+        destination.ledger_account_id AS "destinationLedgerAccountId", it.status
+      FROM instant_transfers it JOIN accounts destination ON destination.id = it.destination_account_id
+      WHERE it.organization_id = ? AND it.transaction_id = ? AND it.destination_account_id IS NOT NULL
+      LIMIT 1 FOR UPDATE OF it`)
+      .bind(input.organizationId, hold.transactionId).first<{
+        id: string; destinationAccountId: string; destinationLedgerAccountId: string; status: string;
+      }>();
+    if (instantTransfer) {
+      await transaction.prepare('SELECT id FROM financial_accounts WHERE id = ? FOR UPDATE')
+        .bind(instantTransfer.destinationLedgerAccountId).first();
+    }
+    const collectionLink = await transaction.prepare(`SELECT pl.id, pl.account_id AS "destinationAccountId",
+        merchant.ledger_account_id AS "destinationLedgerAccountId", pl.status, pl.paid_method AS "paidMethod"
+      FROM payment_links pl JOIN accounts merchant ON merchant.id = pl.account_id
+      WHERE pl.organization_id = ? AND pl.transaction_id = ? AND pl.paid_method = 'internal'
+      LIMIT 1 FOR UPDATE OF pl`)
+      .bind(input.organizationId, hold.transactionId).first<{
+        id: string; destinationAccountId: string; destinationLedgerAccountId: string; status: string; paidMethod: string;
+      }>();
+    if (collectionLink) {
+      await transaction.prepare('SELECT id FROM financial_accounts WHERE id = ? FOR UPDATE')
+        .bind(collectionLink.destinationLedgerAccountId).first();
+    }
+    const internalDestination = bookTransfer ?? instantTransfer ?? collectionLink;
     if (input.action === 'capture') {
-      const accounts = bookTransfer ? null : await getOrCreateCoreAccounts(input.organizationId, hold.currency, transaction);
+      const accounts = internalDestination ? null : await getOrCreateCoreAccounts(input.organizationId, hold.currency, transaction);
       await postJournal({
         organizationId: input.organizationId,
         transactionId: hold.transactionId,
         idempotencyKey: `hold:capture:${hold.id}`,
-        kind: bookTransfer ? 'book_transfer' : 'hold_capture',
+        kind: bookTransfer ? 'book_transfer' : instantTransfer ? 'instant_transfer' : collectionLink ? 'collection' : 'hold_capture',
         description: hold.description,
         currency: hold.currency,
-        postings: bookTransfer ? [
+        postings: internalDestination ? [
           { accountId: hold.accountId, direction: 'debit', amountMinor: BigInt(hold.amountMinor) },
-          { accountId: bookTransfer.destinationLedgerAccountId, direction: 'credit', amountMinor: BigInt(hold.amountMinor) },
+          { accountId: internalDestination.destinationLedgerAccountId, direction: 'credit', amountMinor: BigInt(hold.amountMinor) },
         ] : hold.type === 'credit' ? [
           { accountId: accounts!.settlement, direction: 'debit', amountMinor: BigInt(hold.amountMinor) },
           { accountId: hold.accountId, direction: 'credit', amountMinor: BigInt(hold.amountMinor) },
@@ -744,6 +803,37 @@ export async function resolveHold(input: {
         organizationId: input.organizationId, actorId: input.actor.userId, action: `book_transfer.${transferStatus}`,
         resourceType: 'book_transfer', resourceId: bookTransfer.id,
         payload: { transactionId: hold.transactionId, holdId: hold.id, status: transferStatus },
+      });
+    }
+    const pendingInstant = await transaction.prepare(`SELECT id, status FROM instant_transfers
+      WHERE organization_id = ? AND transaction_id = ? LIMIT 1 FOR UPDATE`)
+      .bind(input.organizationId, hold.transactionId).first<{ id: string; status: string }>();
+    if (pendingInstant && pendingInstant.status === 'pending') {
+      const transferStatus = input.action === 'capture' ? 'settled' : 'cancelled';
+      await transaction.prepare('UPDATE instant_transfers SET status = ?, updated_at = ? WHERE id = ?')
+        .bind(transferStatus, now, pendingInstant.id).run();
+      if (transferStatus === 'settled') {
+        await transaction.prepare(`UPDATE payment_qrs SET status = 'paid', paid_transfer_id = ?, updated_at = ?
+          WHERE organization_id = ? AND status = 'active' AND payload = (SELECT qr_payload FROM instant_transfers WHERE id = ?)`)
+          .bind(pendingInstant.id, now, input.organizationId, pendingInstant.id).run();
+      }
+      await insertAudit(transaction, {
+        organizationId: input.organizationId, actorId: input.actor.userId, action: `instant.transfer_${transferStatus}`,
+        resourceType: 'instant_transfer', resourceId: pendingInstant.id,
+        payload: { transactionId: hold.transactionId, holdId: hold.id, status: transferStatus },
+      });
+    }
+    const pendingCollection = await transaction.prepare(`SELECT id, status FROM payment_links
+      WHERE organization_id = ? AND transaction_id = ? LIMIT 1 FOR UPDATE`)
+      .bind(input.organizationId, hold.transactionId).first<{ id: string; status: string }>();
+    if (pendingCollection && pendingCollection.status === 'pending') {
+      const linkStatus = input.action === 'capture' ? 'paid' : 'cancelled';
+      await transaction.prepare('UPDATE payment_links SET status = ?, updated_at = ? WHERE id = ?')
+        .bind(linkStatus, now, pendingCollection.id).run();
+      await insertAudit(transaction, {
+        organizationId: input.organizationId, actorId: input.actor.userId, action: `collection.link_${linkStatus === 'paid' ? 'paid' : 'cancelled'}`,
+        resourceType: 'payment_link', resourceId: pendingCollection.id,
+        payload: { transactionId: hold.transactionId, holdId: hold.id, status: linkStatus },
       });
     }
     const billPayment = await transaction.prepare(`SELECT id, obligation_id AS "obligationId", status FROM bill_payment_orders

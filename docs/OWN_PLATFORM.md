@@ -12,16 +12,16 @@ La independencia tecnológica no elimina la realidad de los rieles. Para mover f
 | --- | --- | --- | --- |
 | Identity & Tenancy | organizaciones, invitaciones verificadas, RBAC, API keys, MFA, maker/checker, auditoría | API, webhooks, consola | Sandbox operativo |
 | Customers, KYC & KYB | personas/empresas, partes relacionadas, evidencia, checks, casos, vencimiento y decisión maker/checker | API, webhooks, SDK, consola | Sandbox operativo; sin verificación externa certificada |
-| Financial Core | cuentas, ledger, book transfers, statements, holds, límites, fees, reversas | API, webhooks, SDK, consola | Sandbox operativo |
+| Financial Core | cuentas, ledger, book transfers, statements, wallets, pockets, holds, límites, fees, reversas | API, webhooks, SDK, consola | Sandbox operativo |
 | Payment Orchestration | intents, cash-in/out, transfers, routing, estados y doble aprobación | API, webhooks, SDK, consola | Sandbox operativo |
 | Beneficiaries & Payout Batches | destinos protegidos, lotes inmutables, agenda/deadline, doble aprobación, ejecución y resultado por ítem | API, webhooks, SDK, archivos, consola | Sandbox operativo; sin riel de dinero real |
-| Instant Payments | rieles externos account-to-account, alias, QR, request-to-pay, returns | API, webhooks, archivos | Roadmap; el book transfer interno ya está en Financial Core |
+| Instant Payments | CVU sandbox, alias tenant, confirmación de titular, crédito, débito interno, QR Cimbra, returns | API, webhooks, SDK, consola | Sandbox operativo; sin Coelsa, DEBIN, directorio nacional ni QR interoperable |
 | Card Issuing | programas, lifecycle, límites y controles por canal/MCC; tokenización futura | API, webhooks, SDK, consola | Sandbox operativo sin PAN/CVV ni red |
 | Disputes & Chargebacks | disputas parciales, lifecycle, evidencia, créditos compensables, SLA | API, SDK, eventos, consola | Sandbox |
 | Card Processing | autorización, stand-in, clearing, presentments, 3DS | API, ISO 8583, eventos, archivos | Roadmap |
-| Acquiring | checkout, links, QR, POS, Tap to Phone, split | API, webhooks, SDK, ISO 8583 | Roadmap |
+| Acquiring & Collections | links de cobro, eco cerrado, inbound sandbox, refunds; POS/tarjetas/QR interoperable futuro | API, webhooks, SDK, consola | Sandbox operativo; sin tarjetas, POS, Tap to Phone ni QR interoperable |
 | Bill Payments & Top-ups | catálogo tenant, deuda emitida, pago, recargas, gift cards, reversas y mandatos recurrentes | API, webhooks, SDK, consola | Sandbox operativo; sin cobertura, biller externo ni débito homologado |
-| Wallets | white-label, balances, pockets y configuración de programa | API, webhooks, SDK, consola | Base técnica |
+| Wallets | white-label, balances, pockets y configuración de programa | API, webhooks, SDK, consola | Sandbox operativo; sin custodia ni app de consumidor |
 | Lending | originación, líneas, schedules, intereses y cobranza | API, webhooks, SDK, consola | Roadmap |
 | Risk & Fraud | reglas, velocity, señales protegidas, listas tenant, scoring, step-up OTP, SLO p50/p95/p99, casos, outcomes confirmados, métricas supervisadas, ownership, SLA, evidencia y decisiones con doble aprobación | API, webhooks, SDK, consola | Sandbox operativo; no 3DS/ACS |
 | Reconciliation & Settlement | ingestión API/CSV, matches, work queue, SLA, evidencia, ciclos programables y doble aprobación de settlement/excepciones | API, webhooks, SDK, archivos, consola | Sandbox operativo |

@@ -50,6 +50,9 @@ const GROUP_ORDER = [
   'Customers',
   'Accounts',
   'Book transfers',
+  'Instant payments',
+  'Cobranzas',
+  'Wallets',
   'Cards',
   'Servicios y pagos recurrentes',
   'Payments y transfers',
@@ -147,6 +150,9 @@ function operationGroup(path: string) {
   if (path.includes('/customers')) return 'Customers';
   if (path.includes('/accounts')) return 'Accounts';
   if (path.includes('/book-transfers')) return 'Book transfers';
+  if (path.includes('/instant-transfers') || path.includes('/rail-instruments') || path.includes('/rail-directory') || path.includes('/debit-requests') || path.includes('/payment-qrs')) return 'Instant payments';
+  if (path.includes('/payment-links')) return 'Cobranzas';
+  if (path.includes('/wallets') || path.includes('/wallet-programs')) return 'Wallets';
   if (path.includes('/cards') || path.includes('/card-programs')) return 'Cards';
   if (path.includes('/billers') || path.includes('/bill-payments') || path.includes('/recurring-mandates')) return 'Servicios y pagos recurrentes';
   if (path.includes('/payout-')) return 'Payouts';
@@ -169,6 +175,9 @@ function operationScope(path: string, method: string) {
   if (path.includes('/customers')) return `customers:${access}`;
   if (path.includes('/accounts')) return `accounts:${access}`;
   if (path.includes('/book-transfers')) return `transfers:${access}`;
+  if (path.includes('/instant-transfers') || path.includes('/rail-instruments') || path.includes('/rail-directory') || path.includes('/debit-requests') || path.includes('/payment-qrs')) return `transfers:${access}`;
+  if (path.includes('/payment-links')) return `payments:${access}`;
+  if (path.includes('/wallets') || path.includes('/wallet-programs')) return `wallets:${access}`;
   if (path.includes('/cards') || path.includes('/card-programs')) return `cards:${access}`;
   if (path.includes('/billers')) return `billers:${access}`;
   if (path.includes('/bill-payments') || path.includes('/recurring-mandates')) return `payments:${access}`;

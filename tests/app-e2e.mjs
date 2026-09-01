@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { del } from '@vercel/blob';
 import postgres from 'postgres';
+import { postgresClientOptions, resolvePostgresUrl } from '../db/postgres-connection.mjs';
 
 const baseUrl = process.env.E2E_BASE_URL ?? 'http://127.0.0.1:3010';
 const target = new URL(baseUrl);
@@ -17,7 +18,8 @@ const replacementPassword = `Cimbra-QA-Recovered-${runId}!`;
 const checkerEmail = `cimbra-checker-${runId}@example.test`;
 const checkerUsername = `checker${runId.replaceAll('-', '').slice(0, 16)}`;
 const checkerPassword = `Cimbra-Checker-${runId}!`;
-const sql = postgres(process.env.DATABASE_URL, { max: 1 });
+const databaseUrl = resolvePostgresUrl({ preferDirect: true });
+const sql = postgres(databaseUrl, postgresClientOptions(databaseUrl, { max: 1 }));
 let cookie = '';
 let checkerCookie = '';
 let userId = '';
@@ -116,6 +118,14 @@ async function cleanup() {
       await transaction`DELETE FROM payout_items WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM payout_batches WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM payout_beneficiaries WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM payment_qrs WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM payment_links WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM instant_transfers WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM rail_instruments WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM wallet_lifecycle_events WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM wallet_pockets WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM wallets WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM wallet_programs WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM book_transfers WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM holds WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM ledger_postings WHERE organization_id = ${organizationId}`;
@@ -299,7 +309,7 @@ try {
   const initialLedgerResponse = await request('/api/v1/ledger', { headers: { 'X-Request-Id': `qa-request-${runId}` } });
   const initialLedger = (await json(initialLedgerResponse, 200)).data;
   assert.equal(initialLedgerResponse.headers.get('x-request-id'), `qa-request-${runId}`);
-  assert.equal(initialLedgerResponse.headers.get('cimbra-version'), '2026-08-30');
+  assert.equal(initialLedgerResponse.headers.get('cimbra-version'), '2026-09-01');
   const ars = initialLedger.balances.find((balance) => balance.currency === 'ARS');
   const usd = initialLedger.balances.find((balance) => balance.currency === 'USD');
   assert.deepEqual(
@@ -456,6 +466,236 @@ try {
     method: 'POST', headers: { 'Idempotency-Key': `qa-book-reverse-${runId}` },
   }), 200);
   assert.equal(bookReverseReplay.replayed, true);
+
+  const walletProgramKey = `qa-wallet-program-${runId}`;
+  const walletProgramPayload = { name: `Wallet QA ${runId}`, displayName: 'Billetera QA', defaultCurrency: 'ARS',
+    allowedCurrencies: ['ARS'], pocketKinds: ['available', 'pending'] };
+  const walletProgramCreated = await json(await request('/api/v1/wallet-programs', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': walletProgramKey },
+    body: JSON.stringify(walletProgramPayload),
+  }), 201);
+  const walletProgram = walletProgramCreated.program;
+  assert.equal(walletProgram.status, 'active'); assert.deepEqual(walletProgram.pocketKinds, ['available', 'pending']);
+  const walletProgramReplay = await json(await request('/api/v1/wallet-programs', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': walletProgramKey },
+    body: JSON.stringify(walletProgramPayload),
+  }), 200);
+  assert.equal(walletProgramReplay.replayed, true); assert.equal(walletProgramReplay.program.id, walletProgram.id);
+  assert.equal((await json(await request(`/api/v1/wallet-programs/${walletProgram.id}`), 200)).id, walletProgram.id);
+  const walletKey = `qa-wallet-${runId}`;
+  const walletPayload = { programId: walletProgram.id, customerId: customer.id, externalReference: `WALLET-${runId}` };
+  const walletCreated = await json(await request('/api/v1/wallets', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': walletKey },
+    body: JSON.stringify(walletPayload),
+  }), 201);
+  const wallet = walletCreated.wallet;
+  assert.equal(wallet.status, 'active'); assert.equal(walletCreated.pockets.length, 2);
+  const walletReplay = await json(await request('/api/v1/wallets', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': walletKey },
+    body: JSON.stringify(walletPayload),
+  }), 200);
+  assert.equal(walletReplay.replayed, true); assert.equal(walletReplay.wallet.id, wallet.id);
+  const retrievedWallet = await json(await request(`/api/v1/wallets/${wallet.id}`), 200);
+  assert.equal(retrievedWallet.pockets.length, 2);
+  const availablePocket = retrievedWallet.pockets.find((pocket) => pocket.kind === 'available');
+  const pendingPocket = retrievedWallet.pockets.find((pocket) => pocket.kind === 'pending');
+  assert.ok(availablePocket && pendingPocket);
+  const walletCashIn = await json(await request('/api/v1/payments', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-wallet-cashin-${runId}` },
+    body: JSON.stringify({ accountId: availablePocket.accountId, direction: 'cash_in', counterparty: 'QA Wallet Sponsor',
+      description: 'Wallet funding', amount: '80.00', currency: 'ARS' }),
+  }), 201);
+  assert.equal(walletCashIn.payment.status, 'settled');
+  const pocketTransferKey = `qa-wallet-transfer-${runId}`;
+  const pocketTransferPayload = { externalReference: `WP-${runId}`, sourcePocketId: availablePocket.id,
+    destinationPocketId: pendingPocket.id, description: 'QA pocket allocation', amount: '25.00', currency: 'ARS' };
+  const pocketTransferCreated = await json(await request(`/api/v1/wallets/${wallet.id}/transfers`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': pocketTransferKey },
+    body: JSON.stringify(pocketTransferPayload),
+  }), 201);
+  assert.equal(pocketTransferCreated.transfer.status, 'settled');
+  const pocketTransferReplay = await json(await request(`/api/v1/wallets/${wallet.id}/transfers`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': pocketTransferKey },
+    body: JSON.stringify(pocketTransferPayload),
+  }), 200);
+  assert.equal(pocketTransferReplay.replayed, true);
+  const frozen = await json(await request(`/api/v1/wallets/${wallet.id}/lifecycle`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-wallet-freeze-${runId}` },
+    body: JSON.stringify({ status: 'frozen', reason: 'internal_control' }),
+  }), 200);
+  assert.equal(frozen.event.toStatus, 'frozen');
+  const frozenTransferDenied = await json(await request(`/api/v1/wallets/${wallet.id}/transfers`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-wallet-frozen-transfer-${runId}` },
+    body: JSON.stringify({ ...pocketTransferPayload, externalReference: `WP-FROZEN-${runId}`, amount: '1.00' }),
+  }), 409);
+  assert.equal(frozenTransferDenied.error.code, 'wallet_inactive');
+  await json(await request(`/api/v1/wallets/${wallet.id}/lifecycle`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-wallet-unfreeze-${runId}` },
+    body: JSON.stringify({ status: 'active', reason: 'review_cleared' }),
+  }), 200);
+  const closeWithBalance = await json(await request(`/api/v1/wallets/${wallet.id}/lifecycle`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-wallet-close-balance-${runId}` },
+    body: JSON.stringify({ status: 'closed', reason: 'customer_request' }),
+  }), 409);
+  assert.equal(closeWithBalance.error.code, 'wallet_has_balance');
+  assert.ok((await json(await request('/api/v1/wallets?limit=10'), 200)).data.some((item) => item.id === wallet.id));
+  assert.ok((await json(await request(`/api/v1/wallets/${wallet.id}/lifecycle`), 200)).data.some((event) => event.toStatus === 'frozen'));
+
+  const alias = `QAINST${runId.replaceAll('-', '').slice(0, 8)}`;
+  const issuedSource = await json(await request('/api/v1/rail-instruments', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-cvu-source-${runId}` },
+    body: JSON.stringify({ accountId: account.id, alias }),
+  }), 201);
+  assert.equal(issuedSource.instruments.length, 2);
+  assert.match(issuedSource.instruments.find((item) => item.kind === 'cvu').value, /^0009999/);
+  const issuedSourceReplay = await json(await request('/api/v1/rail-instruments', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-cvu-source-${runId}` },
+    body: JSON.stringify({ accountId: account.id, alias }),
+  }), 200);
+  assert.equal(issuedSourceReplay.replayed, true);
+  const issuedDestination = await json(await request('/api/v1/rail-instruments', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-cvu-dest-${runId}` },
+    body: JSON.stringify({ accountId: destinationAccount.id }),
+  }), 201);
+  const destinationCvu = issuedDestination.instruments.find((item) => item.kind === 'cvu').value;
+  const directory = await json(await request(`/api/v1/rail-directory?q=${destinationCvu}`), 200);
+  assert.equal(directory.found, true); assert.equal(directory.holderName, 'QA Company'); assert.equal(directory.taxIdLast4, '5678');
+  const holderMismatch = await json(await request('/api/v1/instant-transfers', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-ip-mismatch-${runId}` },
+    body: JSON.stringify({
+      externalReference: `IP-MIS-${runId}`, accountId: account.id, destination: destinationCvu, description: 'Mismatch',
+      amount: '10.00', currency: 'ARS', confirmHolder: true, holderName: 'Otro Titular', taxIdLast4: '0000',
+    }),
+  }), 422);
+  assert.equal(holderMismatch.error.code, 'holder_mismatch');
+  const internalKey = `qa-ip-internal-${runId}`;
+  const internalPayload = {
+    externalReference: `IP-IN-${runId}`, accountId: account.id, destination: destinationCvu, description: 'Crédito interno AR',
+    amount: '25.00', currency: 'ARS', confirmHolder: true, holderName: 'QA Company', taxIdLast4: '5678',
+  };
+  const internalCreated = await json(await request('/api/v1/instant-transfers', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': internalKey },
+    body: JSON.stringify(internalPayload),
+  }), 201);
+  assert.equal(internalCreated.transfer.status, 'settled'); assert.equal(internalCreated.transfer.direction, 'internal');
+  const internalReplay = await json(await request('/api/v1/instant-transfers', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': internalKey },
+    body: JSON.stringify(internalPayload),
+  }), 200);
+  assert.equal(internalReplay.replayed, true);
+  const outbound = await json(await request('/api/v1/instant-transfers', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-ip-out-${runId}` },
+    body: JSON.stringify({
+      externalReference: `IP-OUT-${runId}`, accountId: account.id, destination: '0110023500000000012342', description: 'Cash-out sandbox',
+      amount: '15.00', currency: 'ARS', confirmHolder: true, holderName: 'Banco Ejemplo', taxIdLast4: '1111',
+    }),
+  }), 201);
+  assert.equal(outbound.transfer.direction, 'outbound'); assert.equal(outbound.transfer.status, 'settled');
+  const inbound = await json(await request('/api/v1/instant-transfers', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-ip-in-${runId}` },
+    body: JSON.stringify({
+      externalReference: `IP-INB-${runId}`, accountId: account.id, destination: '0110023500000000012342', description: 'Inbound sandbox',
+      amount: '12.00', currency: 'ARS', direction: 'inbound', confirmHolder: true, holderName: 'Originador', taxIdLast4: '2222',
+    }),
+  }), 201);
+  assert.equal(inbound.transfer.direction, 'inbound');
+  const externalDebit = await json(await request('/api/v1/debit-requests', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-debit-ext-${runId}` },
+    body: JSON.stringify({
+      externalReference: `DB-EXT-${runId}`, collectorAccountId: account.id, payerDestination: '0110023500000000012342',
+      description: 'DEBIN externo', amount: '5.00', currency: 'ARS',
+    }),
+  }), 422);
+  assert.equal(externalDebit.error.code, 'external_debit_not_supported');
+  const debitCreated = await json(await request('/api/v1/debit-requests', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-debit-${runId}` },
+    body: JSON.stringify({
+      externalReference: `DB-${runId}`, collectorAccountId: account.id, payerDestination: destinationCvu,
+      description: 'Débito interno', amount: '8.00', currency: 'ARS',
+    }),
+  }), 201);
+  assert.equal(debitCreated.debit.status, 'pending');
+  const debitAccepted = await json(await request(`/api/v1/debit-requests/${debitCreated.debit.id}/respond`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-debit-accept-${runId}` },
+    body: JSON.stringify({ decision: 'accept' }),
+  }), 201);
+  assert.equal(debitAccepted.debit.status, 'settled');
+  const qrCreated = await json(await request('/api/v1/payment-qrs', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-qr-${runId}` },
+    body: JSON.stringify({ accountId: account.id, description: 'Mostrador QA', amount: '6.00', currency: 'ARS' }),
+  }), 201);
+  assert.match(qrCreated.qr.payload, /^cimbra:qr:v1:/);
+  const qrPaid = await json(await request(`/api/v1/payment-qrs/${qrCreated.qr.id}/pay`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-qr-pay-${runId}` },
+    body: JSON.stringify({ sourceAccountId: destinationAccount.id, externalReference: `QR-${runId}` }),
+  }), 201);
+  assert.equal(qrPaid.transfer.scheme, 'qr_collect'); assert.equal(qrPaid.transfer.status, 'settled');
+  const returned = await json(await request(`/api/v1/instant-transfers/${outbound.transfer.id}/return`, {
+    method: 'POST', headers: { 'Idempotency-Key': `qa-ip-return-${runId}` },
+  }), 201);
+  assert.equal(returned.transfer.status, 'returned');
+  assert.ok((await json(await request('/api/v1/rail-instruments?limit=10'), 200)).data.some((item) => item.kind === 'cvu'));
+  assert.ok((await json(await request('/api/v1/instant-transfers?limit=10'), 200)).data.some((item) => item.id === outbound.transfer.id));
+
+  const linkKey = `qa-link-${runId}`;
+  const linkPayload = {
+    accountId: destinationAccount.id, externalReference: `FAC-${runId}`, description: 'Honorarios QA',
+    amount: '18.00', currency: 'ARS', methods: ['internal', 'sandbox_inbound'],
+  };
+  const linkCreated = await json(await request('/api/v1/payment-links', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': linkKey },
+    body: JSON.stringify(linkPayload),
+  }), 201);
+  assert.equal(linkCreated.link.status, 'open'); assert.match(linkCreated.link.payload, /^cimbra:link:v1:/);
+  const linkReplay = await json(await request('/api/v1/payment-links', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': linkKey },
+    body: JSON.stringify(linkPayload),
+  }), 200);
+  assert.equal(linkReplay.replayed, true);
+  const cardDenied = await json(await request(`/api/v1/payment-links/${linkCreated.link.id}/pay`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-link-card-${runId}` },
+    body: JSON.stringify({ method: 'card' }),
+  }), 422);
+  assert.equal(cardDenied.error.code, 'card_acquiring_not_supported');
+  const payKey = `qa-link-pay-${runId}`;
+  const paid = await json(await request(`/api/v1/payment-links/${linkCreated.link.id}/pay`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': payKey },
+    body: JSON.stringify({ method: 'internal', payerAccountId: account.id }),
+  }), 201);
+  assert.equal(paid.link.status, 'paid'); assert.equal(paid.link.paidMethod, 'internal');
+  const paidReplay = await json(await request(`/api/v1/payment-links/${linkCreated.link.id}/pay`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': payKey },
+    body: JSON.stringify({ method: 'internal', payerAccountId: account.id }),
+  }), 200);
+  assert.equal(paidReplay.replayed, true);
+  const refunded = await json(await request(`/api/v1/payment-links/${linkCreated.link.id}/refund`, {
+    method: 'POST', headers: { 'Idempotency-Key': `qa-link-refund-${runId}` },
+  }), 201);
+  assert.equal(refunded.link.status, 'refunded');
+  const inboundLink = await json(await request('/api/v1/payment-links', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-link-in-${runId}` },
+    body: JSON.stringify({
+      accountId: destinationAccount.id, externalReference: `FAC-IN-${runId}`, description: 'Inbound QA',
+      amount: '9.00', currency: 'ARS', methods: ['sandbox_inbound'],
+    }),
+  }), 201);
+  const inboundPaid = await json(await request(`/api/v1/payment-links/${inboundLink.link.id}/pay`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-link-in-pay-${runId}` },
+    body: JSON.stringify({ method: 'sandbox_inbound' }),
+  }), 201);
+  assert.equal(inboundPaid.link.status, 'paid'); assert.equal(inboundPaid.link.paidMethod, 'sandbox_inbound');
+  const cancelledLink = await json(await request('/api/v1/payment-links', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-link-cancel-${runId}` },
+    body: JSON.stringify({
+      accountId: destinationAccount.id, externalReference: `FAC-CAN-${runId}`, description: 'Cancelable',
+      amount: '4.00', currency: 'ARS',
+    }),
+  }), 201);
+  const cancelled = await json(await request(`/api/v1/payment-links/${cancelledLink.link.id}/cancel`, {
+    method: 'POST', headers: { 'Idempotency-Key': `qa-link-cancel-exec-${runId}` },
+  }), 201);
+  assert.equal(cancelled.link.status, 'cancelled');
+  assert.ok((await json(await request('/api/v1/payment-links?limit=10'), 200)).data.some((item) => item.id === linkCreated.link.id));
 
   const servicesKey = await json(await request('/api/platform/api-keys', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1561,6 +1801,13 @@ try {
   await json(await request('/api/v1/payout-beneficiaries'), 200);
   await json(await request('/api/v1/payout-batches'), 200);
   await json(await request('/api/v1/book-transfers'), 200);
+  await json(await request('/api/v1/wallets'), 200);
+  await json(await request('/api/v1/wallet-programs'), 200);
+  await json(await request('/api/v1/rail-instruments'), 200);
+  await json(await request('/api/v1/instant-transfers'), 200);
+  await json(await request('/api/v1/debit-requests'), 200);
+  await json(await request('/api/v1/payment-qrs'), 200);
+  await json(await request('/api/v1/payment-links'), 200);
   await json(await request(`/api/v1/accounts/${account.id}/statement`), 200);
   await json(await request(`/api/v1/cards/${card.id}/lifecycle`), 200);
   assert.equal((await request('/console')).status, 200);
@@ -1574,6 +1821,27 @@ try {
     body: JSON.stringify({ ...bookTransferPayload, externalReference: `BT-VIEWER-${runId}` }),
   }), 403);
   assert.equal(viewerBookTransferDenied.error.code, 'insufficient_role');
+  const viewerWalletDenied = await json(await request('/api/v1/wallet-programs', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-viewer-wallet-program-${runId}` },
+    body: JSON.stringify({ name: 'Viewer denied', displayName: 'Viewer denied', defaultCurrency: 'ARS' }),
+  }), 403);
+  assert.equal(viewerWalletDenied.error.code, 'insufficient_role');
+  const viewerInstantDenied = await json(await request('/api/v1/instant-transfers', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-viewer-instant-${runId}` },
+    body: JSON.stringify({
+      externalReference: `IP-VIEWER-${runId}`, accountId: account.id, destination: '0110023500000000012342', description: 'Viewer',
+      amount: '1.00', currency: 'ARS', confirmHolder: true, holderName: 'QA Company', taxIdLast4: '5678',
+    }),
+  }), 403);
+  assert.equal(viewerInstantDenied.error.code, 'insufficient_role');
+  const viewerCollectionDenied = await json(await request('/api/v1/payment-links', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-viewer-link-${runId}` },
+    body: JSON.stringify({
+      accountId: destinationAccount.id, externalReference: `FAC-VIEWER-${runId}`, description: 'Viewer',
+      amount: '1.00', currency: 'ARS',
+    }),
+  }), 403);
+  assert.equal(viewerCollectionDenied.error.code, 'insufficient_role');
   const viewerOperationsDenied = await json(await request(`/api/v1/operations/work-items/risk-case/${operationalCase.id}`, {
     method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-viewer-work-${runId}` }, body: JSON.stringify({ priority: 'low' }),
   }), 403);
@@ -1672,7 +1940,7 @@ try {
 
   console.log(JSON.stringify({
     ok: true,
-    checks: ['auth', 'landing-session-state', 'console-session-guard', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'viewer-read-only', 'member-invitations', 'dual-control', 'maker-checker', 'transfer-approval', 'book-transfer-approval', 'approval-replay', 'approval-fail-closed', 'payout-approval', 'risk-case-approval', 'risk-hold-bypass-guard', 'reconciliation-exception-approval', 'disputes', 'partial-dispute', 'dispute-ledger-credit', 'dispute-compensation', 'dispute-approval', 'dispute-evidence', 'dispute-rbac', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'book-transfers', 'account-statements', 'book-transfer-compensation', 'book-transfer-rbac', 'payout-beneficiaries', 'protected-payout-destination', 'payout-batches', 'payout-scheduling', 'payout-result-file', 'payout-compensation', 'payout-rbac', 'payout-s2s', 'billers', 'biller-obligations', 'protected-subscriber-reference', 'bill-payments', 'mobile-topups', 'gift-cards', 'recurring-mandates', 'mandate-consent', 'biller-rbac', 'biller-s2s', 'bill-payment-compensation', 'cdd-kyb', 'cdd-evidence', 'cdd-idempotency', 'cdd-maker-checker', 'cdd-s2s-orchestration', 'cdd-session-only-decision', 'cdd-expiry', 'cdd-rbac', 'card-programs', 'card-lifecycle', 'card-controls', 'card-terminal-state', 'card-rbac', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'risk-signals-privacy', 'risk-decision-lists', 'risk-step-up', 'risk-step-up-idempotency', 'risk-step-up-rbac', 'risk-decision-slo', 'risk-confirmed-outcomes', 'risk-supervised-metrics', 'risk-outcome-revisions', 'reconciliation', 'operations-work-queue', 'operations-idempotency', 'operations-evidence', 'operations-rbac', 'csv-import', 'settlement', 'private-evidence', 'audit'],
+    checks: ['auth', 'landing-session-state', 'console-session-guard', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'viewer-read-only', 'member-invitations', 'dual-control', 'maker-checker', 'transfer-approval', 'book-transfer-approval', 'approval-replay', 'approval-fail-closed', 'payout-approval', 'risk-case-approval', 'risk-hold-bypass-guard', 'reconciliation-exception-approval', 'disputes', 'partial-dispute', 'dispute-ledger-credit', 'dispute-compensation', 'dispute-approval', 'dispute-evidence', 'dispute-rbac', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'book-transfers', 'account-statements', 'book-transfer-compensation', 'book-transfer-rbac', 'wallets', 'wallet-pockets', 'wallet-lifecycle', 'wallet-rbac', 'instant-payments', 'cvu-alias', 'holder-confirmation', 'internal-credit', 'sandbox-outbound', 'internal-debit', 'cimbra-qr', 'instant-return', 'instant-rbac', 'collections', 'payment-links', 'collection-internal', 'collection-inbound', 'collection-refund', 'collection-cancel', 'collection-card-denied', 'collection-rbac', 'payout-beneficiaries', 'protected-payout-destination', 'payout-batches', 'payout-scheduling', 'payout-result-file', 'payout-compensation', 'payout-rbac', 'payout-s2s', 'billers', 'biller-obligations', 'protected-subscriber-reference', 'bill-payments', 'mobile-topups', 'gift-cards', 'recurring-mandates', 'mandate-consent', 'biller-rbac', 'biller-s2s', 'bill-payment-compensation', 'cdd-kyb', 'cdd-evidence', 'cdd-idempotency', 'cdd-maker-checker', 'cdd-s2s-orchestration', 'cdd-session-only-decision', 'cdd-expiry', 'cdd-rbac', 'card-programs', 'card-lifecycle', 'card-controls', 'card-terminal-state', 'card-rbac', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'risk-signals-privacy', 'risk-decision-lists', 'risk-step-up', 'risk-step-up-idempotency', 'risk-step-up-rbac', 'risk-decision-slo', 'risk-confirmed-outcomes', 'risk-supervised-metrics', 'risk-outcome-revisions', 'reconciliation', 'operations-work-queue', 'operations-idempotency', 'operations-evidence', 'operations-rbac', 'csv-import', 'settlement', 'private-evidence', 'audit'],
   }));
 } finally {
   await cleanup();

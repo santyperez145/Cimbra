@@ -215,6 +215,60 @@ export type ReconciliationExceptionResolutionResult =
 export type BookTransferCreationResult =
   | { ok: true; requiresApproval: false; transfer: BookTransfer; replayed: boolean }
   | { ok: true; requiresApproval: true; approval: ApprovalRequest; replayed: boolean; deduplicated: boolean };
+export type WalletStatus = 'active' | 'frozen' | 'closed';
+export type WalletPocketKind = 'available' | 'pending' | 'rewards';
+export type WalletProgram = {
+  id: string; name: string; displayName: string; supportUrl: string | null; termsUrl: string | null;
+  accentColor: string | null; defaultCurrency: Currency; allowedCurrencies: Currency[];
+  pocketKinds: WalletPocketKind[]; status: 'active' | 'inactive'; createdAt: string; updatedAt: string;
+};
+export type Wallet = {
+  id: string; programId: string; programName: string; programDisplayName: string; customerId: string; customerName: string;
+  externalReference: string; status: WalletStatus; statusReason: string | null; pocketCount: number;
+  createdAt: string; updatedAt: string; pockets?: WalletPocket[];
+};
+export type WalletPocket = {
+  id: string; walletId: string; accountId: string; accountReference: string; kind: WalletPocketKind; label: string;
+  currency: Currency; status: string; balanceMinor: string; balance: number; createdAt: string;
+};
+export type WalletLifecycleEvent = {
+  id: string; walletId: string; fromStatus: WalletStatus | null; toStatus: WalletStatus; reason: string;
+  actorId: string; actorName: string; createdAt: string;
+};
+export type WalletPocketTransferCreationResult =
+  | { ok: true; requiresApproval: false; transfer: BookTransfer; walletId: string; sourcePocketId: string; destinationPocketId: string; replayed: boolean }
+  | { ok: true; requiresApproval: true; approval: ApprovalRequest; walletId: string; sourcePocketId: string; destinationPocketId: string; replayed: boolean; deduplicated: boolean };
+export type RailInstrument = {
+  id: string; accountId: string; accountReference: string; customerName: string; kind: 'cvu' | 'alias';
+  value: string; last4: string; holderName: string; taxIdLast4: string; status: 'active' | 'revoked'; createdAt: string;
+};
+export type RailDirectoryPreview = {
+  found: boolean; kind: 'cvu' | 'cbu' | 'alias'; last4: string; holderName: string | null; taxIdLast4: string | null;
+  rail: 'cimbra_sandbox' | 'external_preview';
+};
+export type InstantTransfer = {
+  id: string; scheme: 'credit_push' | 'debit_pull' | 'qr_collect'; direction: 'outbound' | 'inbound' | 'internal';
+  sourceAccountId: string | null; sourceAccountReference: string | null; destinationAccountId: string | null; destinationAccountReference: string | null;
+  counterpartyKind: 'cvu' | 'cbu' | 'alias'; counterpartyLast4: string; counterpartyHolderName: string | null; counterpartyTaxLast4: string | null;
+  amountMinor: string; amount: number; currency: 'ARS'; description: string; externalReference: string;
+  status: 'pending' | 'accepted' | 'rejected' | 'settled' | 'returned' | 'expired' | 'cancelled'; rail: 'cimbra_sandbox';
+  transactionId: string | null; reversalTransactionId: string | null; qrPayload: string | null; expiresAt: string | null;
+  createdAt: string; updatedAt: string;
+};
+export type PaymentQr = {
+  id: string; accountId: string; accountReference: string; amountMinor: string | null; amount: number | null;
+  currency: 'ARS'; description: string; payload: string; status: 'active' | 'paid' | 'expired' | 'cancelled';
+  expiresAt: string; paidTransferId: string | null; createdAt: string; updatedAt: string;
+};
+export type CollectionMethod = 'internal' | 'sandbox_inbound';
+export type PaymentLink = {
+  id: string; accountId: string; accountReference: string; customerName: string;
+  amountMinor: string; amount: number; currency: 'ARS'; description: string; externalReference: string;
+  allowedMethods: CollectionMethod[]; payload: string;
+  status: 'open' | 'pending' | 'paid' | 'expired' | 'cancelled' | 'refunded'; expiresAt: string;
+  paidMethod: CollectionMethod | null; payerAccountId: string | null; payerAccountReference: string | null;
+  transactionId: string | null; reversalTransactionId: string | null; createdAt: string; updatedAt: string;
+};
 export type DisputeReason = 'card_not_present' | 'duplicate' | 'amount_mismatch' | 'service_not_received' | 'credit_not_processed' | 'cash_not_received' | 'other';
 export type DisputeStatus = 'opened' | 'under_review' | 'network_ready' | 'won' | 'lost' | 'rejected' | 'cancelled';
 export type DisputeEventName = 'start_review' | 'mark_network_ready' | 'resolve_won' | 'resolve_lost' | 'reject' | 'cancel';
@@ -316,6 +370,35 @@ export type CreateBookTransferInput = {
   externalReference: string; sourceAccountId: string; destinationAccountId: string;
   description: string; amount: string; currency: Currency; signals?: RiskSignalsInput;
 };
+export type CreateWalletProgramInput = {
+  name: string; displayName: string; supportUrl?: string | null; termsUrl?: string | null; accentColor?: string | null;
+  defaultCurrency: Currency; allowedCurrencies?: Currency[]; pocketKinds?: WalletPocketKind[];
+};
+export type CreateWalletInput = { programId: string; customerId: string; externalReference: string };
+export type TransitionWalletInput = { status: Exclude<WalletStatus, never>; reason: string };
+export type CreateWalletPocketTransferInput = {
+  externalReference: string; sourcePocketId: string; destinationPocketId: string;
+  description: string; amount: string; currency: Currency; signals?: RiskSignalsInput;
+};
+export type IssueRailInstrumentInput = { accountId: string; alias?: string | null };
+export type CreateInstantTransferInput = {
+  externalReference: string; accountId: string; destination: string; description: string; amount: string;
+  currency: 'ARS'; direction?: 'outbound' | 'inbound'; confirmHolder: true; holderName: string; taxIdLast4: string;
+  signals?: RiskSignalsInput;
+};
+export type CreateDebitRequestInput = {
+  externalReference: string; collectorAccountId: string; payerDestination: string; description: string;
+  amount: string; currency: 'ARS'; expiresInMinutes?: number;
+};
+export type CreatePaymentQrInput = {
+  accountId: string; description: string; amount?: string; currency?: 'ARS'; expiresInMinutes?: number;
+};
+export type PayPaymentQrInput = { sourceAccountId: string; externalReference: string; amount?: string; signals?: RiskSignalsInput };
+export type CreatePaymentLinkInput = {
+  accountId: string; externalReference: string; description: string; amount: string; currency: 'ARS';
+  expiresInMinutes?: number; methods?: CollectionMethod[];
+};
+export type PayPaymentLinkInput = { method: CollectionMethod | 'card' | 'pos' | 'tap_to_phone' | 'qr_interoperable'; payerAccountId?: string; signals?: RiskSignalsInput };
 export type CreatePaymentInput = { accountId: string; direction: 'cash_in' | 'cash_out'; counterparty: string; description: string; amount: string; currency: Currency; signals?: RiskSignalsInput };
 export type CreateBillerInput = {
   code: string; name: string; country: string; category: Biller['category']; serviceType: Biller['serviceType']; currency: Currency;

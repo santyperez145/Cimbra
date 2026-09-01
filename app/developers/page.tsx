@@ -28,6 +28,21 @@ const errorResponses = [
 
 const changelog = [
   {
+    date: '01 SEP 2026',
+    title: 'Cobranzas sandbox para Argentina',
+    detail: 'Links de cobro con payload cimbra:link:v1, eco cerrado entre cuentas Cimbra, inbound ledger y devoluciones compensatorias. Tarjetas, POS y QR interoperable responden 422. No es adquirencia de red.',
+  },
+  {
+    date: '01 SEP 2026',
+    title: 'Pagos instantáneos sandbox para Argentina',
+    detail: 'Emisión de CVU 0009999, alias tenant-scoped, confirmación de titular, crédito interno o cash-out a settlement, débito interno, QR Cimbra y devoluciones compensatorias. No es Coelsa, DEBIN ni QR interoperable.',
+  },
+  {
+    date: '01 SEP 2026',
+    title: 'Wallets nativas con bolsillos ledger-backed',
+    detail: 'Programas tenant, wallets por customer, pockets mapeados a cuentas de producto, freeze/close, movimientos internos via book transfers, API, SDK, eventos y consola por rol. No custodia fondos ni publica una app de consumidor.',
+  },
+  {
     date: '30 AGO 2026',
     title: 'Book transfers y estados de cuenta nativos',
     detail: 'Movimientos account-to-account con dos postings atómicos, saldo disponible, holds de riesgo, maker/checker, reversas compensatorias, API paginada, SDK, eventos y consola por rol.',
@@ -283,6 +298,54 @@ if (!movement.data.requiresApproval) {
   });
   console.log(statement.data.period.closingBalance, statement.data.data);
 }`;
+  const walletExample = `const program = await cimbra.walletPrograms.create({
+  name: 'Wallet marketplace ARS',
+  displayName: 'Billetera Comercio Sur',
+  defaultCurrency: 'ARS',
+  pocketKinds: ['available', 'pending'],
+});
+
+const wallet = await cimbra.wallets.create({
+  programId: program.data.program.id,
+  customerId: '<customer_uuid>',
+  externalReference: 'WALLET-001',
+});
+
+const movement = await cimbra.wallets.transfer(wallet.data.wallet.id, {
+  externalReference: 'WP-001',
+  sourcePocketId: wallet.data.pockets[0].id,
+  destinationPocketId: wallet.data.pockets[1].id,
+  description: 'Reserva operativa',
+  amount: '25.00',
+  currency: 'ARS',
+});`;
+  const instantExample = `const issued = await cimbra.railInstruments.issue({
+  accountId: '<account_uuid>',
+  alias: 'COMERCIO.SUR',
+});
+const preview = await cimbra.railDirectory.lookup(issued.data.instruments[0].value);
+const credit = await cimbra.instantTransfers.create({
+  externalReference: 'IP-001',
+  accountId: '<source_account_uuid>',
+  destination: issued.data.instruments[0].value,
+  description: 'Cobro inmediato',
+  amount: '1500.00',
+  currency: 'ARS',
+  confirmHolder: true,
+  holderName: preview.data.holderName!,
+  taxIdLast4: preview.data.taxIdLast4!,
+});`;
+  const collectionsExample = `const link = await cimbra.paymentLinks.create({
+  accountId: '<merchant_account_uuid>',
+  externalReference: 'FAC-001',
+  description: 'Honorarios agosto',
+  amount: '18500.00',
+  currency: 'ARS',
+});
+await cimbra.paymentLinks.pay(link.data.link.id, {
+  method: 'internal',
+  payerAccountId: '<payer_account_uuid>',
+});`;
 
   return <main className="docs-shell docs-shell-expanded">
     <header className="docs-topbar">
@@ -309,6 +372,9 @@ if (!movement.data.requiresApproval) {
         <strong>INTEGRACIÓN</strong>
         <a href="#sdk">SDK TypeScript</a>
         <a href="#book-transfers">Book transfers</a>
+        <a href="#wallets">Wallets</a>
+        <a href="#instant-payments">Pagos AR</a>
+        <a href="#collections">Cobranzas</a>
         <a href="#payouts">Payouts masivos</a>
         <a href="#billers">Servicios y recargas</a>
         <a href="#due-diligence">KYC/KYB</a>
@@ -323,7 +389,7 @@ if (!movement.data.requiresApproval) {
     <article className="docs-content docs-content-expanded">
       <details className="docs-mobile-nav">
         <summary>Índice de documentación</summary>
-        <nav><a href="#overview">Overview</a><a href="#quickstart">Quickstart</a><a href="#authentication">Auth</a><a href="#sdk">SDK</a><a href="#book-transfers">Book transfers</a><a href="#payouts">Payouts</a><a href="#billers">Servicios</a><a href="#due-diligence">KYC/KYB</a><a href="#risk-step-up">Step-up</a><a href="#webhooks">Webhooks</a><a href="#reference">API reference</a></nav>
+        <nav><a href="#overview">Overview</a><a href="#quickstart">Quickstart</a><a href="#authentication">Auth</a><a href="#sdk">SDK</a><a href="#book-transfers">Book transfers</a><a href="#wallets">Wallets</a><a href="#instant-payments">Pagos AR</a><a href="#collections">Cobranzas</a><a href="#payouts">Payouts</a><a href="#billers">Servicios</a><a href="#due-diligence">KYC/KYB</a><a href="#risk-step-up">Step-up</a><a href="#webhooks">Webhooks</a><a href="#reference">API reference</a></nav>
       </details>
 
       <section id="overview" className="docs-hero">
@@ -337,7 +403,7 @@ if (!movement.data.requiresApproval) {
           <article><strong>{API_SCOPES.length}</strong><span>Scopes S2S canónicos</span></article>
           <article><strong>{WEBHOOK_EVENT_TYPES.length}</strong><span>Tipos de evento emitidos</span></article>
         </div>
-        <div className="docs-callout"><i>i</i><div><strong>Sandbox persistente, no dinero real</strong><p>Customers, KYC/KYB, cuentas, book transfers, estados de cuenta, tarjetas sandbox, beneficiarios, lotes de payouts, servicios, obligaciones, recargas, mandatos, movimientos, ledger, riesgo, conciliación, disputas, operaciones, aprobaciones y webhooks se persisten. No existen fuentes de identidad, cobertura comercial o rieles homologados, PAN/CVV ni instrumentos emitidos en redes de pago.</p></div></div>
+        <div className="docs-callout"><i>i</i><div><strong>Sandbox persistente, no dinero real</strong><p>Customers, KYC/KYB, cuentas, wallets, book transfers, estados de cuenta, tarjetas sandbox, beneficiarios, lotes de payouts, servicios, obligaciones, recargas, mandatos, movimientos, ledger, riesgo, conciliación, disputas, operaciones, aprobaciones y webhooks se persisten. No existen fuentes de identidad, cobertura comercial o rieles homologados, PAN/CVV ni instrumentos emitidos en redes de pago.</p></div></div>
       </section>
 
       <section id="environments" className="docs-section">
@@ -456,6 +522,42 @@ if (!movement.data.requiresApproval) {
         <CodeBlock language="TYPESCRIPT · SDK REAL" value={bookTransferExample} />
       </section>
 
+      <section id="wallets" className="docs-section">
+        <p className="docs-kicker">EMBEDDED FINANCE</p><h2>Una wallet, bolsillos reales, sin ledger paralelo.</h2>
+        <p className="docs-section-lede">Un programa tenant configura marca y kinds de bolsillo. Abrir una wallet crea cuentas de producto; mover saldo entre pockets ejecuta un book transfer con riesgo, holds y maker/checker.</p>
+        <div className="webhook-contract-grid">
+          <article><strong>Programas</strong><p>Owner/Admin define nombre visible, moneda, bolsillos <code>available</code>, <code>pending</code> o <code>rewards</code> y URLs de soporte. No se publica una app de consumidor.</p></article>
+          <article><strong>Pockets</strong><p>Cada bolsillo es una cuenta de producto. El saldo se deriva de postings; freeze y close inactivan esas cuentas.</p></article>
+          <article><strong>Movimientos</strong><p><code>wallets:write</code> resuelve pocket IDs y reutiliza el rail interno. Una wallet inactiva rechaza el movimiento con <code>409</code>.</p></article>
+          <article><strong>Límite real</strong><p>El sandbox no custodia fondos. Una wallet productiva exige marco PSP o entidad habilitada, safeguarding y riel de fondeo por país.</p></article>
+        </div>
+        <CodeBlock language="TYPESCRIPT · SDK REAL" value={walletExample} />
+      </section>
+
+      <section id="instant-payments" className="docs-section">
+        <p className="docs-kicker">ARGENTINA · SANDBOX</p><h2>CVU propio, alias de tenant, sin fingir Coelsa.</h2>
+        <p className="docs-section-lede">Cimbra emite CVU con prefijo 000 y código PSP 9999, confirma titular y liquida el crédito interno sobre el ledger. Un CBU externo sale a settlement. El débito y el QR sólo operan entre cuentas del tenant.</p>
+        <div className="webhook-contract-grid">
+          <article><strong>Instrumentos</strong><p>Un CVU por cuenta ARS argentina y un alias opcional único en el tenant. No se emite CBU porque Cimbra no es banco.</p></article>
+          <article><strong>Confirmación</strong><p>El crédito exige <code>confirmHolder</code>, nombre y últimos cuatro del CUIT. Un mismatch interno responde <code>422 holder_mismatch</code>.</p></article>
+          <article><strong>Débito y QR</strong><p>El débito externo responde <code>external_debit_not_supported</code>. El payload <code>cimbra:qr:v1</code> no es el QR interoperable.</p></article>
+          <article><strong>Límite real</strong><p>Transferencias 3.0, DEBIN y directorio nacional entran con membresía o sponsor directo. BIND y el resto siguen como benchmarks, no conectores.</p></article>
+        </div>
+        <CodeBlock language="TYPESCRIPT · SDK REAL" value={instantExample} />
+      </section>
+
+      <section id="collections" className="docs-section">
+        <p className="docs-kicker">ARGENTINA · COBRANZAS</p><h2>Un link de cobro, sin fingir adquirencia de red.</h2>
+        <p className="docs-section-lede">El comercio emite un link contra una cuenta ARS argentina. El pagador liquida desde otra cuenta Cimbra del tenant o un inbound sandbox acredita el ledger. La devolución usa postings compensatorios.</p>
+        <div className="webhook-contract-grid">
+          <article><strong>Link</strong><p>Monto cerrado, vencimiento y payload <code>cimbra:link:v1</code>. Owner/Admin/Operator crean; Viewer sólo consulta.</p></article>
+          <article><strong>Medios</strong><p><code>internal</code> mueve saldo entre cuentas del tenant. <code>sandbox_inbound</code> es un cash-in a settlement. Tarjeta, POS y QR interoperable responden <code>422</code>.</p></article>
+          <article><strong>Scopes</strong><p><code>payments:read/write</code> protege S2S. El cobro entra al motor de riesgo y puede quedar en hold.</p></article>
+          <article><strong>Límite real</strong><p>No hay checkout hospedado PCI, marcas, sucursales ni liquidación a un adquirente. BIND y el resto siguen como benchmarks, no conectores.</p></article>
+        </div>
+        <CodeBlock language="TYPESCRIPT · SDK REAL" value={collectionsExample} />
+      </section>
+
       <section id="payouts" className="docs-section">
         <p className="docs-kicker">PAYOUT INFRASTRUCTURE</p><h2>De un beneficiario protegido a un resultado conciliable.</h2>
         <p className="docs-section-lede">Cimbra acepta un lote como borrador inmutable, lo somete a doble control si el tenant lo exige y procesa cada ítem por separado. Un fallo funcional no duplica ni bloquea los payouts ya resueltos; el estado y el archivo se derivan de datos persistidos.</p>
@@ -521,7 +623,7 @@ if (!movement.data.requiresApproval) {
 
     <aside className="docs-toc">
       <strong>EN ESTA PÁGINA</strong>
-      <a href="#overview">Overview</a><a href="#environments">Entornos</a><a href="#quickstart">Quickstart</a><a href="#authentication">Autenticación</a><a href="#idempotency">Idempotencia</a><a href="#errors">Errores</a><a href="#sdk">SDK</a><a href="#book-transfers">Book transfers</a><a href="#payouts">Payouts</a><a href="#billers">Servicios</a><a href="#due-diligence">KYC/KYB</a><a href="#risk-step-up">Step-up</a><a href="#webhooks">Webhooks</a><a href="#reference">API reference</a><a href="#changelog">Changelog</a>
+      <a href="#overview">Overview</a><a href="#environments">Entornos</a><a href="#quickstart">Quickstart</a><a href="#authentication">Autenticación</a><a href="#idempotency">Idempotencia</a><a href="#errors">Errores</a><a href="#sdk">SDK</a><a href="#book-transfers">Book transfers</a><a href="#wallets">Wallets</a><a href="#instant-payments">Pagos AR</a><a href="#collections">Cobranzas</a><a href="#payouts">Payouts</a><a href="#billers">Servicios</a><a href="#due-diligence">KYC/KYB</a><a href="#risk-step-up">Step-up</a><a href="#webhooks">Webhooks</a><a href="#reference">API reference</a><a href="#changelog">Changelog</a>
       <div><span>{user ? `Sesión activa · ${user.displayName.split(' ')[0]}` : '¿Necesitás credenciales?'}</span><Link href={user ? '/console' : '/login?return_to=%2Fconsole'}>{user ? 'Abrir Developers' : 'Ingresar al sandbox'} →</Link></div>
     </aside>
   </main>;

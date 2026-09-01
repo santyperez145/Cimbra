@@ -28,7 +28,14 @@ export async function GET() {
         AND to_regclass('public.payout_beneficiaries') IS NOT NULL
         AND to_regclass('public.payout_batches') IS NOT NULL
         AND to_regclass('public.payout_items') IS NOT NULL
-        AND to_regclass('public.book_transfers') IS NOT NULL AS ready`,
+        AND to_regclass('public.book_transfers') IS NOT NULL
+        AND to_regclass('public.wallet_programs') IS NOT NULL
+        AND to_regclass('public.wallets') IS NOT NULL
+        AND to_regclass('public.wallet_pockets') IS NOT NULL
+        AND to_regclass('public.rail_instruments') IS NOT NULL
+        AND to_regclass('public.instant_transfers') IS NOT NULL
+        AND to_regclass('public.payment_qrs') IS NOT NULL
+        AND to_regclass('public.payment_links') IS NOT NULL AS ready`,
     ).first<{ ready: boolean }>();
     if (!readiness?.ready) throw new Error('schema_not_ready');
   } catch (error) {
@@ -38,7 +45,7 @@ export async function GET() {
 
   const healthy = Object.values(dependencies).every((state) => state === 'ok');
   return NextResponse.json({
-    status: healthy ? 'ok' : 'degraded', service: 'cimbra-platform', version: '2026-08-30',
+    status: healthy ? 'ok' : 'degraded', service: 'cimbra-platform', version: '2026-09-01',
     dependencies, latencyMs: Math.round(performance.now() - startedAt), timestamp: new Date().toISOString(),
   }, { status: healthy ? 200 : 503, headers: { 'Cache-Control': 'no-store' } });
 }

@@ -86,6 +86,30 @@ Cimbra implementa el rail interno propio con una decisión deliberadamente más 
 
 Esto completa account-to-account dentro del core sandbox, no instant payments externos. CBU/CVU, Pix, SPEI u otros rieles requieren conexión directa a banco, cámara o sponsor, directorio oficial, confirmaciones/returns, conciliación, fraude, SLO y homologación por país. BIND, Dock, tapi, Pismo, Pomelo y Wibond no son dependencias ni destinos de contract tests.
 
+## Benchmark aplicado — wallets y embedded finance (01/09/2026)
+
+[Wibond](https://www.wibond.co/) publica una wallet white-label con pagos y crédito embebidos, pero el detalle técnico público no alcanza para validar programas, pockets ni lifecycle endpoint por endpoint. [Pismo](https://developers.pismo.io/pismo-docs/docs/single-ledger-entries-and-book-transfers) trata la wallet como cuentas de ledger con movimientos internos atómicos. [Dock](https://www.dock.tech/en/dock-one/) presenta banking embebido y saldos como módulo de plataforma. El patrón competitivo verificable es programa + cuenta/bolsillo + saldo derivado + movimiento interno; una app de consumidor o la custodia de fondos no se infieren de una API.
+
+Cimbra implementa el dominio propio sobre el financial core ya existente: `wallet_programs` configuran marca, monedas y kinds de bolsillo; cada wallet pertenece a un customer y un programa; cada pocket crea una cuenta de producto con ledger de doble partida. Los movimientos entre bolsillos reutilizan book transfers, riesgo, holds y `transfer.create`. Freeze y close inactivan las cuentas subyacentes; el cierre exige saldo cero y sin holds. API v1, SDK, webhooks y consola por rol comparten el contrato. No hay ledger paralelo ni app de usuario final.
+
+La disponibilidad `sandbox` no es custodia, PSP ni experiencia white-label homologada. Fondos reales requieren marco PSP o entidad habilitada, safeguarding, riel de fondeo/cash-out y operación certificada por país. BIND, Dock, tapi, Pismo, Pomelo y Wibond siguen siendo benchmarks, no conectores.
+
+## Benchmark aplicado — pagos instantáneos Argentina (01/09/2026)
+
+[BIND/bindX](https://developers.bindx.com/) publica Transferencias 3.0, CBU/CVU, alias, DEBIN y QR como riel bancario 7x24. El material público de Dock, Pismo y Pomelo cubre account-to-account interno y payouts, no el contrato Coelsa. El patrón competitivo verificable es instrumento + directorio/confirmación de titular + crédito/débito + QR + devolución; una membresía de cámara no se infiere de una API sandbox.
+
+Cimbra implementa el dominio propio sobre el financial core: emite CVU sandbox con prefijo `000` y código PSP `9999` (no asignado por Coelsa), alias único por tenant, preview de titular, crédito interno via postings atómicos o cash-out a settlement, débito sólo entre cuentas Cimbra, QR con payload `cimbra:qr:v1` y returns compensatorios. API v1, SDK, webhooks y consola por rol comparten el contrato. No hay directorio nacional, DEBIN externo ni QR interoperable.
+
+La disponibilidad `sandbox` no habilita dinero real. Transferencias 3.0, DEBIN, alias Coelsa y QR interoperable exigen membresía, certificación o sponsor local directo. BIND, Dock, tapi, Pismo, Pomelo y Wibond siguen siendo benchmarks, no conectores.
+
+## Benchmark aplicado — cobranzas Argentina (01/09/2026)
+
+[BIND PSP Cobro](https://psp.bind.com.ar/developers/cobro) publica botón de pago, links asociados a una deuda, recaudación por transferencia/CVU, QR y POS. El patrón competitivo verificable es intención de cobro + medios + acreditación + devolución; una adquirencia de red no se infiere de un link sandbox.
+
+Cimbra implementa el dominio propio: `payment_links` contra una cuenta ARS argentina, payload `cimbra:link:v1`, cobro interno entre cuentas del tenant o inbound ledger, riesgo/holds y refunds compensatorios. Tarjeta, POS, Tap to Phone y QR interoperable responden `422` con código explícito. API v1, SDK, webhooks y consola por rol comparten el contrato.
+
+La disponibilidad `sandbox` no es checkout PCI, sucursal/caja, liquidación a un adquirente ni conciliación de marca. Esas capas entran con licencia o sponsor, certificación EMV/PCI y riel directo. BIND, Dock, tapi, Pismo, Pomelo y Wibond siguen siendo benchmarks, no conectores.
+
 ## Benchmark aplicado — Customer Due Diligence KYC/KYB (29/08/2026)
 
 [Pomelo KYC](https://developers.pomelo.la/en/api-reference/Identity/kyc) separa sesión de validación, estado e integración por eventos; su [KYB](https://developers.pomelo.la/api-reference/Identity/kyb) incorpora empresa, representantes y beneficiarios finales, y deja la evaluación de información vinculada a un expediente. [Pismo Accounts](https://developers.pismo.io/pismo-docs/docs/accounts-overview) modela personas y empresas como clientes vinculados al ciclo de cuenta y mantiene la actualización de datos como lifecycle. [Dock](https://dock.tech/wp-content/uploads/2023/05/PT-Apresentacao-Institucional-Dock-atualizada-19.04.2023.pdf) presenta onboarding, KYC y antifraude como capacidades integradas de plataforma. El patrón competitivo verificable es orquestar sujeto, evidencia, controles, estados y eventos; ninguna interfaz por sí sola reemplaza la fuente oficial ni la responsabilidad regulatoria.
@@ -134,7 +158,7 @@ La decisión propia es no fingir clientes, volumen, uptime, tiempos de integraci
 
 Pismo reúne guías, referencia REST, esquemas de eventos, changelog, consola interactiva y colección Postman; además documenta autenticación S2S y verificación de webhooks como contratos separados. Pomelo hace explícitos OAuth 2.0, scopes, montos decimales, idempotencia y firma HMAC de webhooks. BIND PSP publica URLs distintas para staging y producción, autenticación, scopes, ejemplos curl, códigos de error y política de reintentos de webhooks. Esos patrones reducen el tiempo hasta el primer request y, sobre todo, evitan que el integrador tenga que adivinar límites operativos.
 
-Cimbra adopta el estándar de claridad como propiedad propia: `/developers` publica la única base URL activa, diferencia sandbox de producción no habilitada, genera la referencia de 122 operaciones desde OpenAPI, consume scopes y eventos canónicos, ofrece quickstarts exactos, errores estructurados, rate limits, paginación, modelo monetario, contrato de firma y calendario de reintentos. El SDK TypeScript se distribuye como artefacto real con checksum mientras no exista publicación npm. Postman y SDKs adicionales se muestran explícitamente como backlog; no se ofrecen botones ni instalaciones ficticias. La consola interactiva contra endpoints mutantes se posterga hasta poder aislar credenciales y datos de forma segura. Dock, tapi y Wibond continúan como benchmarks de producto; no se atribuyen contratos técnicos específicos cuando la documentación pública consultada no alcanza para verificarlos.
+Cimbra adopta el estándar de claridad como propiedad propia: `/developers` publica la única base URL activa, diferencia sandbox de producción no habilitada, genera la referencia de 152 operaciones desde OpenAPI, consume scopes y eventos canónicos, ofrece quickstarts exactos, errores estructurados, rate limits, paginación, modelo monetario, contrato de firma y calendario de reintentos. El SDK TypeScript se distribuye como artefacto real con checksum mientras no exista publicación npm. Postman y SDKs adicionales se muestran explícitamente como backlog; no se ofrecen botones ni instalaciones ficticias. La consola interactiva contra endpoints mutantes se posterga hasta poder aislar credenciales y datos de forma segura. Dock, tapi y Wibond continúan como benchmarks de producto; no se atribuyen contratos técnicos específicos cuando la documentación pública consultada no alcanza para verificarlos.
 
 ## Wedge recomendado
 

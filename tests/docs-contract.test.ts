@@ -47,10 +47,10 @@ function routeFiles(directory: string): string[] {
 
 test('el OpenAPI público usa el sandbox real y operaciones identificables', () => {
   assert.equal(spec.openapi, '3.1.0');
-  assert.equal(spec.info.version, '2026-08-30');
+  assert.equal(spec.info.version, '2026-09-01');
   assert.deepEqual(spec.servers, [{ url: 'https://cimbra-rose.vercel.app', description: 'Persistent sandbox. Does not move real funds.' }]);
   const operations = contractOperations();
-  assert.equal(operations.length, 122);
+  assert.equal(operations.length, 152);
   const ids = operations.map(({ operation }) => operation.operationId);
   assert.equal(ids.every(Boolean), true);
   assert.equal(new Set(ids).size, ids.length);
@@ -124,6 +124,25 @@ test('OpenAPI publica book transfers y statements como contratos completos', () 
   assert.match(reference, /path\.includes\('\/book-transfers'\)\) return `transfers:\$\{access\}`/);
   assert.match(reference, /path\.includes\('\/payout-'\)\) return 'Payouts'/);
   assert.match(reference, /path\.includes\('\/payout-'\)\) return `payouts:\$\{access\}`/);
+  assert.equal(spec.paths['/api/v1/wallet-programs'].get.operationId, 'listWalletPrograms');
+  assert.equal(spec.paths['/api/v1/wallet-programs'].post.operationId, 'createWalletProgram');
+  assert.equal(spec.paths['/api/v1/wallets'].post.operationId, 'createWallet');
+  assert.equal(spec.paths['/api/v1/wallets/{id}/transfers'].post.operationId, 'createWalletPocketTransfer');
+  assert.equal(spec.paths['/api/v1/wallets/{id}/lifecycle'].post.operationId, 'transitionWallet');
+  assert.match(reference, /path\.includes\('\/wallets'\) \|\| path\.includes\('\/wallet-programs'\)\) return 'Wallets'/);
+  assert.match(reference, /path\.includes\('\/wallets'\) \|\| path\.includes\('\/wallet-programs'\)\) return `wallets:\$\{access\}`/);
+  assert.equal(spec.paths['/api/v1/rail-instruments'].post.operationId, 'issueRailInstruments');
+  assert.equal(spec.paths['/api/v1/rail-directory'].get.operationId, 'lookupRailDirectory');
+  assert.equal(spec.paths['/api/v1/instant-transfers'].post.operationId, 'createInstantTransfer');
+  assert.equal(spec.paths['/api/v1/instant-transfers/{id}/return'].post.operationId, 'returnInstantTransfer');
+  assert.equal(spec.paths['/api/v1/debit-requests/{id}/respond'].post.operationId, 'respondDebitRequest');
+  assert.equal(spec.paths['/api/v1/payment-qrs/{id}/pay'].post.operationId, 'payPaymentQr');
+  assert.equal(spec.paths['/api/v1/payment-links'].post.operationId, 'createPaymentLink');
+  assert.equal(spec.paths['/api/v1/payment-links/{id}'].get.operationId, 'retrievePaymentLink');
+  assert.equal(spec.paths['/api/v1/payment-links/{id}/pay'].post.operationId, 'payPaymentLink');
+  assert.equal(spec.paths['/api/v1/payment-links/{id}/refund'].post.operationId, 'refundPaymentLink');
+  assert.match(reference, /path\.includes\('\/instant-transfers'\) \|\| path\.includes\('\/rail-instruments'\)/);
+  assert.match(reference, /return 'Instant payments'/);
 });
 
 test('el sistema de diseño declara el token navy usado por formularios y autenticación', () => {

@@ -139,7 +139,7 @@ export default async function Home() {
           <p>Cimbra desacopla producto, operación y rieles para que cada equipo active sólo los dominios que necesita y conserve una fuente de verdad común.</p>
         </div>
         <div className="buyer-grid">
-          <article><span>01</span><h3>Fintechs y wallets</h3><p>Cuentas, transferencias, tarjetas sandbox y controles operativos sobre un ledger propio.</p><b>CORE · PAYMENTS · CARDS</b></article>
+          <article><span>01</span><h3>Fintechs y wallets</h3><p>Cuentas, wallets con bolsillos, transferencias internas y tarjetas sandbox sobre un ledger propio.</p><b>CORE · WALLETS · CARDS</b></article>
           <article><span>02</span><h3>Marketplaces</h3><p>Saldos segregados, payouts, conciliación y doble aprobación para tesorería de plataforma.</p><b>LEDGER · RISK · PAYOUTS</b></article>
           <article><span>03</span><h3>SaaS vertical</h3><p>Capacidades financieras embebidas mediante API, SDK y eventos sin reconstruir el backoffice.</p><b>API · SDK · WEBHOOKS</b></article>
           <article><span>04</span><h3>Operaciones enterprise</h3><p>Gobierno por rol, evidencia, casos, conciliación y trazabilidad de cada decisión sensible.</p><b>RBAC · 4-EYES · AUDIT</b></article>

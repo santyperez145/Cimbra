@@ -996,3 +996,170 @@ export const webhookDeliveryAttempts = pgTable('webhook_delivery_attempts', {
   index('idx_webhook_attempts_org_started').on(table.organizationId, table.startedAt),
   check('webhook_attempts_status', sql`${table.status} IN ('delivered', 'failed')`),
 ]);
+
+export const walletPrograms = pgTable('wallet_programs', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  idempotencyKey: text('idempotency_key').notNull(), requestFingerprint: text('request_fingerprint').notNull(),
+  name: text('name').notNull(), displayName: text('display_name').notNull(),
+  supportUrl: text('support_url'), termsUrl: text('terms_url'), accentColor: text('accent_color'),
+  defaultCurrency: text('default_currency').notNull(), allowedCurrencies: text('allowed_currencies').notNull(),
+  pocketKinds: text('pocket_kinds').notNull(), status: text('status').notNull().default('active'),
+  createdBy: text('created_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
+  createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_wallet_programs_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  uniqueIndex('idx_wallet_programs_org_name').on(table.organizationId, table.name),
+  index('idx_wallet_programs_org_created').on(table.organizationId, table.createdAt),
+  check('wallet_programs_status', sql`${table.status} IN ('active', 'inactive')`),
+  check('wallet_programs_currency', sql`${table.defaultCurrency} IN ('ARS', 'USD', 'MXN', 'COP', 'BRL', 'CLP', 'PEN')`),
+]);
+
+export const wallets = pgTable('wallets', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  programId: text('program_id').notNull().references(() => walletPrograms.id, { onDelete: 'restrict' }),
+  customerId: text('customer_id').notNull().references(() => customers.id, { onDelete: 'restrict' }),
+  idempotencyKey: text('idempotency_key').notNull(), requestFingerprint: text('request_fingerprint').notNull(),
+  externalReference: text('external_reference').notNull(), status: text('status').notNull().default('active'),
+  statusReason: text('status_reason'),
+  createdBy: text('created_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
+  createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_wallets_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  uniqueIndex('idx_wallets_org_reference').on(table.organizationId, table.externalReference),
+  uniqueIndex('idx_wallets_org_program_customer').on(table.organizationId, table.programId, table.customerId),
+  index('idx_wallets_org_created').on(table.organizationId, table.createdAt),
+  index('idx_wallets_customer').on(table.customerId),
+  check('wallets_status', sql`${table.status} IN ('active', 'frozen', 'closed')`),
+]);
+
+export const walletPockets = pgTable('wallet_pockets', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  walletId: text('wallet_id').notNull().references(() => wallets.id, { onDelete: 'cascade' }),
+  accountId: text('account_id').notNull().references(() => accounts.id, { onDelete: 'restrict' }),
+  kind: text('kind').notNull(), label: text('label').notNull(), createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_wallet_pockets_wallet_kind').on(table.walletId, table.kind),
+  uniqueIndex('idx_wallet_pockets_account').on(table.accountId),
+  index('idx_wallet_pockets_org_wallet').on(table.organizationId, table.walletId),
+  check('wallet_pockets_kind', sql`${table.kind} IN ('available', 'pending', 'rewards')`),
+]);
+
+export const walletLifecycleEvents = pgTable('wallet_lifecycle_events', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  walletId: text('wallet_id').notNull().references(() => wallets.id, { onDelete: 'cascade' }),
+  idempotencyKey: text('idempotency_key').notNull(), requestFingerprint: text('request_fingerprint').notNull(),
+  fromStatus: text('from_status'), toStatus: text('to_status').notNull(), reason: text('reason').notNull(),
+  actorId: text('actor_id').notNull().references(() => users.id, { onDelete: 'restrict' }), createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_wallet_lifecycle_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  index('idx_wallet_lifecycle_wallet_created').on(table.walletId, table.createdAt),
+  check('wallet_lifecycle_from_status', sql`${table.fromStatus} IS NULL OR ${table.fromStatus} IN ('active', 'frozen', 'closed')`),
+  check('wallet_lifecycle_to_status', sql`${table.toStatus} IN ('active', 'frozen', 'closed')`),
+]);
+
+export const railInstruments = pgTable('rail_instruments', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  accountId: text('account_id').notNull().references(() => accounts.id, { onDelete: 'restrict' }),
+  idempotencyKey: text('idempotency_key').notNull(), requestFingerprint: text('request_fingerprint').notNull(),
+  kind: text('kind').notNull(), value: text('value').notNull(),
+  holderName: text('holder_name').notNull(), taxIdLast4: text('tax_id_last4').notNull(),
+  status: text('status').notNull().default('active'),
+  createdBy: text('created_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_rail_instruments_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  uniqueIndex('idx_rail_instruments_org_value').on(table.organizationId, table.value),
+  uniqueIndex('idx_rail_instruments_account_kind').on(table.accountId, table.kind),
+  index('idx_rail_instruments_org_created').on(table.organizationId, table.createdAt),
+  check('rail_instruments_kind', sql`${table.kind} IN ('cvu', 'alias')`),
+  check('rail_instruments_status', sql`${table.status} IN ('active', 'revoked')`),
+]);
+
+export const instantTransfers = pgTable('instant_transfers', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  idempotencyKey: text('idempotency_key').notNull(), requestFingerprint: text('request_fingerprint').notNull(),
+  scheme: text('scheme').notNull(), direction: text('direction').notNull(),
+  sourceAccountId: text('source_account_id').references(() => accounts.id, { onDelete: 'restrict' }),
+  destinationAccountId: text('destination_account_id').references(() => accounts.id, { onDelete: 'restrict' }),
+  counterpartyKind: text('counterparty_kind').notNull(), counterpartyHash: text('counterparty_hash').notNull(),
+  counterpartyLast4: text('counterparty_last4').notNull(), counterpartyHolderName: text('counterparty_holder_name'),
+  counterpartyTaxLast4: text('counterparty_tax_last4'),
+  amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(), currency: text('currency').notNull(),
+  description: text('description').notNull(), externalReference: text('external_reference').notNull(),
+  status: text('status').notNull(), rail: text('rail').notNull().default('cimbra_sandbox'),
+  transactionId: text('transaction_id').references(() => transactions.id, { onDelete: 'restrict' }),
+  reversalTransactionId: text('reversal_transaction_id').references(() => transactions.id, { onDelete: 'restrict' }),
+  qrPayload: text('qr_payload'), expiresAt: text('expires_at'),
+  createdBy: text('created_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
+  createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_instant_transfers_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  uniqueIndex('idx_instant_transfers_org_reference').on(table.organizationId, table.externalReference),
+  uniqueIndex('idx_instant_transfers_transaction').on(table.transactionId),
+  uniqueIndex('idx_instant_transfers_reversal').on(table.reversalTransactionId),
+  index('idx_instant_transfers_org_created').on(table.organizationId, table.createdAt),
+  index('idx_instant_transfers_org_scheme').on(table.organizationId, table.scheme, table.createdAt),
+  check('instant_transfers_scheme', sql`${table.scheme} IN ('credit_push', 'debit_pull', 'qr_collect')`),
+  check('instant_transfers_direction', sql`${table.direction} IN ('outbound', 'inbound', 'internal')`),
+  check('instant_transfers_counterparty_kind', sql`${table.counterpartyKind} IN ('cvu', 'cbu', 'alias')`),
+  check('instant_transfers_status', sql`${table.status} IN ('pending', 'accepted', 'rejected', 'settled', 'returned', 'expired', 'cancelled')`),
+  check('instant_transfers_currency', sql`${table.currency} = 'ARS'`),
+  check('instant_transfers_amount_positive', sql`${table.amountMinor} > 0`),
+]);
+
+export const paymentQrs = pgTable('payment_qrs', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  idempotencyKey: text('idempotency_key').notNull(), requestFingerprint: text('request_fingerprint').notNull(),
+  accountId: text('account_id').notNull().references(() => accounts.id, { onDelete: 'restrict' }),
+  amountMinor: bigint('amount_minor', { mode: 'bigint' }), currency: text('currency').notNull(),
+  description: text('description').notNull(), payload: text('payload').notNull(),
+  status: text('status').notNull().default('active'), expiresAt: text('expires_at').notNull(),
+  paidTransferId: text('paid_transfer_id').references(() => instantTransfers.id, { onDelete: 'restrict' }),
+  createdBy: text('created_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
+  createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_payment_qrs_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  uniqueIndex('idx_payment_qrs_payload').on(table.payload),
+  index('idx_payment_qrs_org_created').on(table.organizationId, table.createdAt),
+  check('payment_qrs_currency', sql`${table.currency} = 'ARS'`),
+  check('payment_qrs_status', sql`${table.status} IN ('active', 'paid', 'expired', 'cancelled')`),
+  check('payment_qrs_amount_positive', sql`${table.amountMinor} IS NULL OR ${table.amountMinor} > 0`),
+]);
+
+export const paymentLinks = pgTable('payment_links', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  idempotencyKey: text('idempotency_key').notNull(), requestFingerprint: text('request_fingerprint').notNull(),
+  accountId: text('account_id').notNull().references(() => accounts.id, { onDelete: 'restrict' }),
+  amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(), currency: text('currency').notNull(),
+  description: text('description').notNull(), externalReference: text('external_reference').notNull(),
+  allowedMethods: text('allowed_methods').notNull(), payload: text('payload').notNull(),
+  status: text('status').notNull().default('open'), expiresAt: text('expires_at').notNull(),
+  paidMethod: text('paid_method'), payerAccountId: text('payer_account_id').references(() => accounts.id, { onDelete: 'restrict' }),
+  transactionId: text('transaction_id').references(() => transactions.id, { onDelete: 'restrict' }),
+  reversalTransactionId: text('reversal_transaction_id').references(() => transactions.id, { onDelete: 'restrict' }),
+  payIdempotencyKey: text('pay_idempotency_key'), payFingerprint: text('pay_fingerprint'),
+  refundIdempotencyKey: text('refund_idempotency_key'),
+  createdBy: text('created_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
+  createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_payment_links_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  uniqueIndex('idx_payment_links_org_reference').on(table.organizationId, table.externalReference),
+  uniqueIndex('idx_payment_links_payload').on(table.payload),
+  uniqueIndex('idx_payment_links_transaction').on(table.transactionId),
+  uniqueIndex('idx_payment_links_reversal').on(table.reversalTransactionId),
+  uniqueIndex('idx_payment_links_org_pay_idempotency').on(table.organizationId, table.payIdempotencyKey),
+  uniqueIndex('idx_payment_links_org_refund_idempotency').on(table.organizationId, table.refundIdempotencyKey),
+  index('idx_payment_links_org_created').on(table.organizationId, table.createdAt),
+  check('payment_links_currency', sql`${table.currency} = 'ARS'`),
+  check('payment_links_status', sql`${table.status} IN ('open', 'pending', 'paid', 'expired', 'cancelled', 'refunded')`),
+  check('payment_links_paid_method', sql`${table.paidMethod} IS NULL OR ${table.paidMethod} IN ('internal', 'sandbox_inbound')`),
+  check('payment_links_amount_positive', sql`${table.amountMinor} > 0`),
+]);

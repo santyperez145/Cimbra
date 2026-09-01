@@ -13,6 +13,8 @@ export const API_SCOPES = [
   'payouts:write',
   'billers:read',
   'billers:write',
+  'wallets:read',
+  'wallets:write',
   'risk:read',
   'risk:write',
   'disputes:read',

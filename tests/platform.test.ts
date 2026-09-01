@@ -20,6 +20,11 @@ import { disputeEvent, disputeNextStatus, disputePossibleEvents, disputeReason, 
 import { normalizeBillerInput, normalizeBillPaymentInput, normalizeLifecycleAction, normalizeMandateInput, normalizeObligationInput, normalizeProtectedReference } from '../app/lib/platform/billers-input.ts';
 import { normalizePayoutBatchInput, normalizePayoutBeneficiaryInput, normalizePayoutBeneficiaryStatus, normalizePayoutDestination } from '../app/lib/platform/payouts-input.ts';
 import { parseBookTransferInput, statementPeriod } from '../app/lib/platform/book-transfers-input.ts';
+import { normalizeWalletInput, normalizeWalletProgramInput, normalizeWalletTransition, parseWalletPocketTransferInput } from '../app/lib/platform/wallets-input.ts';
+import { classifyRailValue, isSandboxCvu, isWellFormedCbu, issueSandboxCvu, normalizeAlias } from '../app/lib/platform/cbu.ts';
+import { normalizeDebitRequestInput, normalizeInstantTransferInput, normalizeIssueInstrumentInput, normalizePaymentQrInput } from '../app/lib/platform/instant-payments-input.ts';
+import { normalizePaymentLinkInput, normalizePaymentLinkPayInput } from '../app/lib/platform/collections-input.ts';
+import { isLocalPostgres, postgresClientOptions, resolvePostgresUrl } from '../db/postgres-connection.mjs';
 
 process.env.CIMBRA_ENCRYPTION_KEY = '3ea72fc13c567057870342c6ebd34d88f58f6d80b1dba61c4be4e1c2f1406afb';
 
@@ -114,6 +119,7 @@ test('una matriz canónica gobierna capacidades de API y consola', () => {
   assert.deepEqual(rolesFor('console.read'), ['owner', 'admin', 'operator', 'viewer']);
   assert.deepEqual(rolesFor('finance.write'), ['owner', 'admin', 'operator']);
   assert.deepEqual(rolesFor('cards.program.manage'), ['owner', 'admin']);
+  assert.deepEqual(rolesFor('wallets.program.manage'), ['owner', 'admin']);
   assert.deepEqual(rolesFor('credentials.manage'), ['owner', 'admin']);
   assert.deepEqual(rolesFor('approvals.policy.manage'), ['owner']);
   assert.equal(roleCan('owner', 'approvals.policy.manage'), true);
@@ -121,6 +127,7 @@ test('una matriz canónica gobierna capacidades de API y consola', () => {
   assert.equal(roleCan('admin', 'credentials.manage'), true);
   assert.equal(roleCan('operator', 'finance.write'), true);
   assert.equal(roleCan('operator', 'cards.program.manage'), false);
+  assert.equal(roleCan('operator', 'wallets.program.manage'), false);
   assert.equal(roleCan('admin', 'billers.manage'), true);
   assert.equal(roleCan('operator', 'billers.manage'), false);
   assert.equal(roleCan('admin', 'payouts.beneficiaries.manage'), true);
@@ -168,6 +175,117 @@ test('book transfers exigen cuentas distintas, moneda válida y períodos acotad
   const validPeriod = statementPeriod(new URL('https://api.test/statement?from=2026-08-01T00:00:00.000Z&to=2026-08-31T00:00:00.000Z'));
   assert.deepEqual(validPeriod, { from: '2026-08-01T00:00:00.000Z', to: '2026-08-31T00:00:00.000Z' });
   assert.equal(statementPeriod(new URL('https://api.test/statement?from=2024-01-01T00:00:00.000Z&to=2026-01-02T00:00:00.000Z')), null);
+});
+
+test('la conexión PostgreSQL exige TLS remoto, desactiva prepared statements y prefiere la URL directa para migrar', () => {
+  const keys = ['DATABASE_URL', 'POSTGRES_URL', 'POSTGRES_PRISMA_URL', 'DATABASE_URL_UNPOOLED',
+    'DATABASE_URL_NON_POOLING', 'POSTGRES_URL_NON_POOLING', 'DATABASE_URL_UNPOOLED_DIRECT',
+    'DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD'];
+  const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  try {
+    for (const key of keys) delete process.env[key];
+    process.env.DATABASE_URL = 'postgresql://cimbra:secret@ep-demo-pooler.us-east-1.aws.neon.tech/neondb?sslmode=require';
+    process.env.DATABASE_URL_UNPOOLED = 'postgresql://cimbra:secret@ep-demo.us-east-1.aws.neon.tech/neondb?sslmode=require';
+    assert.equal(resolvePostgresUrl(), process.env.DATABASE_URL);
+    assert.equal(resolvePostgresUrl({ preferDirect: true }), process.env.DATABASE_URL_UNPOOLED);
+    const remote = postgresClientOptions(process.env.DATABASE_URL);
+    assert.equal(remote.ssl, 'require');
+    assert.equal(remote.prepare, false);
+    assert.equal(remote.connect_timeout, 30);
+    const local = postgresClientOptions('postgresql://cimbra:secret@127.0.0.1:5432/cimbra');
+    assert.equal(local.ssl, false);
+    assert.equal(local.connect_timeout, 10);
+    assert.equal(isLocalPostgres('postgresql://cimbra:secret@localhost:5432/cimbra'), true);
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
+test('wallets validan programas, pockets disponibles y transiciones terminales', () => {
+  const programId = '00000000-0000-4000-8000-000000000001';
+  const customerId = '00000000-0000-4000-8000-000000000002';
+  const sourcePocketId = '00000000-0000-4000-8000-000000000003';
+  const destinationPocketId = '00000000-0000-4000-8000-000000000004';
+  assert.deepEqual(normalizeWalletProgramInput({ name: '  Wallet Mercado  ', displayName: ' Billetera Sur ',
+    defaultCurrency: 'ars', allowedCurrencies: ['ARS', 'usd'], pocketKinds: ['available', 'rewards'] }), {
+    name: 'Wallet Mercado', displayName: 'Billetera Sur', supportUrl: null, termsUrl: null, accentColor: null,
+    defaultCurrency: 'ARS', allowedCurrencies: ['ARS', 'USD'], pocketKinds: ['available', 'rewards'],
+  });
+  assert.equal(normalizeWalletProgramInput({ name: 'X', displayName: 'X', defaultCurrency: 'ARS' }), null);
+  assert.equal(normalizeWalletProgramInput({ name: 'Wallet', displayName: 'Wallet', defaultCurrency: 'ARS', pocketKinds: ['pending'] }), null);
+  assert.deepEqual(normalizeWalletInput({ programId, customerId, externalReference: ' WALLET-001 ' }), {
+    programId, customerId, externalReference: 'WALLET-001',
+  });
+  assert.deepEqual(normalizeWalletTransition({ status: 'frozen', reason: 'suspected_fraud' }, 'active'), {
+    status: 'frozen', reason: 'suspected_fraud',
+  });
+  assert.equal(normalizeWalletTransition({ status: 'active', reason: 'issued' }, 'closed'), null);
+  const transfer = parseWalletPocketTransferInput({ externalReference: 'WP-001', sourcePocketId, destinationPocketId,
+    description: ' Distribución ', amount: '10.50', currency: 'ars' });
+  assert.ok(transfer); assert.equal(transfer.amountMinor, 1050n);
+  assert.equal(parseWalletPocketTransferInput({ externalReference: 'WP-002', sourcePocketId, destinationPocketId: sourcePocketId,
+    description: 'Inválida', amount: '1', currency: 'ARS' }), null);
+});
+
+test('pagos instantáneos validan CBU/CVU, alias, titular y límites de riel sandbox', () => {
+  const accountId = '00000000-0000-4000-8000-000000000010';
+  const cvu = issueSandboxCvu(accountId);
+  assert.equal(isWellFormedCbu(cvu), true);
+  assert.equal(isSandboxCvu(cvu), true);
+  assert.equal(isSandboxCvu('0110023500000000012342'), false);
+  assert.equal(isWellFormedCbu('0110023500000000012342'), true);
+  assert.deepEqual(classifyRailValue(cvu), { kind: 'cvu', value: cvu });
+  assert.deepEqual(classifyRailValue('0110023500000000012342'), { kind: 'cbu', value: '0110023500000000012342' });
+  assert.equal(normalizeAlias('comercio.sur'), 'COMERCIO.SUR');
+  assert.equal(normalizeAlias('ab'), null);
+  assert.deepEqual(normalizeIssueInstrumentInput({ accountId, alias: 'comercio.sur' }), { accountId, alias: 'COMERCIO.SUR' });
+  const transfer = normalizeInstantTransferInput({
+    externalReference: 'IP-001', accountId, destination: cvu, description: ' Cobro ', amount: '10.50', currency: 'ars',
+    confirmHolder: true, holderName: ' Comercio Sur ', taxIdLast4: '5678',
+  });
+  assert.ok(transfer); assert.equal(transfer.amountMinor, 1050n); assert.equal(transfer.holderName, 'Comercio Sur');
+  assert.equal(normalizeInstantTransferInput({
+    externalReference: 'IP-002', accountId, destination: cvu, description: 'Cobro', amount: '10', currency: 'ARS', confirmHolder: false,
+    holderName: 'Comercio Sur', taxIdLast4: '5678',
+  }), null);
+  const debit = normalizeDebitRequestInput({
+    externalReference: 'DEBIN-001', collectorAccountId: accountId, payerDestination: 'COMERCIO.SUR',
+    description: 'Débito interno', amount: '20', currency: 'ARS',
+  });
+  assert.ok(debit); assert.equal(debit.expiresInMinutes, 60);
+  const qr = normalizePaymentQrInput({ accountId, description: 'Cobro mostrador', currency: 'ARS' });
+  assert.ok(qr); assert.equal(qr.amountMinor, null);
+});
+
+test('cobranzas validan links de cobro, medios sandbox y rechazan adquirencia de red', () => {
+  const accountId = '00000000-0000-4000-8000-000000000010';
+  const payerId = '00000000-0000-4000-8000-000000000011';
+  const link = normalizePaymentLinkInput({
+    accountId, externalReference: 'FAC-001', description: ' Honorarios ', amount: '1500.50', currency: 'ars',
+  });
+  assert.ok(link); assert.ok(!('unsupportedMethod' in link));
+  if (!('unsupportedMethod' in link)) {
+    assert.equal(link.amountMinor, 150050n);
+    assert.deepEqual(link.methods, ['internal', 'sandbox_inbound']);
+  }
+  const cardCreate = normalizePaymentLinkInput({
+    accountId, externalReference: 'FAC-002', description: 'Tarjeta', amount: '10', currency: 'ARS', methods: ['card'],
+  });
+  assert.deepEqual(cardCreate, { unsupportedMethod: 'card' });
+  assert.equal(normalizePaymentLinkInput({
+    accountId, externalReference: 'FAC-003', description: 'Vacío', amount: '10', currency: 'ARS', methods: [],
+  }), null);
+  const internalPay = normalizePaymentLinkPayInput({ method: 'internal', payerAccountId: payerId });
+  assert.ok(internalPay); assert.ok(!('unsupportedMethod' in internalPay));
+  if (!('unsupportedMethod' in internalPay)) {
+    assert.equal(internalPay.method, 'internal'); assert.equal(internalPay.payerAccountId, payerId);
+  }
+  assert.equal(normalizePaymentLinkPayInput({ method: 'internal' }), null);
+  assert.deepEqual(normalizePaymentLinkPayInput({ method: 'card' }), { unsupportedMethod: 'card' });
+  assert.deepEqual(normalizePaymentLinkPayInput({ method: 'sandbox_inbound' }), { method: 'sandbox_inbound', payerAccountId: null });
 });
 
 test('servicios y mandatos validan catálogo, referencias protegidas, importes y consentimiento', () => {

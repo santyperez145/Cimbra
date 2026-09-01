@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Cimbra API v1
-  version: '2026-08-30'
+  version: '2026-09-01'
   description: Versioned financial infrastructure API backed by a persistent double-entry ledger, scoped S2S API keys and signed durable webhooks. This deployment is a sandbox and does not move real funds. Every response includes X-Request-Id and Cimbra-Version; responses after successful API-key authorization also expose X-RateLimit-Limit, X-RateLimit-Remaining and X-RateLimit-Reset. Mutations replayed from an idempotency key include Idempotent-Replayed, while error responses may include Cimbra-Should-Retry so official SDKs can make safe retry decisions.
   license:
     name: Proprietary
@@ -489,6 +489,581 @@ paths:
         '403': { description: Missing transfers:write scope or finance.write permission }
         '404': { description: Book transfer not found in tenant }
         '409': { description: Transfer is not settled, was already reversed or idempotency conflicts }
+  /api/v1/wallet-programs:
+    get:
+      operationId: listWalletPrograms
+      summary: List native wallet programs
+      description: Tenant-scoped white-label wallet programs. Branding is stored configuration, not a consumer app or custodial license.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      responses:
+        '200':
+          description: Wallet program list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/WalletProgram' } }
+        '403': { description: Missing wallets:read scope or console role }
+    post:
+      operationId: createWalletProgram
+      summary: Create a tenant wallet program
+      description: Owner/Admin configure display name, currencies and pocket kinds. Pockets always include available and map to product ledger accounts.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name, displayName, defaultCurrency]
+              properties:
+                name: { type: string, minLength: 2, maxLength: 80 }
+                displayName: { type: string, minLength: 2, maxLength: 80 }
+                supportUrl: { type: [string, 'null'], format: uri, maxLength: 200 }
+                termsUrl: { type: [string, 'null'], format: uri, maxLength: 200 }
+                accentColor: { type: [string, 'null'], pattern: '^#[0-9A-Fa-f]{6}$' }
+                defaultCurrency: { type: string, enum: [ARS, USD, MXN, COP, BRL, CLP, PEN] }
+                allowedCurrencies: { type: array, minItems: 1, maxItems: 7, uniqueItems: true, items: { type: string, enum: [ARS, USD, MXN, COP, BRL, CLP, PEN] } }
+                pocketKinds: { type: array, minItems: 1, maxItems: 3, uniqueItems: true, items: { type: string, enum: [available, pending, rewards] } }
+      responses:
+        '201': { description: Wallet program created }
+        '200': { description: Idempotent replay }
+        '400': { description: Invalid program payload }
+        '403': { description: Missing wallets:write scope or wallets.program.manage permission }
+        '409': { description: Duplicate name or idempotency conflict }
+  /api/v1/wallet-programs/{id}:
+    get:
+      operationId: retrieveWalletProgram
+      summary: Retrieve a wallet program
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses:
+        '200': { description: Wallet program, content: { application/json: { schema: { $ref: '#/components/schemas/WalletProgram' } } } }
+        '404': { description: Wallet program not found in tenant }
+  /api/v1/wallets:
+    get:
+      operationId: listWallets
+      summary: List customer wallets with cursor pagination
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/PageLimit' }, { $ref: '#/components/parameters/PageCursor' }]
+      responses:
+        '200':
+          description: Wallet page
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, hasMore, nextCursor]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Wallet' } }
+                  hasMore: { type: boolean }
+                  nextCursor: { type: [string, 'null'] }
+        '403': { description: Missing wallets:read scope or console role }
+    post:
+      operationId: createWallet
+      summary: Open a customer wallet with ledger-backed pockets
+      description: Creates one product account per program pocket kind. Does not custody real funds or issue an end-user app.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [programId, customerId, externalReference]
+              properties:
+                programId: { type: string, format: uuid }
+                customerId: { type: string, format: uuid }
+                externalReference: { type: string, minLength: 2, maxLength: 100 }
+      responses:
+        '201': { description: Wallet and pockets created }
+        '200': { description: Idempotent replay }
+        '400': { description: Invalid wallet payload }
+        '403': { description: Missing wallets:write scope or finance.write permission }
+        '404': { description: Program or customer not found in tenant }
+        '409': { description: Duplicate customer/program, reference or idempotency conflict }
+  /api/v1/wallets/{id}:
+    get:
+      operationId: retrieveWallet
+      summary: Retrieve a wallet and its pockets
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses:
+        '200': { description: Wallet with pockets }
+        '404': { description: Wallet not found in tenant }
+  /api/v1/wallets/{id}/lifecycle:
+    get:
+      operationId: listWalletLifecycle
+      summary: List append-only wallet lifecycle events
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses:
+        '200': { description: Lifecycle events }
+        '404': { description: Wallet not found in tenant }
+    post:
+      operationId: transitionWallet
+      summary: Freeze, unfreeze or close a wallet
+      description: Frozen and closed wallets mark pocket accounts inactive. Closing requires zero available balance and no active holds.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [status, reason]
+              properties:
+                status: { type: string, enum: [active, frozen, closed] }
+                reason: { type: string, enum: [user_request, internal_control, suspected_fraud, review_cleared, customer_request, compliance] }
+      responses:
+        '200': { description: Lifecycle event created or replayed }
+        '403': { description: Missing wallets:write scope or finance.write permission }
+        '404': { description: Wallet not found in tenant }
+        '409': { description: Invalid transition, remaining balance, active holds or idempotency conflict }
+  /api/v1/wallets/{id}/pockets:
+    get:
+      operationId: listWalletPockets
+      summary: List wallet pockets with ledger balances
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses:
+        '200': { description: Pockets with derived balances }
+        '404': { description: Wallet not found in tenant }
+  /api/v1/wallets/{id}/transfers:
+    post:
+      operationId: createWalletPocketTransfer
+      summary: Move balance between pockets of the same wallet
+      description: Resolves pocket IDs to product accounts and executes a native book transfer with the same risk, holds and transfer.create maker/checker policy.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [externalReference, sourcePocketId, destinationPocketId, description, amount, currency]
+              properties:
+                externalReference: { type: string, minLength: 2, maxLength: 100 }
+                sourcePocketId: { type: string, format: uuid }
+                destinationPocketId: { type: string, format: uuid }
+                description: { type: string, minLength: 2, maxLength: 180 }
+                amount:
+                  description: Positive decimal major-unit amount. Prefer a string to avoid floating-point serialization.
+                  oneOf:
+                    - { type: string, pattern: '^\d+(?:\.\d+)?$' }
+                    - { type: number, exclusiveMinimum: 0, maximum: 10000000 }
+                currency: { type: string, enum: [ARS, USD, MXN, COP, BRL, CLP, PEN] }
+                signals: { $ref: '#/components/schemas/RiskSignalsInput' }
+      responses:
+        '201': { description: Pocket transfer settled or placed in risk review }
+        '200': { description: Idempotent replay }
+        '202': { description: Maker/checker policy is active and a human approval is pending }
+        '400': { description: Invalid payload or same source and destination }
+        '403': { description: Missing wallets:write scope or finance.write permission }
+        '404': { description: Wallet or pocket not found in tenant }
+        '409': { description: Wallet inactive, currency mismatch or idempotency conflict }
+        '422': { description: Insufficient available balance or risk decline }
+  /api/v1/rail-instruments:
+    get:
+      operationId: listRailInstruments
+      summary: List sandbox CVU and tenant aliases
+      description: Instruments issued by Cimbra as a sandbox PSP. Prefix 0009999 is not a Coelsa assignment. Aliases resolve only inside the tenant.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200': { description: Rail instrument page }
+        '403': { description: Missing transfers:read scope or console role }
+    post:
+      operationId: issueRailInstruments
+      summary: Issue a sandbox CVU and optional alias for an ARS Argentine account
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [accountId]
+              properties:
+                accountId: { type: string, format: uuid }
+                alias: { type: [string, 'null'], minLength: 6, maxLength: 20 }
+      responses:
+        '201': { description: CVU and optional alias issued }
+        '200': { description: Idempotent replay }
+        '400': { description: Invalid instrument payload }
+        '403': { description: Missing transfers:write scope or finance.write permission }
+        '409': { description: CVU already issued, alias conflict or idempotency mismatch }
+  /api/v1/rail-instruments/{id}:
+    get:
+      operationId: retrieveRailInstrument
+      summary: Retrieve a rail instrument owned by the tenant
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses:
+        '200': { description: Rail instrument, content: { application/json: { schema: { $ref: '#/components/schemas/RailInstrument' } } } }
+        '404': { description: Instrument not found in tenant }
+  /api/v1/rail-directory:
+    get:
+      operationId: lookupRailDirectory
+      summary: Preview holder data for a CBU, CVU or alias
+      description: Tenant-scoped lookup. Internal hits return holder name and tax last4. External CBU/CVU return last4 only. There is no national alias directory.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: { type: string, minLength: 6, maxLength: 22 }
+      responses:
+        '200': { description: Directory preview }
+        '400': { description: Malformed CBU, CVU or alias }
+        '403': { description: Missing transfers:read scope or console role }
+  /api/v1/instant-transfers:
+    get:
+      operationId: listInstantTransfers
+      summary: List sandbox instant transfers
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+        - name: scheme
+          in: query
+          schema: { type: string, enum: [credit_push, debit_pull, qr_collect] }
+      responses:
+        '200': { description: Instant transfer page }
+        '403': { description: Missing transfers:read scope or console role }
+    post:
+      operationId: createInstantTransfer
+      summary: Create a sandbox credit push with holder confirmation
+      description: Internal CVU/alias settles between product accounts. External CBU/CVU posts cash-out to settlement. Inbound credits a Cimbra CVU from an external originator. Rail is cimbra_sandbox, not Coelsa.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [externalReference, accountId, destination, description, amount, currency, confirmHolder, holderName, taxIdLast4]
+              properties:
+                externalReference: { type: string, minLength: 2, maxLength: 100 }
+                accountId: { type: string, format: uuid }
+                destination: { type: string, minLength: 6, maxLength: 22 }
+                description: { type: string, minLength: 2, maxLength: 180 }
+                amount:
+                  oneOf:
+                    - { type: string, pattern: '^\d+(?:\.\d+)?$' }
+                    - { type: number, exclusiveMinimum: 0, maximum: 10000000 }
+                currency: { type: string, enum: [ARS] }
+                direction: { type: string, enum: [outbound, inbound] }
+                confirmHolder: { type: boolean }
+                holderName: { type: string, minLength: 2, maxLength: 160 }
+                taxIdLast4: { type: string, pattern: '^\d{4}$' }
+                signals: { $ref: '#/components/schemas/RiskSignalsInput' }
+      responses:
+        '201': { description: Instant transfer created }
+        '200': { description: Idempotent replay }
+        '400': { description: Invalid payload }
+        '403': { description: Missing transfers:write scope or finance.write permission }
+        '404': { description: Account, alias or sandbox CVU not found }
+        '409': { description: Inactive account, currency mismatch or idempotency conflict }
+        '422': { description: Holder mismatch, insufficient funds or risk decline }
+  /api/v1/instant-transfers/{id}:
+    get:
+      operationId: retrieveInstantTransfer
+      summary: Retrieve an instant transfer
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses:
+        '200': { description: Instant transfer, content: { application/json: { schema: { $ref: '#/components/schemas/InstantTransfer' } } } }
+        '404': { description: Transfer not found in tenant }
+  /api/v1/instant-transfers/{id}/return:
+    post:
+      operationId: returnInstantTransfer
+      summary: Return a settled instant transfer with compensating postings
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '201': { description: Compensating return created }
+        '200': { description: Idempotent replay }
+        '403': { description: Missing transfers:write scope or finance.write permission }
+        '404': { description: Transfer not found in tenant }
+        '409': { description: Transfer is not settled or already returned }
+  /api/v1/debit-requests:
+    get:
+      operationId: listDebitRequests
+      summary: List internal debit-pull requests
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200': { description: Debit request page }
+        '403': { description: Missing transfers:read scope or console role }
+    post:
+      operationId: createDebitRequest
+      summary: Request an internal debit from another Cimbra account in the tenant
+      description: External CBU/CVU debit is rejected with external_debit_not_supported. This is not DEBIN over Coelsa.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [externalReference, collectorAccountId, payerDestination, description, amount, currency]
+              properties:
+                externalReference: { type: string, minLength: 2, maxLength: 100 }
+                collectorAccountId: { type: string, format: uuid }
+                payerDestination: { type: string, minLength: 6, maxLength: 22 }
+                description: { type: string, minLength: 2, maxLength: 180 }
+                amount:
+                  oneOf:
+                    - { type: string, pattern: '^\d+(?:\.\d+)?$' }
+                    - { type: number, exclusiveMinimum: 0, maximum: 10000000 }
+                currency: { type: string, enum: [ARS] }
+                expiresInMinutes: { type: integer, minimum: 5, maximum: 1440 }
+      responses:
+        '201': { description: Debit request created pending acceptance }
+        '200': { description: Idempotent replay }
+        '400': { description: Invalid payload }
+        '403': { description: Missing transfers:write scope or finance.write permission }
+        '422': { description: External debit is not supported }
+  /api/v1/debit-requests/{id}/respond:
+    post:
+      operationId: respondDebitRequest
+      summary: Accept or reject a pending internal debit request
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [accept, reject] }
+                signals: { $ref: '#/components/schemas/RiskSignalsInput' }
+      responses:
+        '201': { description: Debit accepted and settled, or rejected }
+        '200': { description: Idempotent replay }
+        '403': { description: Missing transfers:write scope or finance.write permission }
+        '404': { description: Debit request not found }
+        '409': { description: Request is not pending or expired }
+        '422': { description: Insufficient funds or risk decline }
+  /api/v1/payment-qrs:
+    get:
+      operationId: listPaymentQrs
+      summary: List Cimbra QR collection payloads
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200': { description: Payment QR page }
+        '403': { description: Missing transfers:read scope or console role }
+    post:
+      operationId: createPaymentQr
+      summary: Create a Cimbra-owned QR payload for an account
+      description: Payload format cimbra:qr:v1 is not the Argentine interoperable QR. Payment is tenant-internal.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [accountId, description]
+              properties:
+                accountId: { type: string, format: uuid }
+                amount:
+                  oneOf:
+                    - { type: string, pattern: '^\d+(?:\.\d+)?$' }
+                    - { type: number, exclusiveMinimum: 0, maximum: 10000000 }
+                currency: { type: string, enum: [ARS] }
+                description: { type: string, minLength: 2, maxLength: 180 }
+                expiresInMinutes: { type: integer, minimum: 5, maximum: 1440 }
+      responses:
+        '201': { description: QR created }
+        '200': { description: Idempotent replay }
+        '400': { description: Invalid payload }
+        '403': { description: Missing transfers:write scope or finance.write permission }
+  /api/v1/payment-qrs/{id}/pay:
+    post:
+      operationId: payPaymentQr
+      summary: Pay a Cimbra QR from another account in the tenant
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [sourceAccountId, externalReference]
+              properties:
+                sourceAccountId: { type: string, format: uuid }
+                amount:
+                  oneOf:
+                    - { type: string, pattern: '^\d+(?:\.\d+)?$' }
+                    - { type: number, exclusiveMinimum: 0, maximum: 10000000 }
+                externalReference: { type: string, minLength: 2, maxLength: 100 }
+                signals: { $ref: '#/components/schemas/RiskSignalsInput' }
+      responses:
+        '201': { description: QR paid }
+        '200': { description: Idempotent replay }
+        '400': { description: Invalid payload or open-amount QR without amount }
+        '403': { description: Missing transfers:write scope or finance.write permission }
+        '404': { description: QR not found }
+        '409': { description: QR inactive or expired }
+        '422': { description: Amount mismatch, insufficient funds or risk decline }
+  /api/v1/payment-links:
+    get:
+      operationId: listPaymentLinks
+      summary: List sandbox collection payment links
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200': { description: Payment link page }
+        '403': { description: Missing payments:read scope or console role }
+    post:
+      operationId: createPaymentLink
+      summary: Create a sandbox collection link against an Argentine ARS account
+      description: Payload format cimbra:link:v1 is not a card network checkout. Allowed methods are internal Cimbra accounts or sandbox inbound cash-in. Card, POS and interoperable QR return 422.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [accountId, externalReference, description, amount]
+              properties:
+                accountId: { type: string, format: uuid }
+                externalReference: { type: string, minLength: 2, maxLength: 100 }
+                description: { type: string, minLength: 2, maxLength: 180 }
+                amount:
+                  oneOf:
+                    - { type: string, pattern: '^\d+(?:\.\d+)?$' }
+                    - { type: number, exclusiveMinimum: 0, maximum: 10000000 }
+                currency: { type: string, enum: [ARS] }
+                expiresInMinutes: { type: integer, minimum: 5, maximum: 10080 }
+                methods:
+                  type: array
+                  minItems: 1
+                  items: { type: string, enum: [internal, sandbox_inbound] }
+      responses:
+        '201': { description: Payment link created }
+        '200': { description: Idempotent replay }
+        '400': { description: Invalid payload }
+        '403': { description: Missing payments:write scope or finance.write permission }
+        '422': { description: Card, POS or interoperable QR requested }
+  /api/v1/payment-links/{id}:
+    get:
+      operationId: retrievePaymentLink
+      summary: Retrieve a collection payment link
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses:
+        '200':
+          description: Payment link
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaymentLink' }
+        '403': { description: Missing payments:read scope or console role }
+        '404': { description: Payment link not found }
+  /api/v1/payment-links/{id}/cancel:
+    post:
+      operationId: cancelPaymentLink
+      summary: Cancel an open collection link
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '201': { description: Payment link cancelled }
+        '200': { description: Idempotent replay }
+        '403': { description: Missing payments:write scope or finance.write permission }
+        '404': { description: Payment link not found }
+        '409': { description: Link is not open }
+  /api/v1/payment-links/{id}/pay:
+    post:
+      operationId: payPaymentLink
+      summary: Collect a sandbox payment link
+      description: internal debits another Cimbra account in the tenant. sandbox_inbound posts a cash-in against settlement. Card acquiring is not supported.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [method]
+              properties:
+                method: { type: string, enum: [internal, sandbox_inbound, card, pos, tap_to_phone, qr_interoperable] }
+                payerAccountId: { type: string, format: uuid }
+                signals: { $ref: '#/components/schemas/RiskSignalsInput' }
+      responses:
+        '201': { description: Payment link collected }
+        '200': { description: Idempotent replay }
+        '400': { description: Invalid payload }
+        '403': { description: Missing payments:write scope or finance.write permission }
+        '404': { description: Payment link not found }
+        '409': { description: Link not open or already paid }
+        '422': { description: Unsupported method, insufficient funds or risk decline }
+  /api/v1/payment-links/{id}/refund:
+    post:
+      operationId: refundPaymentLink
+      summary: Refund a settled collection with compensating ledger entries
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '201': { description: Collection refunded }
+        '200': { description: Idempotent replay }
+        '403': { description: Missing payments:write scope or finance.write permission }
+        '404': { description: Payment link not found }
+        '409': { description: Link is not paid }
   /api/v1/payments:
     post:
       operationId: createPayment
@@ -2008,7 +2583,7 @@ paths:
                   type: array
                   minItems: 1
                   uniqueItems: true
-                  items: { type: string, enum: ['customers:read', 'customers:write', 'accounts:read', 'accounts:write', 'cards:read', 'cards:write', 'transfers:read', 'transfers:write', 'payments:read', 'payments:write', 'payouts:read', 'payouts:write', 'billers:read', 'billers:write', 'risk:read', 'risk:write', 'disputes:read', 'disputes:write', 'reconciliation:read', 'reconciliation:write', 'settlements:read', 'settlements:write', 'approvals:read', 'operations:read', 'operations:write', 'platform:read', 'ledger:read', 'events:read', 'compliance:read', 'compliance:write', 'webhooks:manage'] }
+                  items: { type: string, enum: ['customers:read', 'customers:write', 'accounts:read', 'accounts:write', 'cards:read', 'cards:write', 'transfers:read', 'transfers:write', 'payments:read', 'payments:write', 'payouts:read', 'payouts:write', 'billers:read', 'billers:write', 'wallets:read', 'wallets:write', 'risk:read', 'risk:write', 'disputes:read', 'disputes:write', 'reconciliation:read', 'reconciliation:write', 'settlements:read', 'settlements:write', 'approvals:read', 'operations:read', 'operations:write', 'platform:read', 'ledger:read', 'events:read', 'compliance:read', 'compliance:write', 'webhooks:manage'] }
                 expiresInDays: { type: integer, minimum: 1, maximum: 365 }
       responses:
         '201': { description: API key created and secret returned once }
@@ -2635,6 +3210,159 @@ components:
         createdBy: { type: string, format: uuid }
         createdByName: { type: string }
         createdAt: { type: string, format: date-time }
+    WalletProgram:
+      type: object
+      required: [id, name, displayName, supportUrl, termsUrl, accentColor, defaultCurrency, allowedCurrencies, pocketKinds, status, createdAt, updatedAt]
+      additionalProperties: false
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        displayName: { type: string }
+        supportUrl: { type: [string, 'null'] }
+        termsUrl: { type: [string, 'null'] }
+        accentColor: { type: [string, 'null'] }
+        defaultCurrency: { type: string, enum: [ARS, USD, MXN, COP, BRL, CLP, PEN] }
+        allowedCurrencies: { type: array, items: { type: string, enum: [ARS, USD, MXN, COP, BRL, CLP, PEN] } }
+        pocketKinds: { type: array, items: { type: string, enum: [available, pending, rewards] } }
+        status: { type: string, enum: [active, inactive] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    Wallet:
+      type: object
+      required: [id, programId, programName, programDisplayName, customerId, customerName, externalReference, status, statusReason, pocketCount, createdAt, updatedAt]
+      additionalProperties: false
+      properties:
+        id: { type: string, format: uuid }
+        programId: { type: string, format: uuid }
+        programName: { type: string }
+        programDisplayName: { type: string }
+        customerId: { type: string, format: uuid }
+        customerName: { type: string }
+        externalReference: { type: string }
+        status: { type: string, enum: [active, frozen, closed] }
+        statusReason: { type: [string, 'null'] }
+        pocketCount: { type: integer, minimum: 1 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    WalletPocket:
+      type: object
+      required: [id, walletId, accountId, accountReference, kind, label, currency, status, balanceMinor, balance, createdAt]
+      additionalProperties: false
+      properties:
+        id: { type: string, format: uuid }
+        walletId: { type: string, format: uuid }
+        accountId: { type: string, format: uuid }
+        accountReference: { type: string }
+        kind: { type: string, enum: [available, pending, rewards] }
+        label: { type: string }
+        currency: { type: string, enum: [ARS, USD, MXN, COP, BRL, CLP, PEN] }
+        status: { type: string }
+        balanceMinor: { type: string }
+        balance: { type: number }
+        createdAt: { type: string, format: date-time }
+    WalletLifecycleEvent:
+      type: object
+      required: [id, walletId, fromStatus, toStatus, reason, actorId, actorName, createdAt]
+      additionalProperties: false
+      properties:
+        id: { type: string, format: uuid }
+        walletId: { type: string, format: uuid }
+        fromStatus: { type: [string, 'null'], enum: [active, frozen, closed, null] }
+        toStatus: { type: string, enum: [active, frozen, closed] }
+        reason: { type: string }
+        actorId: { type: string, format: uuid }
+        actorName: { type: string }
+        createdAt: { type: string, format: date-time }
+    RailInstrument:
+      type: object
+      required: [id, accountId, accountReference, customerName, kind, value, last4, holderName, taxIdLast4, status, createdAt]
+      additionalProperties: false
+      properties:
+        id: { type: string, format: uuid }
+        accountId: { type: string, format: uuid }
+        accountReference: { type: string }
+        customerName: { type: string }
+        kind: { type: string, enum: [cvu, alias] }
+        value: { type: string }
+        last4: { type: string }
+        holderName: { type: string }
+        taxIdLast4: { type: string }
+        status: { type: string, enum: [active, revoked] }
+        createdAt: { type: string, format: date-time }
+    InstantTransfer:
+      type: object
+      required: [id, scheme, direction, sourceAccountId, sourceAccountReference, destinationAccountId, destinationAccountReference, counterpartyKind, counterpartyLast4, counterpartyHolderName, counterpartyTaxLast4, amountMinor, amount, currency, description, externalReference, status, rail, transactionId, reversalTransactionId, qrPayload, expiresAt, createdAt, updatedAt]
+      additionalProperties: false
+      properties:
+        id: { type: string, format: uuid }
+        scheme: { type: string, enum: [credit_push, debit_pull, qr_collect] }
+        direction: { type: string, enum: [outbound, inbound, internal] }
+        sourceAccountId: { type: [string, 'null'], format: uuid }
+        sourceAccountReference: { type: [string, 'null'] }
+        destinationAccountId: { type: [string, 'null'], format: uuid }
+        destinationAccountReference: { type: [string, 'null'] }
+        counterpartyKind: { type: string, enum: [cvu, cbu, alias] }
+        counterpartyLast4: { type: string }
+        counterpartyHolderName: { type: [string, 'null'] }
+        counterpartyTaxLast4: { type: [string, 'null'] }
+        amountMinor: { type: string }
+        amount: { type: number }
+        currency: { type: string, enum: [ARS] }
+        description: { type: string }
+        externalReference: { type: string }
+        status: { type: string, enum: [pending, accepted, rejected, settled, returned, expired, cancelled] }
+        rail: { type: string, enum: [cimbra_sandbox] }
+        transactionId: { type: [string, 'null'], format: uuid }
+        reversalTransactionId: { type: [string, 'null'], format: uuid }
+        qrPayload: { type: [string, 'null'] }
+        expiresAt: { type: [string, 'null'], format: date-time }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    PaymentQr:
+      type: object
+      required: [id, accountId, accountReference, amountMinor, amount, currency, description, payload, status, expiresAt, paidTransferId, createdAt, updatedAt]
+      additionalProperties: false
+      properties:
+        id: { type: string, format: uuid }
+        accountId: { type: string, format: uuid }
+        accountReference: { type: string }
+        amountMinor: { type: [string, 'null'] }
+        amount: { type: [number, 'null'] }
+        currency: { type: string, enum: [ARS] }
+        description: { type: string }
+        payload: { type: string }
+        status: { type: string, enum: [active, paid, expired, cancelled] }
+        expiresAt: { type: string, format: date-time }
+        paidTransferId: { type: [string, 'null'], format: uuid }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    PaymentLink:
+      type: object
+      required: [id, accountId, accountReference, customerName, amountMinor, amount, currency, description, externalReference, allowedMethods, payload, status, expiresAt, paidMethod, payerAccountId, payerAccountReference, transactionId, reversalTransactionId, createdAt, updatedAt]
+      additionalProperties: false
+      properties:
+        id: { type: string, format: uuid }
+        accountId: { type: string, format: uuid }
+        accountReference: { type: string }
+        customerName: { type: string }
+        amountMinor: { type: string }
+        amount: { type: number }
+        currency: { type: string, enum: [ARS] }
+        description: { type: string }
+        externalReference: { type: string }
+        allowedMethods:
+          type: array
+          items: { type: string, enum: [internal, sandbox_inbound] }
+        payload: { type: string }
+        status: { type: string, enum: [open, pending, paid, expired, cancelled, refunded] }
+        expiresAt: { type: string, format: date-time }
+        paidMethod: { type: [string, 'null'], enum: [internal, sandbox_inbound] }
+        payerAccountId: { type: [string, 'null'], format: uuid }
+        payerAccountReference: { type: [string, 'null'] }
+        transactionId: { type: [string, 'null'], format: uuid }
+        reversalTransactionId: { type: [string, 'null'], format: uuid }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
     OperationalWorkItem:
       type: object
       required: [id, type, status, open, priority, assignee, dueAt, escalatedAt, slaStatus, reference, summary, amountMinor, amount, currency, noteCount, evidenceCount, metadata, createdAt, updatedAt]

@@ -48,10 +48,10 @@ export const PLATFORM_CAPABILITIES: readonly PlatformCapability[] = [
     interfaces: ['rest_api', 'webhooks', 'sdk', 'files', 'console'], regulatoryBoundary: 'El sandbox ejecuta y contabiliza el dominio propio de Cimbra. El envío y settlement de dinero real requiere conexión directa y homologada con bancos, cámaras o sponsors regulados por país.',
   },
   {
-    id: 'instant-payments', name: 'Instant Payments & Transfers', domain: 'payments', availability: 'roadmap', delivery: 'cimbra_native',
-    summary: 'Transferencias inmediatas, alias, QR interoperable, solicitudes de pago y devoluciones.',
-    features: ['external account-to-account rails', 'aliases', 'QR interoperable', 'request to pay', 'returns'],
-    interfaces: ['rest_api', 'webhooks', 'sdk', 'files'], regulatoryBoundary: 'El acceso a Pix, SPEI, Transferencias 3.0 y otros rieles exige membresía, certificación o sponsor local.',
+    id: 'instant-payments', name: 'Instant Payments & Transfers', domain: 'payments', availability: 'sandbox', delivery: 'cimbra_native',
+    summary: 'CVU sandbox, alias tenant-scoped, crédito inmediato, solicitudes de débito internas, QR Cimbra y devoluciones compensatorias.',
+    features: ['sandbox CVU issuance', 'tenant aliases', 'holder confirmation', 'credit push', 'internal debit requests', 'Cimbra QR', 'compensating returns'],
+    interfaces: ['rest_api', 'webhooks', 'sdk', 'console'], regulatoryBoundary: 'El sandbox emite CVU con prefijo 0009999, no asignado por Coelsa, y no consulta el directorio nacional. Transferencias 3.0, DEBIN, QR interoperable y CBU reales exigen membresía, certificación o sponsor local directo. No hay conexión con BIND, Dock, tapi, Pismo, Pomelo ni Wibond.',
   },
   {
     id: 'card-issuing', name: 'Card Issuing', domain: 'cards', availability: 'sandbox', delivery: 'cimbra_native',
@@ -72,10 +72,10 @@ export const PLATFORM_CAPABILITIES: readonly PlatformCapability[] = [
     interfaces: ['rest_api', 'webhooks', 'iso8583', 'files', 'streaming'], regulatoryBoundary: 'Procesamiento conectado a redes requiere PCI DSS, HSM, certificación de esquema y acuerdos de conectividad.',
   },
   {
-    id: 'acquiring', name: 'Acquiring & Acceptance', domain: 'commerce', availability: 'roadmap', delivery: 'cimbra_native',
-    summary: 'Checkout, links, QR, Tap to Phone, POS, preautorizaciones, split y chargebacks.',
-    features: ['checkout y links', 'QR y Tap to Phone', 'POS/TEF', 'preauthorization', 'split payments'],
-    interfaces: ['rest_api', 'webhooks', 'sdk', 'iso8583'], regulatoryBoundary: 'Adquirencia real requiere licencia o sponsor adquirente, certificaciones EMV/PCI y acuerdos con marcas y comercios.',
+    id: 'acquiring', name: 'Acquiring & Collections', domain: 'commerce', availability: 'sandbox', delivery: 'cimbra_native',
+    summary: 'Links de cobro sandbox, eco cerrado entre cuentas Cimbra, inbound ledger y devoluciones compensatorias.',
+    features: ['payment links', 'internal collect', 'sandbox inbound cash-in', 'compensating refunds'],
+    interfaces: ['rest_api', 'webhooks', 'sdk', 'console'], regulatoryBoundary: 'El sandbox cobra entre cuentas Cimbra o simula un inbound sobre el ledger. No procesa tarjetas, POS, Tap to Phone ni QR interoperable. Adquirencia real exige licencia o sponsor, PCI/EMV y acuerdos con marcas. BIND, Dock, tapi, Pismo, Pomelo y Wibond no son conectores.',
   },
   {
     id: 'bill-payments', name: 'Bill Payments, Top-ups & Recurring', domain: 'commerce', availability: 'sandbox', delivery: 'cimbra_native',
@@ -84,9 +84,9 @@ export const PLATFORM_CAPABILITIES: readonly PlatformCapability[] = [
     interfaces: ['rest_api', 'webhooks', 'sdk', 'console'], regulatoryBoundary: 'El sandbox ejecuta el dominio propio de Cimbra, sin consultas simuladas ni dependencia de competidores. La cobertura comercial y el dinero real requieren convenios directos con cada originador, consentimiento exigible y certificación del riel por país.',
   },
   {
-    id: 'wallets', name: 'Wallets & Embedded Finance', domain: 'core', availability: 'foundation', delivery: 'cimbra_native',
-    summary: 'Wallet white-label, saldos, bolsillos y experiencias embebidas configurables.',
-    features: ['white-label wallet', 'balances y pockets', 'program configuration', 'tenant branding'],
+    id: 'wallets', name: 'Wallets & Embedded Finance', domain: 'core', availability: 'sandbox', delivery: 'cimbra_native',
+    summary: 'Programas white-label, wallets por cliente, bolsillos ledger-backed y movimientos internos entre pockets.',
+    features: ['program configuration', 'tenant branding', 'customer wallets', 'ledger-backed pockets', 'pocket transfers', 'freeze and close lifecycle'],
     interfaces: ['rest_api', 'webhooks', 'sdk', 'console'], regulatoryBoundary: 'Una wallet con fondos reales debe operar bajo el marco PSP, entidad financiera o equivalente de cada país.',
   },
   {
