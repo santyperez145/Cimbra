@@ -44,8 +44,8 @@ type TransferRow = {
 
 type QrRow = {
   id: string; accountId: string; accountReference: string; amountMinor: string | null; currency: Currency;
-  description: string; payload: string; status: string; expiresAt: string; paidTransferId: string | null;
-  requestFingerprint: string; createdAt: string; updatedAt: string;
+  description: string; payload: string; kind: 'dynamic' | 'static'; status: string; expiresAt: string | null;
+  paidTransferId: string | null; requestFingerprint: string; createdAt: string; updatedAt: string;
 };
 
 const instrumentSelect = `SELECT ri.id, ri.account_id AS "accountId", a.account_reference AS "accountReference",
@@ -67,7 +67,7 @@ const transferSelect = `SELECT it.id, it.scheme, it.direction, it.source_account
   LEFT JOIN accounts dest ON dest.id = it.destination_account_id`;
 
 const qrSelect = `SELECT q.id, q.account_id AS "accountId", a.account_reference AS "accountReference",
-  q.amount_minor::text AS "amountMinor", q.currency, q.description, q.payload, q.status, q.expires_at AS "expiresAt",
+  q.amount_minor::text AS "amountMinor", q.currency, q.description, q.payload, q.kind, q.status, q.expires_at AS "expiresAt",
   q.paid_transfer_id AS "paidTransferId", q.request_fingerprint AS "requestFingerprint",
   q.created_at AS "createdAt", q.updated_at AS "updatedAt"
   FROM payment_qrs q JOIN accounts a ON a.id = q.account_id`;
@@ -753,7 +753,7 @@ export async function createPaymentQr(input: {
   await assertSandboxLedgerOrCertifiedRail('qr_interoperable', InstantPaymentError);
   const fingerprint = await sha256(JSON.stringify({
     accountId: input.qr.accountId, amountMinor: input.qr.amountMinor?.toString() ?? null,
-    description: input.qr.description, expiresInMinutes: input.qr.expiresInMinutes,
+    description: input.qr.description, expiresInMinutes: input.qr.expiresInMinutes, kind: input.qr.kind,
   }));
   return getDatabaseClient().transaction(async (database) => {
     await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
@@ -768,20 +768,37 @@ export async function createPaymentQr(input: {
     }
     const account = await loadAccount(database, input.organizationId, input.qr.accountId, true);
     assertArsAccount(account);
+    if (input.qr.kind === 'static') {
+      const cvu = await database.prepare(
+        "SELECT id FROM rail_instruments WHERE organization_id = ? AND account_id = ? AND kind = 'cvu' AND status = 'active' LIMIT 1",
+      ).bind(input.organizationId, account.id).first<{ id: string }>();
+      if (!cvu) {
+        throw new InstantPaymentError('El QR estático exige un CVU sandbox activo en la cuenta cobradora.', 422, 'cvu_required');
+      }
+      const activeStatic = await database.prepare(
+        "SELECT id FROM payment_qrs WHERE organization_id = ? AND account_id = ? AND kind = 'static' AND status = 'active' LIMIT 1",
+      ).bind(input.organizationId, account.id).first<{ id: string }>();
+      if (activeStatic) {
+        throw new InstantPaymentError('La cuenta ya tiene un QR estático activo. Cancelalo antes de emitir otro.', 409, 'static_qr_already_active');
+      }
+    }
     const id = crypto.randomUUID();
     const createdAt = new Date().toISOString();
-    const expiresAt = new Date(Date.now() + input.qr.expiresInMinutes * 60_000).toISOString();
-    const payload = `cimbra:qr:v1:${id}`;
+    const expiresAt = input.qr.kind === 'static' || input.qr.expiresInMinutes === null
+      ? null
+      : new Date(Date.now() + input.qr.expiresInMinutes * 60_000).toISOString();
+    const payload = input.qr.kind === 'static' ? `cimbra:qr:static:v1:${id}` : `cimbra:qr:v1:${id}`;
     await database.prepare(`INSERT INTO payment_qrs
       (id, organization_id, idempotency_key, request_fingerprint, account_id, amount_minor, currency, description, payload,
-       status, expires_at, paid_transfer_id, created_by, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'ARS', ?, ?, 'active', ?, NULL, ?, ?, ?)`)
+       kind, status, expires_at, paid_transfer_id, created_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'ARS', ?, ?, ?, 'active', ?, NULL, ?, ?, ?)`)
       .bind(id, input.organizationId, input.idempotencyKey, fingerprint, account.id,
-        input.qr.amountMinor?.toString() ?? null, input.qr.description, payload, expiresAt, input.actor.userId, createdAt, createdAt).run();
+        input.qr.amountMinor?.toString() ?? null, input.qr.description, payload, input.qr.kind, expiresAt,
+        input.actor.userId, createdAt, createdAt).run();
     await insertAudit(database, {
       organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.qr_created',
       resourceType: 'payment_qr', resourceId: id,
-      payload: { accountId: account.id, amountMinor: input.qr.amountMinor?.toString() ?? null, expiresAt },
+      payload: { accountId: account.id, kind: input.qr.kind, amountMinor: input.qr.amountMinor?.toString() ?? null, expiresAt },
     });
     const created = await database.prepare(`${qrSelect} WHERE q.organization_id = ? AND q.id = ? LIMIT 1`)
       .bind(input.organizationId, id).first<QrRow>();
@@ -809,14 +826,15 @@ export async function payPaymentQr(input: {
       return { transfer: serializeTransfer(existing), replayed: true };
     }
     const qr = await database.prepare(
-      `SELECT id, account_id AS "accountId", amount_minor::text AS "amountMinor", description, payload, status, expires_at AS "expiresAt"
+      `SELECT id, account_id AS "accountId", amount_minor::text AS "amountMinor", description, payload, kind, status, expires_at AS "expiresAt"
        FROM payment_qrs WHERE organization_id = ? AND id = ? FOR UPDATE`,
     ).bind(input.organizationId, input.qrId).first<{
-      id: string; accountId: string; amountMinor: string | null; description: string; payload: string; status: string; expiresAt: string;
+      id: string; accountId: string; amountMinor: string | null; description: string; payload: string;
+      kind: 'dynamic' | 'static'; status: string; expiresAt: string | null;
     }>();
     if (!qr) throw new InstantPaymentError('QR no encontrado.', 404, 'payment_qr_not_found');
     if (qr.status !== 'active') throw new InstantPaymentError('El QR ya no está activo.', 409, 'qr_not_active');
-    if (qr.expiresAt <= new Date().toISOString()) {
+    if (qr.kind === 'dynamic' && (!qr.expiresAt || qr.expiresAt <= new Date().toISOString())) {
       await database.prepare("UPDATE payment_qrs SET status = 'expired', updated_at = ? WHERE id = ?")
         .bind(new Date().toISOString(), qr.id).run();
       throw new InstantPaymentError('El QR expiró.', 409, 'qr_expired');
@@ -852,15 +870,49 @@ export async function payPaymentQr(input: {
       status: movement.status, transactionId: movement.transactionId, qrPayload: qr.payload, expiresAt: null,
       actorId: input.actor.userId, createdAt,
     });
-    if (movement.status === 'settled') {
+    if (movement.status === 'settled' && qr.kind === 'dynamic') {
       await database.prepare("UPDATE payment_qrs SET status = 'paid', paid_transfer_id = ?, updated_at = ? WHERE id = ?")
         .bind(id, createdAt, qr.id).run();
     }
     await insertAudit(database, {
       organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.qr_paid',
       resourceType: 'payment_qr', resourceId: qr.id,
-      payload: { transferId: id, status: movement.status, amountMinor: amountMinor.toString() },
+      payload: { transferId: id, status: movement.status, amountMinor: amountMinor.toString(), kind: qr.kind },
     });
     return { transfer: await retrieveInstantTransfer(input.organizationId, id, database), replayed: false };
+  });
+}
+
+export async function cancelPaymentQr(input: {
+  organizationId: string; actor: AuthUser; qrId: string; idempotencyKey: string;
+}) {
+  await assertSandboxLedgerOrCertifiedRail('qr_interoperable', InstantPaymentError);
+  return getDatabaseClient().transaction(async (database) => {
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:payment-qr-cancel:${input.idempotencyKey}`).first();
+    const replay = await database.prepare(`${qrSelect} WHERE q.organization_id = ? AND q.cancel_idempotency_key = ? LIMIT 1`)
+      .bind(input.organizationId, input.idempotencyKey).first<QrRow>();
+    if (replay) {
+      if (replay.id !== input.qrId) {
+        throw new InstantPaymentError('La Idempotency-Key ya fue usada con otro QR.', 409, 'idempotency_mismatch');
+      }
+      return { qr: serializeQr(replay), replayed: true };
+    }
+    const qr = await database.prepare(`${qrSelect} WHERE q.organization_id = ? AND q.id = ? LIMIT 1 FOR UPDATE OF q`)
+      .bind(input.organizationId, input.qrId).first<QrRow>();
+    if (!qr) throw new InstantPaymentError('QR no encontrado.', 404, 'payment_qr_not_found');
+    if (qr.status !== 'active') {
+      throw new InstantPaymentError('Sólo se puede cancelar un QR activo.', 409, 'qr_not_active');
+    }
+    const now = new Date().toISOString();
+    await database.prepare(
+      "UPDATE payment_qrs SET status = 'cancelled', cancel_idempotency_key = ?, updated_at = ? WHERE id = ?",
+    ).bind(input.idempotencyKey, now, qr.id).run();
+    await insertAudit(database, {
+      organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.qr_cancelled',
+      resourceType: 'payment_qr', resourceId: qr.id,
+      payload: { kind: qr.kind, idempotencyKey: input.idempotencyKey },
+    });
+    return { qr: serializeQr({ ...qr, status: 'cancelled', updatedAt: now }), replayed: false };
   });
 }

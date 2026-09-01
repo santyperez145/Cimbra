@@ -183,6 +183,7 @@ test('el SDK cablea CVU, directorio, crédito inmediato, débito interno y QR', 
     if (url.endsWith('/debit-requests')) return Response.json({ ok: true, replayed: false, debit: { id: 'db_1' } }, { status: 201 });
     if (url.endsWith('/respond')) return Response.json({ ok: true, replayed: false, debit: { id: 'db_1', status: 'settled' } }, { status: 201 });
     if (url.endsWith('/payment-qrs')) return Response.json({ ok: true, replayed: false, qr: { id: 'qr_1' } }, { status: 201 });
+    if (url.endsWith('/cancel')) return Response.json({ ok: true, replayed: false, qr: { id: 'qr_1', status: 'cancelled' } }, { status: 201 });
     return Response.json({ ok: true, replayed: false, transfer: { id: 'ip_2' } }, { status: 201 });
   } });
   const issued = await client.railInstruments.issue({ accountId: 'acc_1', alias: 'COMERCIO.SUR' });
@@ -200,6 +201,7 @@ test('el SDK cablea CVU, directorio, crédito inmediato, débito interno y QR', 
   await client.debitRequests.respond(debit.data.debit.id, { decision: 'accept' });
   const qr = await client.paymentQrs.create({ accountId: 'acc_1', description: 'Mostrador', amount: '8.00' });
   await client.paymentQrs.pay(qr.data.qr.id, { sourceAccountId: 'acc_2', externalReference: 'QR-001' });
+  await client.paymentQrs.cancel(qr.data.qr.id);
   assert.deepEqual(calls, [
     'POST https://api.test/api/v1/rail-instruments',
     'PATCH https://api.test/api/v1/rail-instruments/inst_1/alias',
@@ -210,6 +212,7 @@ test('el SDK cablea CVU, directorio, crédito inmediato, débito interno y QR', 
     'POST https://api.test/api/v1/debit-requests/db_1/respond',
     'POST https://api.test/api/v1/payment-qrs',
     'POST https://api.test/api/v1/payment-qrs/qr_1/pay',
+    'POST https://api.test/api/v1/payment-qrs/qr_1/cancel',
   ]);
 });
 

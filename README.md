@@ -9,7 +9,7 @@ La aplicación es un MVP lanzable para venta, discovery e integración. El contr
 Superficies disponibles:
 
 - `/` — propuesta comercial profesional, estado de sesión contextual, prueba técnica, casos de uso, modelo de acceso y captación persistente de leads.
-- `/developers` — portal técnico generado desde OpenAPI con entornos, quickstart ejecutable, auth/RBAC/scopes, errores, rate limits, SDK descargable, webhooks, catálogo de eventos y las 163 operaciones publicadas.
+- `/developers` — portal técnico generado desde OpenAPI con entornos, quickstart ejecutable, auth/RBAC/scopes, errores, rate limits, SDK descargable, webhooks, catálogo de eventos y las 164 operaciones publicadas.
 - `/login` — registro e inicio de sesión propio con usuario/email y contraseña; OAuth Google y Apple se activa al configurar sus credenciales.
 - `/forgot-password`, `/reset-password` y `/verify-email` — ciclo de vida de cuenta con tokens opacos, expiración, uso único y respuestas anti-enumeración.
 - `/console` — consola protegida y consciente del rol; owner/admin administran miembros e invitaciones, operator ejecuta, viewer trabaja en modo lectura y Operaciones unifica ownership, SLA y expedientes de riesgo/conciliación.
@@ -88,7 +88,7 @@ Apple requiere un Services ID asociado a una app habilitada para Sign in with Ap
 - disputas parciales sobre débitos liquidados, ventana explícita, estados inmutables, crédito provisional o definitivo en doble partida y compensación contable si el reclamo se pierde;
 - políticas maker/checker fail-closed para settlement, transferencias, book transfers, lotes de payouts, casos de riesgo, excepciones de conciliación y disputas, con locks concurrentes, revalidación y autorización atómica.
 - wallets por customer con programas tenant, bolsillos mapeados a cuentas de producto, freeze/close y movimientos internos; el sandbox no custodia fondos.
-- pagos instantáneos sandbox para Argentina: CVU 0009999, alias de tenant, confirmación de titular, crédito interno o cash-out a settlement, débito interno, QR Cimbra y devoluciones compensatorias; no hay Coelsa, DEBIN ni QR interoperable.
+- pagos instantáneos sandbox para Argentina: CVU 0009999, alias de tenant, confirmación de titular, crédito interno o cash-out a settlement, débito interno, QR Cimbra dinámico y estático (payload propio, no interoperable) y devoluciones compensatorias; no hay Coelsa, DEBIN ni QR interoperable.
 - work queue multitenant para casos de riesgo, excepciones y disputas, con responsable, prioridad, SLA, escalamiento, comentarios inmutables y vínculos a evidencia privada.
 
 ## Garantías de integración

@@ -237,7 +237,21 @@ await cimbra.instantTransfers.create({
 await cimbra.railInstruments.revoke(issued.data.instruments[0].id);
 ```
 
-El CVU usa prefijo `000` y código PSP `9999` de Cimbra, no un código Coelsa. El alias vive en el tenant: se asigna o cambia sobre un CVU existente, con un cambio real cada 24 horas. Eliminar el CVU no borra la cuenta ni el saldo. Un débito o QR externo no está soportado.
+El CVU usa prefijo `000` y código PSP `9999` de Cimbra, no un código Coelsa. El alias vive en el tenant: se asigna o cambia sobre un CVU existente, con un cambio real cada 24 horas. Eliminar el CVU no borra la cuenta ni el saldo. Un débito externo no está soportado. El QR dinámico `cimbra:qr:v1` se consume en un pago; el estático `cimbra:qr:static:v1` es reutilizable hasta cancelarlo.
+
+```ts
+const staticQr = await cimbra.paymentQrs.create({
+  accountId: '00000000-0000-4000-8000-000000000001',
+  description: 'Mostrador',
+  kind: 'static',
+});
+await cimbra.paymentQrs.pay(staticQr.data.qr.id, {
+  sourceAccountId: '00000000-0000-4000-8000-000000000002',
+  externalReference: 'QR-001',
+  amount: '1500.00',
+});
+await cimbra.paymentQrs.cancel(staticQr.data.qr.id);
+```
 
 ## Cobranzas sandbox (Argentina)
 

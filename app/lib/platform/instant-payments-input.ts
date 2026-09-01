@@ -106,19 +106,25 @@ export function normalizeDebitResponse(value: unknown) {
 export function normalizePaymentQrInput(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const body = value as Record<string, unknown>;
-  if (!hasOnlyKeys(body, ['accountId', 'amount', 'currency', 'description', 'expiresInMinutes'])) return null;
+  if (!hasOnlyKeys(body, ['accountId', 'amount', 'currency', 'description', 'expiresInMinutes', 'kind'])) return null;
   const accountId = typeof body.accountId === 'string' ? body.accountId : '';
   const description = collapsed(body.description, 2, 180);
   const currency = body.currency === undefined || body.currency === null || body.currency === '' ? 'ARS' : normalizeCurrency(body.currency);
+  const kind = body.kind === 'static' ? 'static' : body.kind === 'dynamic' || body.kind === undefined ? 'dynamic' : null;
+  if (!uuid.test(accountId) || !description || currency !== 'ARS' || !kind) return null;
+  if (kind === 'static') {
+    if (body.amount !== undefined && body.amount !== null && body.amount !== '') return null;
+    if (body.expiresInMinutes !== undefined && body.expiresInMinutes !== null && body.expiresInMinutes !== '') return null;
+    return { accountId, description, amountMinor: null, currency: currency as Currency, kind, expiresInMinutes: null };
+  }
   const expiresInMinutes = body.expiresInMinutes === undefined ? 60 : Number(body.expiresInMinutes);
-  if (!uuid.test(accountId) || !description || currency !== 'ARS'
-    || !Number.isInteger(expiresInMinutes) || expiresInMinutes < 5 || expiresInMinutes > 1440) return null;
+  if (!Number.isInteger(expiresInMinutes) || expiresInMinutes < 5 || expiresInMinutes > 1440) return null;
   let amountMinor: bigint | null = null;
   if (body.amount !== undefined && body.amount !== null && body.amount !== '') {
     try { amountMinor = majorToMinor(body.amount, currency); } catch { return null; }
     if (amountMinor <= 0n || amountMinor > majorToMinor('10000000', currency)) return null;
   }
-  return { accountId, description, amountMinor, currency: currency as Currency, expiresInMinutes };
+  return { accountId, description, amountMinor, currency: currency as Currency, kind, expiresInMinutes };
 }
 
 export function normalizeQrPayInput(value: unknown) {

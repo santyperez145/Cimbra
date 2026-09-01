@@ -664,11 +664,57 @@ try {
     body: JSON.stringify({ accountId: account.id, description: 'Mostrador QA', amount: '6.00', currency: 'ARS' }),
   }), 201);
   assert.match(qrCreated.qr.payload, /^cimbra:qr:v1:/);
+  assert.equal(qrCreated.qr.kind, 'dynamic');
   const qrPaid = await json(await request(`/api/v1/payment-qrs/${qrCreated.qr.id}/pay`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-qr-pay-${runId}` },
     body: JSON.stringify({ sourceAccountId: destinationAccount.id, externalReference: `QR-${runId}` }),
   }), 201);
   assert.equal(qrPaid.transfer.scheme, 'qr_collect'); assert.equal(qrPaid.transfer.status, 'settled');
+  const staticQr = await json(await request('/api/v1/payment-qrs', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-qr-static-${runId}` },
+    body: JSON.stringify({ accountId: account.id, description: 'Caja QA', kind: 'static' }),
+  }), 201);
+  assert.match(staticQr.qr.payload, /^cimbra:qr:static:v1:/);
+  assert.equal(staticQr.qr.kind, 'static');
+  assert.equal(staticQr.qr.expiresAt, null);
+  assert.equal(staticQr.qr.status, 'active');
+  const staticPayOne = await json(await request(`/api/v1/payment-qrs/${staticQr.qr.id}/pay`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-qr-static-pay-1-${runId}` },
+    body: JSON.stringify({ sourceAccountId: destinationAccount.id, externalReference: `QR-ST-1-${runId}`, amount: '3.00' }),
+  }), 201);
+  assert.equal(staticPayOne.transfer.status, 'settled');
+  const listedAfterPay = await json(await request('/api/v1/payment-qrs?limit=50'), 200);
+  assert.equal(listedAfterPay.data.find((item) => item.id === staticQr.qr.id).status, 'active');
+  const staticPayTwo = await json(await request(`/api/v1/payment-qrs/${staticQr.qr.id}/pay`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-qr-static-pay-2-${runId}` },
+    body: JSON.stringify({ sourceAccountId: destinationAccount.id, externalReference: `QR-ST-2-${runId}`, amount: '4.00' }),
+  }), 201);
+  assert.equal(staticPayTwo.transfer.status, 'settled');
+  const duplicateStatic = await json(await request('/api/v1/payment-qrs', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-qr-static-dup-${runId}` },
+    body: JSON.stringify({ accountId: account.id, description: 'Caja duplicada', kind: 'static' }),
+  }), 409);
+  assert.equal(duplicateStatic.error.code, 'static_qr_already_active');
+  const cancelKey = `qa-qr-cancel-${runId}`;
+  const cancelled = await json(await request(`/api/v1/payment-qrs/${staticQr.qr.id}/cancel`, {
+    method: 'POST', headers: { 'Idempotency-Key': cancelKey },
+  }), 201);
+  assert.equal(cancelled.qr.status, 'cancelled');
+  assert.equal(cancelled.replayed, false);
+  const cancelledReplay = await json(await request(`/api/v1/payment-qrs/${staticQr.qr.id}/cancel`, {
+    method: 'POST', headers: { 'Idempotency-Key': cancelKey },
+  }), 200);
+  assert.equal(cancelledReplay.replayed, true);
+  const payCancelled = await json(await request(`/api/v1/payment-qrs/${staticQr.qr.id}/pay`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-qr-static-pay-dead-${runId}` },
+    body: JSON.stringify({ sourceAccountId: destinationAccount.id, externalReference: `QR-ST-DEAD-${runId}`, amount: '1.00' }),
+  }), 409);
+  assert.equal(payCancelled.error.code, 'qr_not_active');
+  const staticAgain = await json(await request('/api/v1/payment-qrs', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-qr-static-2-${runId}` },
+    body: JSON.stringify({ accountId: account.id, description: 'Caja reemplazo', kind: 'static' }),
+  }), 201);
+  assert.equal(staticAgain.qr.status, 'active');
   const returned = await json(await request(`/api/v1/instant-transfers/${outbound.transfer.id}/return`, {
     method: 'POST', headers: { 'Idempotency-Key': `qa-ip-return-${runId}` },
   }), 201);

@@ -285,8 +285,9 @@ export type InstantTransfer = {
 };
 export type PaymentQr = {
   id: string; accountId: string; accountReference: string; amountMinor: string | null; amount: number | null;
-  currency: 'ARS'; description: string; payload: string; status: 'active' | 'paid' | 'expired' | 'cancelled';
-  expiresAt: string; paidTransferId: string | null; createdAt: string; updatedAt: string;
+  currency: 'ARS'; description: string; payload: string; kind: 'dynamic' | 'static';
+  status: 'active' | 'paid' | 'expired' | 'cancelled';
+  expiresAt: string | null; paidTransferId: string | null; createdAt: string; updatedAt: string;
 };
 export type CollectionMethod = 'internal' | 'sandbox_inbound';
 export type PaymentLink = {
@@ -429,7 +430,7 @@ export type CreateDebitRequestInput = {
   amount: string; currency: 'ARS'; expiresInMinutes?: number;
 };
 export type CreatePaymentQrInput = {
-  accountId: string; description: string; amount?: string; currency?: 'ARS'; expiresInMinutes?: number;
+  accountId: string; description: string; kind?: 'dynamic' | 'static'; amount?: string; currency?: 'ARS'; expiresInMinutes?: number;
 };
 export type PayPaymentQrInput = { sourceAccountId: string; externalReference: string; amount?: string; signals?: RiskSignalsInput };
 export type CreatePaymentLinkInput = {

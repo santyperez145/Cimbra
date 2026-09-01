@@ -17,7 +17,7 @@ type Transfer = {
 };
 type PaymentQr = {
   id: string; accountReference: string; amount: number | null; currency: string; description: string;
-  payload: string; status: string; expiresAt: string; createdAt: string;
+  payload: string; kind: 'dynamic' | 'static'; status: string; expiresAt: string | null; createdAt: string;
 };
 type DirectoryPreview = {
   found: boolean; kind: string; last4: string; holderName: string | null; taxIdLast4: string | null; rail: string;
@@ -49,6 +49,7 @@ export default function InstantPaymentsPanel({ role, accounts }: { role: Organiz
   const [preview, setPreview] = useState<DirectoryPreview | null>(null);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState('');
+  const [qrKind, setQrKind] = useState<'dynamic' | 'static'>('dynamic');
   const canOperate = roleCan(role, 'finance.write');
   const arsAccounts = accounts.filter((account) => account.currency === 'ARS' && account.status === 'active');
 
@@ -183,12 +184,18 @@ export default function InstantPaymentsPanel({ role, accounts }: { role: Organiz
     event.preventDefault(); const formElement = event.currentTarget; const form = new FormData(formElement);
     setBusy(true); setFeedback('');
     const amount = String(form.get('amount') ?? '').trim();
+    const kind = String(form.get('kind') ?? 'dynamic') === 'static' ? 'static' : 'dynamic';
     const response = await authenticatedFetch('/api/v1/payment-qrs', {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
-      body: JSON.stringify({ accountId: form.get('accountId'), description: form.get('description'), amount: amount || undefined, currency: 'ARS' }),
+      body: JSON.stringify({
+        accountId: form.get('accountId'), description: form.get('description'), kind, currency: 'ARS',
+        amount: kind === 'dynamic' && amount ? amount : undefined,
+      }),
     });
     const result = await response.json() as unknown;
-    setFeedback(response.ok ? 'QR Cimbra creado. No es el QR interoperable argentino.' : apiError(result, 'No pudimos crear el QR.'));
+    setFeedback(response.ok
+      ? (kind === 'static' ? 'QR estático Cimbra creado. Reutilizable, sin vencimiento. No es EMVCo ni Transferencias 3.0.' : 'QR Cimbra creado. No es el QR interoperable argentino.')
+      : apiError(result, 'No pudimos crear el QR.'));
     if (response.ok) { formElement.reset(); await load(); }
     setBusy(false);
   }
@@ -205,6 +212,18 @@ export default function InstantPaymentsPanel({ role, accounts }: { role: Organiz
     const result = await response.json() as unknown;
     setFeedback(response.ok ? 'QR cobrado entre cuentas del tenant.' : apiError(result, 'No pudimos cobrar el QR.'));
     if (response.ok) { formElement.reset(); await load(); }
+    setBusy(false);
+  }
+
+  async function cancelQr(id: string) {
+    if (!window.confirm('El QR dejará de cobrar. Los pagos ya liquidados no se revierten. ¿Continuar?')) return;
+    setBusy(true); setFeedback('');
+    const response = await authenticatedFetch(`/api/v1/payment-qrs/${id}/cancel`, {
+      method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() },
+    });
+    const result = await response.json() as unknown;
+    setFeedback(response.ok ? 'QR cancelado.' : apiError(result, 'No pudimos cancelar el QR.'));
+    if (response.ok) await load();
     setBusy(false);
   }
 
@@ -284,12 +303,13 @@ export default function InstantPaymentsPanel({ role, accounts }: { role: Organiz
           <button className="app-primary" disabled={busy}>Solicitar débito</button>
         </form>
       </article>
-      <article className="integration-card"><div className="card-head"><div><h2>QR Cimbra</h2><p>Payload propio, cobro interno</p></div></div>
+      <article className="integration-card"><div className="card-head"><div><h2>QR Cimbra</h2><p>Payload propio. El estático es reutilizable y exige CVU activo</p></div></div>
         <form className="book-statement-body" onSubmit={createQr}>
-          <label>Cuenta cobradora<select name="accountId" required defaultValue=""><option value="" disabled>Seleccionar</option>{arsAccounts.map((account) => <option key={account.id} value={account.id}>{account.accountReference}</option>)}</select></label>
+          <label>Cuenta cobradora<select name="accountId" required defaultValue=""><option value="" disabled>Seleccionar</option>{(qrKind === 'static' ? arsAccounts.filter((account) => instruments.some((item) => item.kind === 'cvu' && item.status === 'active' && item.accountId === account.id)) : arsAccounts).map((account) => <option key={account.id} value={account.id}>{account.accountReference}</option>)}</select></label>
+          <label>Tipo<select name="kind" value={qrKind} onChange={(event) => setQrKind(event.target.value === 'static' ? 'static' : 'dynamic')}><option value="dynamic">Dinámico · un pago</option><option value="static">Estático · reutilizable</option></select></label>
           <label>Concepto<input name="description" required minLength={2} maxLength={180} /></label>
-          <label>Monto opcional<input name="amount" type="number" min="0.01" step="0.01" /></label>
-          <button className="app-primary" disabled={busy}>Crear QR</button>
+          {qrKind === 'dynamic' && <label>Monto opcional<input name="amount" type="number" min="0.01" step="0.01" /></label>}
+          <button className="app-primary" disabled={busy}>{busy ? 'Creando…' : 'Crear QR'}</button>
         </form>
       </article>
     </div>}
@@ -297,7 +317,7 @@ export default function InstantPaymentsPanel({ role, accounts }: { role: Organiz
     {canOperate && qrs.some((item) => item.status === 'active') && <article className="integration-card">
       <div className="card-head"><div><h2>Cobrar QR</h2><p>Desde otra cuenta del tenant</p></div></div>
       <form className="book-statement-body" onSubmit={payQr}>
-        <label>QR<select name="qrId" required>{qrs.filter((item) => item.status === 'active').map((item) => <option key={item.id} value={item.id}>{item.payload} · {item.amount === null ? 'abierto' : money(item.amount)}</option>)}</select></label>
+        <label>QR<select name="qrId" required>{qrs.filter((item) => item.status === 'active').map((item) => <option key={item.id} value={item.id}>{item.kind === 'static' ? 'Estático' : 'Dinámico'} · {item.payload} · {item.amount === null ? 'abierto' : money(item.amount)}</option>)}</select></label>
         <label>Cuenta pagadora<select name="sourceAccountId" required defaultValue=""><option value="" disabled>Seleccionar</option>{arsAccounts.map((account) => <option key={account.id} value={account.id}>{account.accountReference}</option>)}</select></label>
         <label>Referencia<input name="externalReference" required minLength={2} maxLength={100} /></label>
         <label>Monto si es abierto<input name="amount" type="number" min="0.01" step="0.01" /></label>
@@ -315,6 +335,12 @@ export default function InstantPaymentsPanel({ role, accounts }: { role: Organiz
       <div className="card-head"><div><h2>Transferencias</h2><p>Crédito, débito interno y QR</p></div></div>
       {transfers.length === 0 ? <div className="table-empty">Sin transferencias instantáneas.</div>
         : transfers.map((item) => <div key={item.id}><span className="movement"><i>↔</i><b>{item.scheme} · {item.direction}<small>{item.description} · {item.counterpartyKind} …{item.counterpartyLast4} · {STATUS_LABELS[item.status] ?? item.status}</small></b></span><strong>{money(item.amount, item.currency)}</strong>{canOperate && item.status === 'settled' && <button type="button" className="danger-link" disabled={busy} onClick={() => returnTransfer(item.id)}>Devolver</button>}</div>)}
+    </article>
+
+    <article className="module-list">
+      <div className="card-head"><div><h2>QR Cimbra</h2><p>Dinámico un pago · estático reutilizable</p></div></div>
+      {qrs.length === 0 ? <div className="table-empty">Sin QR emitidos.</div>
+        : qrs.map((item) => <div key={item.id}><span className="movement"><i>▣</i><b>{item.kind === 'static' ? 'Estático' : 'Dinámico'} · {item.payload}<small>{item.accountReference} · {item.amount === null ? 'monto abierto' : money(item.amount, item.currency)} · {STATUS_LABELS[item.status] ?? item.status}</small></b></span>{canOperate && item.status === 'active' && <button type="button" className="danger-link" disabled={busy} onClick={() => cancelQr(item.id)}>Cancelar QR</button>}</div>)}
     </article>
 
     <article className="module-list">

@@ -1128,17 +1128,24 @@ export const paymentQrs = pgTable('payment_qrs', {
   accountId: text('account_id').notNull().references(() => accounts.id, { onDelete: 'restrict' }),
   amountMinor: bigint('amount_minor', { mode: 'bigint' }), currency: text('currency').notNull(),
   description: text('description').notNull(), payload: text('payload').notNull(),
-  status: text('status').notNull().default('active'), expiresAt: text('expires_at').notNull(),
+  kind: text('kind').notNull().default('dynamic'),
+  status: text('status').notNull().default('active'), expiresAt: text('expires_at'),
   paidTransferId: text('paid_transfer_id').references(() => instantTransfers.id, { onDelete: 'restrict' }),
+  cancelIdempotencyKey: text('cancel_idempotency_key'),
   createdBy: text('created_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
   createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
 }, (table) => [
   uniqueIndex('idx_payment_qrs_org_idempotency').on(table.organizationId, table.idempotencyKey),
   uniqueIndex('idx_payment_qrs_payload').on(table.payload),
+  uniqueIndex('idx_payment_qrs_account_active_static').on(table.accountId).where(sql`${table.kind} = 'static' AND ${table.status} = 'active'`),
+  uniqueIndex('idx_payment_qrs_org_cancel_idempotency').on(table.organizationId, table.cancelIdempotencyKey).where(sql`${table.cancelIdempotencyKey} IS NOT NULL`),
   index('idx_payment_qrs_org_created').on(table.organizationId, table.createdAt),
   check('payment_qrs_currency', sql`${table.currency} = 'ARS'`),
+  check('payment_qrs_kind', sql`${table.kind} IN ('dynamic', 'static')`),
   check('payment_qrs_status', sql`${table.status} IN ('active', 'paid', 'expired', 'cancelled')`),
   check('payment_qrs_amount_positive', sql`${table.amountMinor} IS NULL OR ${table.amountMinor} > 0`),
+  check('payment_qrs_static_open', sql`${table.kind} <> 'static' OR ${table.amountMinor} IS NULL`),
+  check('payment_qrs_expires_shape', sql`(${table.kind} = 'static' AND ${table.expiresAt} IS NULL) OR (${table.kind} = 'dynamic' AND ${table.expiresAt} IS NOT NULL)`),
 ]);
 
 export const paymentLinks = pgTable('payment_links', {

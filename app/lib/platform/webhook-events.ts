@@ -32,6 +32,7 @@ export const WEBHOOK_EVENT_TYPES = [
   'instant.debit_rejected',
   'instant.qr_created',
   'instant.qr_paid',
+  'instant.qr_cancelled',
   'collection.link_created',
   'collection.link_cancelled',
   'collection.link_paid',

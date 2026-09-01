@@ -326,6 +326,9 @@ export class Cimbra {
     pay: (id: string, input: PayPaymentQrInput, options?: RequestOptions) =>
       this.post<{ ok: true; transfer: InstantTransfer; replayed: boolean }>(
         `/api/v1/payment-qrs/${encodeURIComponent(id)}/pay`, input, options, true),
+    cancel: (id: string, options?: RequestOptions) =>
+      this.post<{ ok: true; qr: PaymentQr; replayed: boolean }>(
+        `/api/v1/payment-qrs/${encodeURIComponent(id)}/cancel`, undefined, options, true),
   };
 
   readonly paymentLinks = {

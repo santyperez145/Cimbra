@@ -29,6 +29,11 @@ const errorResponses = [
 const changelog = [
   {
     date: '01 SEP 2026',
+    title: 'QR estático Cimbra, reutilizable y sin riel ajeno',
+    detail: 'POST /api/v1/payment-qrs con kind=static emite cimbra:qr:static:v1. Exige un CVU sandbox activo, no vence, cobra monto abierto las veces que haga falta y admite un estático activo por cuenta. POST /api/v1/payment-qrs/{id}/cancel deja de cobrar. No es EMVCo, Transferencias 3.0 ni caja BIND.',
+  },
+  {
+    date: '01 SEP 2026',
     title: 'Eliminar CVU sandbox sin tocar la cuenta',
     detail: 'DELETE /api/v1/rail-instruments/{id} deja el CVU y su alias inoperables. La cuenta ARS y el saldo permanecen. Un POST posterior de emisión reactiva el mismo CVU sandbox. No es una baja en Coelsa.',
   },
@@ -55,7 +60,7 @@ const changelog = [
   {
     date: '01 SEP 2026',
     title: 'Pagos instantáneos sandbox para Argentina',
-    detail: 'Emisión de CVU 0009999, alias tenant-scoped, confirmación de titular, crédito interno o cash-out a settlement, débito interno, QR Cimbra y devoluciones compensatorias. No es Coelsa, DEBIN ni QR interoperable.',
+    detail: 'Emisión de CVU 0009999, alias tenant-scoped, confirmación de titular, crédito interno o cash-out a settlement, débito interno, QR Cimbra dinámico y estático y devoluciones compensatorias. No es Coelsa, DEBIN ni QR interoperable.',
   },
   {
     date: '01 SEP 2026',
@@ -356,6 +361,11 @@ const credit = await cimbra.instantTransfers.create({
   confirmHolder: true,
   holderName: preview.data.holderName!,
   taxIdLast4: preview.data.taxIdLast4!,
+});
+const staticQr = await cimbra.paymentQrs.create({
+  accountId: '<account_uuid>',
+  description: 'Mostrador',
+  kind: 'static',
 });`;
   const collectionsExample = `const link = await cimbra.paymentLinks.create({
   accountId: '<merchant_account_uuid>',
@@ -562,7 +572,7 @@ await cimbra.paymentLinks.pay(link.data.link.id, {
         <div className="webhook-contract-grid">
           <article><strong>Instrumentos</strong><p>Un CVU por cuenta ARS argentina. El alias se asigna o cambia sobre ese CVU; es único en el tenant y un cambio real queda bloqueado 24 horas. Eliminar el CVU no borra la cuenta ni el saldo. No se emite CBU porque Cimbra no es banco.</p></article>
           <article><strong>Confirmación</strong><p>El crédito exige <code>confirmHolder</code>, nombre y últimos cuatro del CUIT. Un mismatch interno responde <code>422 holder_mismatch</code>.</p></article>
-          <article><strong>Débito y QR</strong><p>El débito externo responde <code>external_debit_not_supported</code>. El payload <code>cimbra:qr:v1</code> no es el QR interoperable.</p></article>
+          <article><strong>Débito y QR</strong><p>El débito externo responde <code>external_debit_not_supported</code>. El dinámico <code>cimbra:qr:v1</code> vence y se consume; el estático <code>cimbra:qr:static:v1</code> es reutilizable, exige CVU y no es el QR interoperable.</p></article>
           <article><strong>Límite real</strong><p>Transferencias 3.0, DEBIN y directorio nacional entran con membresía o sponsor directo. BIND y el resto siguen como benchmarks, no conectores.</p></article>
         </div>
         <CodeBlock language="TYPESCRIPT · SDK REAL" value={instantExample} />

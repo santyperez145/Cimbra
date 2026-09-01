@@ -931,7 +931,7 @@ paths:
     post:
       operationId: createPaymentQr
       summary: Create a Cimbra-owned QR payload for an account
-      description: Payload format cimbra:qr:v1 is not the Argentine interoperable QR. Payment is tenant-internal.
+      description: Dynamic payloads use cimbra:qr:v1 and expire after one payment. Static payloads use cimbra:qr:static:v1, require an active sandbox CVU, stay open-amount and reusable until cancelled, and allow one active static QR per account. Neither payload is the Argentine interoperable QR.
       security: [{ session: [] }, { bearerApiKey: [] }]
       parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody:
@@ -944,6 +944,7 @@ paths:
               required: [accountId, description]
               properties:
                 accountId: { type: string, format: uuid }
+                kind: { type: string, enum: [dynamic, static], default: dynamic }
                 amount:
                   oneOf:
                     - { type: string, pattern: '^\d+(?:\.\d+)?$' }
@@ -954,8 +955,10 @@ paths:
       responses:
         '201': { description: QR created }
         '200': { description: Idempotent replay }
-        '400': { description: Invalid payload }
+        '400': { description: Invalid payload or static QR with amount or expiry }
         '403': { description: Missing transfers:write scope or finance.write permission }
+        '409': { description: Account already has an active static QR }
+        '422': { description: Static QR requires an active sandbox CVU }
   /api/v1/payment-qrs/{id}/pay:
     post:
       operationId: payPaymentQr
@@ -988,6 +991,21 @@ paths:
         '404': { description: QR not found }
         '409': { description: QR inactive or expired }
         '422': { description: Amount mismatch, insufficient funds or risk decline }
+  /api/v1/payment-qrs/{id}/cancel:
+    post:
+      operationId: cancelPaymentQr
+      summary: Cancel an active Cimbra QR so it can no longer be paid
+      description: Stops a reusable static QR or an unused dynamic QR. Does not reverse settled payments. Not a Coelsa or competitor caja command.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '201': { description: QR cancelled }
+        '200': { description: Idempotent replay }
+        '403': { description: Missing transfers:write scope or finance.write permission }
+        '404': { description: QR not found }
+        '409': { description: QR is not active }
   /api/v1/payment-links:
     get:
       operationId: listPaymentLinks
@@ -3563,7 +3581,7 @@ components:
         updatedAt: { type: string, format: date-time }
     PaymentQr:
       type: object
-      required: [id, accountId, accountReference, amountMinor, amount, currency, description, payload, status, expiresAt, paidTransferId, createdAt, updatedAt]
+      required: [id, accountId, accountReference, amountMinor, amount, currency, description, payload, kind, status, expiresAt, paidTransferId, createdAt, updatedAt]
       additionalProperties: false
       properties:
         id: { type: string, format: uuid }
@@ -3574,8 +3592,9 @@ components:
         currency: { type: string, enum: [ARS] }
         description: { type: string }
         payload: { type: string }
+        kind: { type: string, enum: [dynamic, static] }
         status: { type: string, enum: [active, paid, expired, cancelled] }
-        expiresAt: { type: string, format: date-time }
+        expiresAt: { type: [string, 'null'], format: date-time }
         paidTransferId: { type: [string, 'null'], format: uuid }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }

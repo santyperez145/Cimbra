@@ -321,7 +321,11 @@ test('pagos instantáneos validan CBU/CVU, alias, titular y límites de riel san
   });
   assert.ok(debit); assert.equal(debit.expiresInMinutes, 60);
   const qr = normalizePaymentQrInput({ accountId, description: 'Cobro mostrador', currency: 'ARS' });
-  assert.ok(qr); assert.equal(qr.amountMinor, null);
+  assert.ok(qr); assert.equal(qr.amountMinor, null); assert.equal(qr.kind, 'dynamic'); assert.equal(qr.expiresInMinutes, 60);
+  const staticQr = normalizePaymentQrInput({ accountId, description: 'Caja mostrador', kind: 'static' });
+  assert.ok(staticQr); assert.equal(staticQr.kind, 'static'); assert.equal(staticQr.expiresInMinutes, null); assert.equal(staticQr.amountMinor, null);
+  assert.equal(normalizePaymentQrInput({ accountId, description: 'Caja', kind: 'static', amount: '10.00' }), null);
+  assert.equal(normalizePaymentQrInput({ accountId, description: 'Caja', kind: 'static', expiresInMinutes: 60 }), null);
 });
 
 test('cobranzas validan links de cobro, medios sandbox y rechazan adquirencia de red', () => {
