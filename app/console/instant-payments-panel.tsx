@@ -26,6 +26,7 @@ type DirectoryPreview = {
 const STATUS_LABELS: Record<string, string> = {
   pending: 'Pendiente', accepted: 'Aceptada', rejected: 'Rechazada', settled: 'Liquidada',
   returned: 'Devuelta', expired: 'Expirada', cancelled: 'Cancelada', active: 'Activo', paid: 'Pagado',
+  revoked: 'Eliminado',
 };
 
 function apiError(value: unknown, fallback: string) {
@@ -106,6 +107,20 @@ export default function InstantPaymentsPanel({ role, accounts }: { role: Organiz
       ? 'Alias asignado en este tenant. No es un alias Coelsa; un cambio real queda bloqueado 24 horas.'
       : apiError(result, 'No pudimos asignar el alias.'));
     if (response.ok) { formElement.reset(); await load(); }
+    setBusy(false);
+  }
+
+  async function revokeCvu(id: string) {
+    if (!window.confirm('Eliminar el CVU no borra la cuenta ni el saldo. ¿Continuar?')) return;
+    setBusy(true); setFeedback('');
+    const response = await authenticatedFetch(`/api/v1/rail-instruments/${id}`, {
+      method: 'DELETE', headers: { 'Idempotency-Key': crypto.randomUUID() },
+    });
+    const result = await response.json() as unknown;
+    setFeedback(response.ok
+      ? 'CVU sandbox eliminado. La cuenta ARS y el saldo siguen; se puede volver a emitir el mismo CVU.'
+      : apiError(result, 'No pudimos eliminar el CVU.'));
+    if (response.ok) await load();
     setBusy(false);
   }
 
@@ -224,10 +239,10 @@ export default function InstantPaymentsPanel({ role, accounts }: { role: Organiz
           <button className="app-primary" disabled={busy || arsAccounts.length === 0}>{busy ? 'Emitiendo…' : 'Emitir CVU'}</button>
         </form>
       </article>}
-      {canOperate && instruments.some((item) => item.kind === 'cvu') && <article className="integration-card"><div className="card-head"><div><h2>Asignar o cambiar alias</h2><p>CVU existente · un cambio cada 24 h · unicidad del tenant</p></div></div>
+      {canOperate && instruments.some((item) => item.kind === 'cvu' && item.status === 'active') && <article className="integration-card"><div className="card-head"><div><h2>Asignar o cambiar alias</h2><p>CVU existente · un cambio cada 24 h · unicidad del tenant</p></div></div>
         <form className="book-statement-body" onSubmit={assignAlias}>
-          <label>CVU<select name="instrumentId" required defaultValue=""><option value="" disabled>Seleccionar</option>{instruments.filter((item) => item.kind === 'cvu').map((item) => {
-            const alias = instruments.find((candidate) => candidate.kind === 'alias' && candidate.accountId === item.accountId);
+          <label>CVU<select name="instrumentId" required defaultValue=""><option value="" disabled>Seleccionar</option>{instruments.filter((item) => item.kind === 'cvu' && item.status === 'active').map((item) => {
+            const alias = instruments.find((candidate) => candidate.kind === 'alias' && candidate.accountId === item.accountId && candidate.status === 'active');
             return <option key={item.id} value={item.id}>{item.value} · {alias ? alias.value : 'sin alias'}</option>;
           })}</select></label>
           <label>Alias<input name="alias" required minLength={6} maxLength={20} placeholder="COMERCIO.OESTE" /></label>
@@ -293,7 +308,7 @@ export default function InstantPaymentsPanel({ role, accounts }: { role: Organiz
     <article className="module-list">
       <div className="card-head"><div><h2>Instrumentos</h2><p>CVU y alias del tenant</p></div></div>
       {instruments.length === 0 ? <div className="table-empty">Sin CVU ni alias emitidos.</div>
-        : instruments.map((item) => <div key={item.id}><span className="movement"><i>▣</i><b>{item.kind.toUpperCase()} {item.value}<small>{item.accountReference} · {item.holderName} · …{item.taxIdLast4}</small></b></span></div>)}
+        : instruments.map((item) => <div key={item.id}><span className="movement"><i>▣</i><b>{item.kind.toUpperCase()} {item.value}<small>{item.accountReference} · {item.holderName} · …{item.taxIdLast4} · {STATUS_LABELS[item.status] ?? item.status}</small></b></span>{canOperate && item.kind === 'cvu' && item.status === 'active' && <button type="button" className="danger-link" disabled={busy} onClick={() => revokeCvu(item.id)}>Eliminar CVU</button>}</div>)}
     </article>
 
     <article className="module-list">

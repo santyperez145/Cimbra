@@ -178,43 +178,63 @@ export async function issueRailInstruments(input: {
     if (account.country !== 'AR') {
       throw new InstantPaymentError('El CVU sandbox sólo se emite para cuentas argentinas.', 409, 'country_mismatch');
     }
-    const duplicateCvu = await database.prepare(
-      "SELECT id FROM rail_instruments WHERE organization_id = ? AND account_id = ? AND kind = 'cvu' LIMIT 1",
-    ).bind(input.organizationId, account.id).first<{ id: string }>();
-    if (duplicateCvu) throw new InstantPaymentError('La cuenta ya tiene un CVU sandbox.', 409, 'cvu_already_issued');
+    const existingCvu = await database.prepare(`${instrumentSelect} WHERE ri.organization_id = ? AND ri.account_id = ? AND ri.kind = 'cvu' LIMIT 1 FOR UPDATE OF ri`)
+      .bind(input.organizationId, account.id).first<InstrumentRow>();
+    if (existingCvu && existingCvu.status === 'active') {
+      throw new InstantPaymentError('La cuenta ya tiene un CVU sandbox.', 409, 'cvu_already_issued');
+    }
     if (input.instrument.alias) {
       const taken = await database.prepare(
-        "SELECT id FROM rail_instruments WHERE organization_id = ? AND value = ? LIMIT 1",
-      ).bind(input.organizationId, input.instrument.alias).first<{ id: string }>();
+        "SELECT id FROM rail_instruments WHERE organization_id = ? AND value = ? AND account_id <> ? LIMIT 1",
+      ).bind(input.organizationId, input.instrument.alias, account.id).first<{ id: string }>();
       if (taken) throw new InstantPaymentError('El alias ya está asignado en este tenant.', 409, 'alias_conflict');
     }
     const cvu = issueSandboxCvu(account.id);
     const createdAt = new Date().toISOString();
-    const cvuId = crypto.randomUUID();
-    await database.prepare(`INSERT INTO rail_instruments
-      (id, organization_id, account_id, idempotency_key, request_fingerprint, kind, value, holder_name, tax_id_last4, status, created_by, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, 'cvu', ?, ?, ?, 'active', ?, ?, ?)`).bind(
-      cvuId, input.organizationId, account.id, input.idempotencyKey, requestFingerprint, cvu,
-      account.customerName, account.taxIdLast4, input.actor.userId, createdAt, createdAt,
-    ).run();
+    const cvuId = existingCvu?.id ?? crypto.randomUUID();
+    if (existingCvu) {
+      await database.prepare(`UPDATE rail_instruments
+        SET idempotency_key = ?, request_fingerprint = ?, status = 'active', revoke_idempotency_key = NULL, updated_at = ?
+        WHERE id = ?`).bind(input.idempotencyKey, requestFingerprint, createdAt, existingCvu.id).run();
+    } else {
+      await database.prepare(`INSERT INTO rail_instruments
+        (id, organization_id, account_id, idempotency_key, request_fingerprint, kind, value, holder_name, tax_id_last4, status, created_by, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 'cvu', ?, ?, ?, 'active', ?, ?, ?)`).bind(
+        cvuId, input.organizationId, account.id, input.idempotencyKey, requestFingerprint, cvu,
+        account.customerName, account.taxIdLast4, input.actor.userId, createdAt, createdAt,
+      ).run();
+    }
     const issued = [serializeInstrument({
       id: cvuId, accountId: account.id, accountReference: account.accountReference, customerName: account.customerName,
       kind: 'cvu', value: cvu, holderName: account.customerName, taxIdLast4: account.taxIdLast4, status: 'active',
-      requestFingerprint, valueChangedAt: null, createdAt,
+      requestFingerprint, valueChangedAt: null, createdAt: existingCvu?.createdAt ?? createdAt,
     })];
     if (input.instrument.alias) {
-      const aliasId = crypto.randomUUID();
-      await database.prepare(`INSERT INTO rail_instruments
-        (id, organization_id, account_id, idempotency_key, request_fingerprint, kind, value, holder_name, tax_id_last4, status, created_by, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, 'alias', ?, ?, ?, 'active', ?, ?, ?)`).bind(
-        aliasId, input.organizationId, account.id, `${input.idempotencyKey}:alias`, requestFingerprint, input.instrument.alias,
-        account.customerName, account.taxIdLast4, input.actor.userId, createdAt, createdAt,
-      ).run();
-      issued.push(serializeInstrument({
-        id: aliasId, accountId: account.id, accountReference: account.accountReference, customerName: account.customerName,
-        kind: 'alias', value: input.instrument.alias, holderName: account.customerName, taxIdLast4: account.taxIdLast4,
-        status: 'active', requestFingerprint, valueChangedAt: null, createdAt,
-      }));
+      const existingAlias = await database.prepare(`${instrumentSelect} WHERE ri.organization_id = ? AND ri.account_id = ? AND ri.kind = 'alias' LIMIT 1 FOR UPDATE OF ri`)
+        .bind(input.organizationId, account.id).first<InstrumentRow>();
+      if (existingAlias) {
+        await database.prepare(`UPDATE rail_instruments
+          SET value = ?, idempotency_key = ?, request_fingerprint = ?, status = 'active', value_changed_at = NULL, updated_at = ?
+          WHERE id = ?`).bind(input.instrument.alias, `${input.idempotencyKey}:alias`, requestFingerprint, createdAt, existingAlias.id).run();
+        issued.push(serializeInstrument({
+          id: existingAlias.id, accountId: account.id, accountReference: account.accountReference, customerName: account.customerName,
+          kind: 'alias', value: input.instrument.alias, holderName: account.customerName, taxIdLast4: account.taxIdLast4,
+          status: 'active', requestFingerprint, valueChangedAt: null, createdAt: existingAlias.createdAt,
+        }));
+      } else {
+        const aliasId = crypto.randomUUID();
+        await database.prepare(`INSERT INTO rail_instruments
+          (id, organization_id, account_id, idempotency_key, request_fingerprint, kind, value, holder_name, tax_id_last4, status, created_by, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, 'alias', ?, ?, ?, 'active', ?, ?, ?)`).bind(
+          aliasId, input.organizationId, account.id, `${input.idempotencyKey}:alias`, requestFingerprint, input.instrument.alias,
+          account.customerName, account.taxIdLast4, input.actor.userId, createdAt, createdAt,
+        ).run();
+        issued.push(serializeInstrument({
+          id: aliasId, accountId: account.id, accountReference: account.accountReference, customerName: account.customerName,
+          kind: 'alias', value: input.instrument.alias, holderName: account.customerName, taxIdLast4: account.taxIdLast4,
+          status: 'active', requestFingerprint, valueChangedAt: null, createdAt,
+        }));
+      }
     }
     await insertAudit(database, {
       organizationId: input.organizationId, actorId: input.actor.userId, action: 'rail.instrument_issued',
@@ -261,18 +281,21 @@ export async function assignRailAlias(input: {
     const now = new Date().toISOString();
     const existingAlias = await database.prepare(`${instrumentSelect} WHERE ri.organization_id = ? AND ri.account_id = ? AND ri.kind = 'alias' LIMIT 1 FOR UPDATE OF ri`)
       .bind(input.organizationId, target.accountId).first<InstrumentRow>();
-    if (existingAlias && existingAlias.value === input.alias.alias) {
+    if (existingAlias && existingAlias.status === 'active' && existingAlias.value === input.alias.alias) {
       const instruments = await database.prepare(`${instrumentSelect} WHERE ri.organization_id = ? AND ri.account_id = ? ORDER BY ri.kind`)
         .bind(input.organizationId, target.accountId).all<InstrumentRow>();
       return { instruments: instruments.results.map(serializeInstrument), replayed: false };
     }
-    if (existingAlias && aliasChangeBlocked(existingAlias.valueChangedAt)) {
+    if (existingAlias?.status === 'active' && aliasChangeBlocked(existingAlias.valueChangedAt)) {
       throw new InstantPaymentError('El alias no puede modificarse más de una vez en 24 horas.', 422, 'alias_change_rate_limited');
     }
     if (existingAlias) {
+      const changingActive = existingAlias.status === 'active' && existingAlias.value !== input.alias.alias;
       await database.prepare(`UPDATE rail_instruments
-        SET value = ?, request_fingerprint = ?, assign_idempotency_key = ?, value_changed_at = ?, updated_at = ?
-        WHERE id = ?`).bind(input.alias.alias, requestFingerprint, input.idempotencyKey, now, now, existingAlias.id).run();
+        SET value = ?, request_fingerprint = ?, assign_idempotency_key = ?, value_changed_at = ?, status = 'active', updated_at = ?
+        WHERE id = ?`).bind(
+        input.alias.alias, requestFingerprint, input.idempotencyKey, changingActive ? now : null, now, existingAlias.id,
+      ).run();
     } else {
       const aliasId = crypto.randomUUID();
       await database.prepare(`INSERT INTO rail_instruments
@@ -287,6 +310,52 @@ export async function assignRailAlias(input: {
       organizationId: input.organizationId, actorId: input.actor.userId, action: 'rail.alias_assigned',
       resourceType: 'rail_instrument', resourceId: cvu.id,
       payload: { accountId: target.accountId, aliasLast4: railLast4(input.alias.alias), previousLast4: existingAlias ? railLast4(existingAlias.value) : null },
+    });
+    const instruments = await database.prepare(`${instrumentSelect} WHERE ri.organization_id = ? AND ri.account_id = ? ORDER BY ri.kind`)
+      .bind(input.organizationId, target.accountId).all<InstrumentRow>();
+    return { instruments: instruments.results.map(serializeInstrument), replayed: false };
+  });
+}
+
+export async function revokeRailInstrument(input: {
+  organizationId: string; actor: AuthUser; idempotencyKey: string; instrumentId: string;
+}) {
+  await assertSandboxLedgerOrCertifiedRail('cvu', InstantPaymentError);
+  return getDatabaseClient().transaction(async (database) => {
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:rail-instrument-revoke:${input.idempotencyKey}`).first();
+    const replay = await database.prepare(`${instrumentSelect} WHERE ri.organization_id = ? AND ri.revoke_idempotency_key = ? LIMIT 1`)
+      .bind(input.organizationId, input.idempotencyKey).first<InstrumentRow>();
+    if (replay) {
+      const target = await database.prepare(`${instrumentSelect} WHERE ri.organization_id = ? AND ri.id = ? LIMIT 1`)
+        .bind(input.organizationId, input.instrumentId).first<InstrumentRow>();
+      if (target && target.accountId !== replay.accountId) {
+        throw new InstantPaymentError('La Idempotency-Key ya fue usada con otro instrumento.', 409, 'idempotency_mismatch');
+      }
+      const instruments = await database.prepare(`${instrumentSelect} WHERE ri.organization_id = ? AND ri.account_id = ? ORDER BY ri.kind`)
+        .bind(input.organizationId, replay.accountId).all<InstrumentRow>();
+      return { instruments: instruments.results.map(serializeInstrument), replayed: true };
+    }
+    const target = await database.prepare(`${instrumentSelect} WHERE ri.organization_id = ? AND ri.id = ? LIMIT 1 FOR UPDATE OF ri`)
+      .bind(input.organizationId, input.instrumentId).first<InstrumentRow>();
+    if (!target) throw new InstantPaymentError('Instrumento no encontrado.', 404, 'rail_instrument_not_found');
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:rail-alias:${target.accountId}`).first();
+    const cvu = await database.prepare(`${instrumentSelect} WHERE ri.organization_id = ? AND ri.account_id = ? AND ri.kind = 'cvu' LIMIT 1 FOR UPDATE OF ri`)
+      .bind(input.organizationId, target.accountId).first<InstrumentRow>();
+    if (!cvu) throw new InstantPaymentError('No existe un CVU para eliminar.', 422, 'cvu_not_found');
+    if (cvu.status !== 'active') throw new InstantPaymentError('El CVU ya fue eliminado. La cuenta y el saldo no se tocan.', 409, 'rail_instrument_inactive');
+    const now = new Date().toISOString();
+    await database.prepare(`UPDATE rail_instruments SET status = 'revoked', updated_at = ?
+      WHERE organization_id = ? AND account_id = ? AND status = 'active'`).bind(
+      now, input.organizationId, target.accountId,
+    ).run();
+    await database.prepare(`UPDATE rail_instruments SET revoke_idempotency_key = ?, updated_at = ? WHERE id = ?`)
+      .bind(input.idempotencyKey, now, cvu.id).run();
+    await insertAudit(database, {
+      organizationId: input.organizationId, actorId: input.actor.userId, action: 'rail.instrument_revoked',
+      resourceType: 'rail_instrument', resourceId: cvu.id,
+      payload: { accountId: target.accountId, last4: railLast4(cvu.value) },
     });
     const instruments = await database.prepare(`${instrumentSelect} WHERE ri.organization_id = ? AND ri.account_id = ? ORDER BY ri.kind`)
       .bind(input.organizationId, target.accountId).all<InstrumentRow>();

@@ -175,6 +175,9 @@ test('el SDK cablea CVU, directorio, crédito inmediato, débito interno y QR', 
     const url = String(input); calls.push(`${init?.method ?? 'GET'} ${url}`);
     if (url.endsWith('/rail-instruments')) return Response.json({ ok: true, replayed: false, instruments: [{ id: 'inst_1', value: '00099990' }] }, { status: 201 });
     if (url.endsWith('/alias')) return Response.json({ ok: true, replayed: false, instruments: [{ id: 'inst_1', kind: 'cvu' }, { id: 'alias_1', kind: 'alias', value: 'COMERCIO.OESTE' }] });
+    if (url.endsWith('/rail-instruments/inst_1') && init?.method === 'DELETE') {
+      return Response.json({ ok: true, replayed: false, instruments: [{ id: 'inst_1', status: 'revoked' }] });
+    }
     if (url.includes('/rail-directory')) return Response.json({ found: true, holderName: 'Comercio Sur', taxIdLast4: '5678' });
     if (url.endsWith('/instant-transfers')) return Response.json({ ok: true, replayed: false, transfer: { id: 'ip_1' } }, { status: 201 });
     if (url.endsWith('/debit-requests')) return Response.json({ ok: true, replayed: false, debit: { id: 'db_1' } }, { status: 201 });
@@ -184,6 +187,7 @@ test('el SDK cablea CVU, directorio, crédito inmediato, débito interno y QR', 
   } });
   const issued = await client.railInstruments.issue({ accountId: 'acc_1', alias: 'COMERCIO.SUR' });
   await client.railInstruments.assignAlias(issued.data.instruments[0].id, { alias: 'COMERCIO.OESTE' });
+  await client.railInstruments.revoke(issued.data.instruments[0].id);
   await client.railDirectory.lookup(issued.data.instruments[0].value);
   await client.instantTransfers.create({
     externalReference: 'IP-001', accountId: 'acc_2', destination: issued.data.instruments[0].value,
@@ -199,6 +203,7 @@ test('el SDK cablea CVU, directorio, crédito inmediato, débito interno y QR', 
   assert.deepEqual(calls, [
     'POST https://api.test/api/v1/rail-instruments',
     'PATCH https://api.test/api/v1/rail-instruments/inst_1/alias',
+    'DELETE https://api.test/api/v1/rail-instruments/inst_1',
     'GET https://api.test/api/v1/rail-directory?q=00099990',
     'POST https://api.test/api/v1/instant-transfers',
     'POST https://api.test/api/v1/debit-requests',

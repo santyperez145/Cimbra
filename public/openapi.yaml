@@ -710,7 +710,7 @@ paths:
         '200': { description: Idempotent replay }
         '400': { description: Invalid instrument payload }
         '403': { description: Missing transfers:write scope or finance.write permission }
-        '409': { description: CVU already issued, alias conflict or idempotency mismatch }
+        '409': { description: Active CVU already issued, alias conflict or idempotency mismatch }
   /api/v1/rail-instruments/{id}:
     get:
       operationId: retrieveRailInstrument
@@ -720,6 +720,20 @@ paths:
       responses:
         '200': { description: Rail instrument, content: { application/json: { schema: { $ref: '#/components/schemas/RailInstrument' } } } }
         '404': { description: Instrument not found in tenant }
+    delete:
+      operationId: revokeRailInstrument
+      summary: Delete a sandbox CVU without touching the account or ledger
+      description: Own Cimbra contract. Marks the CVU and its tenant alias as revoked so they cannot receive or send. The ARS account and its balance remain. A later issue call reactivates the same sandbox CVU for that account.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200': { description: CVU revoked or replayed }
+        '403': { description: Missing transfers:write scope or finance.write permission }
+        '404': { description: Instrument not found in tenant }
+        '409': { description: CVU already revoked or idempotency mismatch }
+        '422': { description: No CVU exists for the instrument }
   /api/v1/rail-instruments/{id}/alias:
     patch:
       operationId: assignRailAlias

@@ -285,6 +285,9 @@ export class Cimbra {
     assignAlias: (id: string, input: AssignRailAliasInput, options?: RequestOptions) =>
       this.patch<{ ok: true; instruments: RailInstrument[]; replayed: boolean }>(
         `/api/v1/rail-instruments/${encodeURIComponent(id)}/alias`, input, options),
+    revoke: (id: string, options?: RequestOptions) =>
+      this.del<{ ok: true; instruments: RailInstrument[]; replayed: boolean }>(
+        `/api/v1/rail-instruments/${encodeURIComponent(id)}`, options),
   };
 
   readonly railDirectory = {
@@ -527,6 +530,11 @@ export class Cimbra {
   private patch<T>(path: string, body: unknown, options?: RequestOptions) {
     const idempotencyKey = options?.idempotencyKey ?? identifier('idem');
     return this.request<T>('PATCH', path, body, { ...options, idempotencyKey });
+  }
+
+  private del<T>(path: string, options?: RequestOptions) {
+    const idempotencyKey = options?.idempotencyKey ?? identifier('idem');
+    return this.request<T>('DELETE', path, undefined, { ...options, idempotencyKey });
   }
 
   private postForm<T>(path: string, body: FormData, options: RequestOptions | undefined, retryable: boolean) {

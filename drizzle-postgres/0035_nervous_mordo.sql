@@ -1,0 +1,2 @@
+ALTER TABLE "rail_instruments" ADD COLUMN "revoke_idempotency_key" text;--> statement-breakpoint
+CREATE UNIQUE INDEX "idx_rail_instruments_org_revoke_idempotency" ON "rail_instruments" USING btree ("organization_id","revoke_idempotency_key") WHERE "rail_instruments"."revoke_idempotency_key" IS NOT NULL;
