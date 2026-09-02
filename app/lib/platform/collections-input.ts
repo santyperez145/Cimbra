@@ -131,8 +131,25 @@ export function normalizePaymentLinkPayInput(value: unknown) {
   return { method: method as CollectionMethod, payerAccountId, amountMinor };
 }
 
+export function normalizePaymentLinkRefundInput(value: unknown) {
+  if (value === undefined || value === null) return { amountMinor: null, creditId: null };
+  if (typeof value !== 'object' || Array.isArray(value)) return null;
+  const body = value as Record<string, unknown>;
+  if (!hasOnlyKeys(body, ['amount', 'creditId'])) return null;
+  const creditId = body.creditId === undefined || body.creditId === null || body.creditId === ''
+    ? null : typeof body.creditId === 'string' ? body.creditId : '';
+  if (creditId && !uuid.test(creditId)) return null;
+  let amountMinor: bigint | null = null;
+  if (body.amount !== undefined && body.amount !== null && body.amount !== '') {
+    try { amountMinor = majorToMinor(body.amount, 'ARS'); } catch { return null; }
+    if (amountMinor <= 0n || amountMinor > majorToMinor('10000000', 'ARS')) return null;
+  }
+  return { amountMinor, creditId };
+}
+
 export type NormalizedPaymentLinkInput = Exclude<ReturnType<typeof normalizePaymentLinkInput>, null | { unsupportedMethod: UnsupportedCollectionMethod }>;
 export type NormalizedPaymentLinkPayInput = Exclude<ReturnType<typeof normalizePaymentLinkPayInput>, null | { unsupportedMethod: UnsupportedCollectionMethod }>;
+export type NormalizedPaymentLinkRefundInput = Exclude<ReturnType<typeof normalizePaymentLinkRefundInput>, null>;
 
 export function normalizeCollectionTillInput(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;

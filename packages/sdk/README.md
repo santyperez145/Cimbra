@@ -289,7 +289,11 @@ await cimbra.paymentLinks.pay(link.data.link.id, {
 });
 ```
 
-El payload `cimbra:link:v1` no es un checkout de red. `items` es detalle informativo y no cambia el monto a cobrar. `cimbra_qr` liquida la deuda asociada al monto cerrado. `cimbra_cvu` acredita el till y admite parciales, varios créditos o un importe mayor al restante; GET embebe `credits` y `partiallyCollected`. `checkoutUrl` apunta a `/pay/{id}` sin formulario PCI. Tarjeta, POS, checkout de adquirente y QR interoperable responden `422`.
+El payload `cimbra:link:v1` no es un checkout de red. `items` es detalle informativo y no cambia el monto a cobrar. `cimbra_qr` liquida la deuda asociada al monto cerrado. `cimbra_cvu` acredita el till y admite parciales, varios créditos o un importe mayor al restante; GET embebe `credits`, `refunds`, `partiallyCollected` y `partiallyRefunded`. `checkoutUrl` apunta a `/pay/{id}` sin formulario PCI. La devolución acepta `amount` y `creditId` opcionales. Tarjeta, POS, checkout de adquirente y QR interoperable responden `422`.
+
+```ts
+await cimbra.paymentLinks.refund(cvuLink.data.link.id, { amount: '3.00' });
+```
 
 ```ts
 await cimbra.paymentLinks.pay(cvuLink.data.link.id, {

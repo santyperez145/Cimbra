@@ -321,17 +321,22 @@ export type PaymentLinkItem = {
   code: string | null; additional: string | null;
 };
 export type PaymentLinkCredit = {
-  id: string; amountMinor: string; amount: number; method: 'cimbra_cvu';
+  id: string; amountMinor: string; amount: number; refundedMinor: string; refundedAmount: number;
+  remainingMinor: string; remainingAmount: number; method: 'cimbra_cvu';
   payerAccountId: string | null; transactionId: string; instantTransferId: string | null; createdAt: string;
+};
+export type PaymentLinkRefund = {
+  id: string; amountMinor: string; amount: number; creditId: string | null; transactionId: string; createdAt: string;
 };
 export type PaymentLink = {
   id: string; accountId: string; accountReference: string; customerName: string;
   amountMinor: string; amount: number; collectedMinor: string; collectedAmount: number;
-  remainingMinor: string; remainingAmount: number; partiallyCollected: boolean; checkoutUrl: string;
+  remainingMinor: string; remainingAmount: number; refundedMinor: string; refundedAmount: number;
+  partiallyCollected: boolean; partiallyRefunded: boolean; checkoutUrl: string;
   currency: 'ARS'; description: string; externalReference: string;
   allowedMethods: CollectionMethod[]; payload: string;
   qrDebtId: string | null; collectionTillId: string | null; qrPayload: string | null; cvu: string | null;
-  items: PaymentLinkItem[]; credits: PaymentLinkCredit[];
+  items: PaymentLinkItem[]; credits: PaymentLinkCredit[]; refunds: PaymentLinkRefund[];
   status: 'open' | 'pending' | 'paid' | 'expired' | 'cancelled' | 'refunded'; expiresAt: string;
   paidMethod: CollectionMethod | null; payerAccountId: string | null; payerAccountReference: string | null;
   transactionId: string | null; reversalTransactionId: string | null; createdAt: string; updatedAt: string;
@@ -494,6 +499,7 @@ export type CreditCollectionTillInput = {
   externalReference: string; description: string; amount: string; currency?: 'ARS'; signals?: RiskSignalsInput;
 };
 export type PayPaymentLinkInput = { method: CollectionMethod | 'card' | 'pos' | 'tap_to_phone' | 'qr_interoperable'; payerAccountId?: string; amount?: string; signals?: RiskSignalsInput };
+export type RefundPaymentLinkInput = { amount?: string; creditId?: string | null };
 export type CreateEcheqInput = {
   drawerAccountId: string; externalReference: string; description: string; amount: string; currency?: 'ARS' | 'USD';
   beneficiaryName: string; beneficiaryTaxId: string; paymentDate?: string; toOrder?: boolean;

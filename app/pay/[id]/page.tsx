@@ -38,7 +38,7 @@ export default async function PublicPayPage({ params }: { params: Promise<{ id: 
       <p className="legal-updated">{link.customerName} · {link.externalReference}</p>
       <section>
         <h2>Importe</h2>
-        <p>Total {money(link.amount)}. Cobrado {money(link.collectedAmount)}. Restante {money(link.remainingAmount)}. Estado: {STATUS_LABELS[link.status] ?? link.status}{link.partiallyCollected ? ' · cobro parcial' : ''}.</p>
+        <p>Total {money(link.amount)}. Cobrado {money(link.collectedAmount)}. Restante {money(link.remainingAmount)}. Devuelto {money(link.refundedAmount)}. Estado: {STATUS_LABELS[link.status] ?? link.status}{link.partiallyCollected ? ' · cobro parcial' : ''}{link.partiallyRefunded ? ' · devolución parcial' : ''}.</p>
       </section>
       {link.items.length > 0 && <section>
         <h2>Detalle</h2>
@@ -47,7 +47,11 @@ export default async function PublicPayPage({ params }: { params: Promise<{ id: 
       </section>}
       {link.credits.length > 0 && <section>
         <h2>Créditos al CVU</h2>
-        {link.credits.map((credit) => <p key={credit.id}>{money(credit.amount)} · {credit.method} · {credit.createdAt.slice(0, 10)}</p>)}
+        {link.credits.map((credit) => <p key={credit.id}>{money(credit.amount)} · {credit.method}{credit.refundedAmount > 0 ? ` · devuelto ${money(credit.refundedAmount)}` : ''} · {credit.createdAt.slice(0, 10)}</p>)}
+      </section>}
+      {link.refunds.length > 0 && <section>
+        <h2>Devoluciones</h2>
+        {link.refunds.map((refund) => <p key={refund.id}>{money(refund.amount)} · {refund.createdAt.slice(0, 10)}</p>)}
       </section>}
       {showsQr && <section>
         <h2>QR Cimbra</h2>

@@ -7,12 +7,13 @@ import { authenticatedFetch } from '@/app/lib/platform/client-http';
 type Account = { id: string; accountReference: string; currency: string; status: string };
 type PaymentLink = {
   id: string; accountId: string; accountReference: string; customerName: string;
-  amount: number; collectedAmount: number; remainingAmount: number; partiallyCollected: boolean; currency: string; description: string; externalReference: string;
+  amount: number; collectedAmount: number;   remainingAmount: number; refundedAmount: number; partiallyCollected: boolean; partiallyRefunded: boolean; currency: string; description: string; externalReference: string;
   allowedMethods: string[]; payload: string; qrDebtId: string | null; collectionTillId: string | null;
   qrPayload: string | null; cvu: string | null; checkoutUrl: string; status: string; expiresAt: string;
   paidMethod: string | null; payerAccountReference: string | null; createdAt: string;
   items: Array<{ description: string; amount: number; quantity: number }>;
   credits: Array<{ id: string; amount: number; method: string; createdAt: string }>;
+  refunds: Array<{ id: string; amount: number; createdAt: string }>;
 };
 type CollectionTill = {
   id: string; accountId: string; accountReference: string; customerName: string;
@@ -135,6 +136,25 @@ export default function CollectionsPanel({ role, accounts }: { role: Organizatio
     await load().catch((error: Error) => setFeedback(error.message));
   }
 
+  async function refund(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const linkId = String(data.get('linkId') ?? '');
+    const amount = String(data.get('amount') ?? '').trim();
+    setBusy(true); setFeedback('');
+    const response = await authenticatedFetch(`/api/v1/payment-links/${encodeURIComponent(linkId)}/refund`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
+      body: JSON.stringify(amount ? { amount } : {}),
+    });
+    const result = await response.json() as { error?: unknown };
+    setBusy(false);
+    if (!response.ok) { setFeedback(apiError(result, 'No pudimos devolver el cobro.')); return; }
+    form.reset();
+    await load().catch((error: Error) => setFeedback(error.message));
+  }
+
   async function createTill(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
@@ -216,7 +236,7 @@ export default function CollectionsPanel({ role, accounts }: { role: Organizatio
       <article><span>Devueltos</span><strong>{refundedCount}</strong></article>
       <article><span>Puntos activos</span><strong>{activeTills}</strong></article>
     </div>
-    <p className="role-boundary-copy">El link sandbox se paga con una cuenta Cimbra, un inbound ledger, el QR de una deuda asociada o el CVU de un till. Sólo el medio cimbra_cvu admite parciales, varios créditos o un importe mayor al restante. Un inbound suelto al till no cierra el link. No procesa tarjetas, POS, Tap to Phone, checkout PCI ni QR interoperable.</p>
+    <p className="role-boundary-copy">El link sandbox se paga con una cuenta Cimbra, un inbound ledger, el QR de una deuda asociada o el CVU de un till. Sólo el medio cimbra_cvu admite parciales, varios créditos o un importe mayor al restante. La devolución puede ser total o parcial; un link CVU puede volver a cobrar si queda restante. Un inbound suelto al till no cierra el link. No procesa tarjetas, POS, Tap to Phone, checkout PCI ni QR interoperable.</p>
     {pendingCount > 0 && <p className="role-boundary-copy">{pendingCount} links en revisión, expirados o cancelados.</p>}
 
     {canOperate && <div className="compliance-grid wallets-grid">
@@ -249,6 +269,13 @@ export default function CollectionsPanel({ role, accounts }: { role: Organizatio
           <label>Pagador<select name="payerAccountId" defaultValue=""><option value="">Inbound o CVU sin pagador</option>{arsAccounts.map((account) => <option key={account.id} value={account.id}>{account.accountReference}</option>)}</select></label>
           <label>Monto CVU opcional<input name="amount" type="number" min="0.01" step="0.01" placeholder="Vacío = restante" /></label>
           <button className="app-primary" disabled={busy}>{busy ? 'Cobrando…' : 'Cobrar'}</button>
+        </form>
+      </article>
+      <article className="integration-card"><div className="card-head"><div><h2>Devolver un cobro</h2><p>Vacío = restante cobrado</p></div></div>
+        <form className="book-statement-body" onSubmit={refund}>
+          <label>Link<select name="linkId" required defaultValue=""><option value="" disabled>Seleccionar</option>{links.filter((link) => link.status === 'paid' || (link.status === 'open' && (link.collectedAmount ?? 0) > 0)).map((link) => <option key={link.id} value={link.id}>{link.externalReference} · cobrado {money(link.collectedAmount ?? 0)}</option>)}</select></label>
+          <label>Monto opcional<input name="amount" type="number" min="0.01" step="0.01" placeholder="Vacío = todo lo cobrado" /></label>
+          <button className="app-primary" disabled={busy}>{busy ? 'Devolviendo…' : 'Devolver'}</button>
         </form>
       </article>
       <article className="integration-card"><div className="card-head"><div><h2>Crear punto de recaudación</h2><p>CVU sandbox propio · no es caja BIND</p></div></div>
@@ -301,12 +328,12 @@ export default function CollectionsPanel({ role, accounts }: { role: Organizatio
         <div className="movement">
           <strong>{link.externalReference}</strong>
           <span>{link.accountReference} · {link.customerName}</span>
-          <small>{link.payload} · {link.allowedMethods.join(' · ')}{link.qrPayload ? ` · ${link.qrPayload}` : ''}{link.cvu ? ` · ${link.cvu}` : ''}{link.checkoutUrl ? ` · ${link.checkoutUrl}` : ''}{(link.items?.length ?? 0) > 0 ? ` · ${link.items.length} ítems` : ''}{(link.credits?.length ?? 0) > 0 ? ` · ${link.credits.length} créditos` : ''}{link.partiallyCollected ? ' · cobro parcial' : ''}{link.paidMethod ? ` · cobrado ${link.paidMethod}` : ''}{link.payerAccountReference ? ` · pagador ${link.payerAccountReference}` : ''}</small>
+          <small>{link.payload} · {link.allowedMethods.join(' · ')}{link.qrPayload ? ` · ${link.qrPayload}` : ''}{link.cvu ? ` · ${link.cvu}` : ''}{link.checkoutUrl ? ` · ${link.checkoutUrl}` : ''}{(link.items?.length ?? 0) > 0 ? ` · ${link.items.length} ítems` : ''}{(link.credits?.length ?? 0) > 0 ? ` · ${link.credits.length} créditos` : ''}{(link.refunds?.length ?? 0) > 0 ? ` · ${link.refunds.length} devoluciones` : ''}{link.partiallyCollected ? ' · cobro parcial' : ''}{link.partiallyRefunded ? ' · devolución parcial' : ''}{link.paidMethod ? ` · cobrado ${link.paidMethod}` : ''}{link.payerAccountReference ? ` · pagador ${link.payerAccountReference}` : ''}</small>
         </div>
         <strong>{money(link.collectedAmount ?? 0, link.currency)} / {money(link.amount, link.currency)}</strong>
         <span>{STATUS_LABELS[link.status] ?? link.status}</span>
         {canOperate && link.status === 'open' && <button type="button" className="danger-link" disabled={busy} onClick={() => void mutate(`/api/v1/payment-links/${link.id}/cancel`, 'No pudimos cancelar el link.')}>Cancelar</button>}
-        {canOperate && link.status === 'paid' && <button type="button" className="danger-link" disabled={busy} onClick={() => void mutate(`/api/v1/payment-links/${link.id}/refund`, 'No pudimos devolver el cobro.')}>Devolver</button>}
+        {canOperate && (link.status === 'paid' || (link.status === 'open' && (link.collectedAmount ?? 0) > 0)) && <button type="button" className="danger-link" disabled={busy} onClick={() => void mutate(`/api/v1/payment-links/${link.id}/refund`, 'No pudimos devolver el cobro.')}>Devolver restante</button>}
       </div>)}
     </article>
   </div>;

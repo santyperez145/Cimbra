@@ -119,6 +119,7 @@ async function cleanup() {
       await transaction`DELETE FROM payout_batches WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM payout_beneficiaries WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM qr_sale_orders WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM payment_link_refunds WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM payment_link_credits WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM payment_links WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM qr_debts WHERE organization_id = ${organizationId}`;
@@ -1196,10 +1197,27 @@ try {
   assert.equal(secondPartial.link.collectedAmount, 8); assert.equal(secondPartial.link.remainingAmount, 0);
   assert.equal(secondPartial.link.partiallyCollected, false);
   assert.equal(secondPartial.link.credits.length, 2);
+  const partialRefund = await json(await request(`/api/v1/payment-links/${partialCvuLink.link.id}/refund`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-link-cvu-part-refund-a-${runId}` },
+    body: JSON.stringify({ amount: '3.00' }),
+  }), 201);
+  assert.equal(partialRefund.link.status, 'open');
+  assert.equal(partialRefund.link.collectedAmount, 5); assert.equal(partialRefund.link.remainingAmount, 3);
+  assert.equal(partialRefund.link.refundedAmount, 3);
+  assert.equal(partialRefund.link.partiallyRefunded, true);
+  assert.equal(partialRefund.link.refunds.length, 1);
+  const refundReplay = await json(await request(`/api/v1/payment-links/${partialCvuLink.link.id}/refund`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-link-cvu-part-refund-a-${runId}` },
+    body: JSON.stringify({ amount: '3.00' }),
+  }), 200);
+  assert.equal(refundReplay.replayed, true); assert.equal(refundReplay.link.refundedAmount, 3);
   const refundedPartial = await json(await request(`/api/v1/payment-links/${partialCvuLink.link.id}/refund`, {
     method: 'POST', headers: { 'Idempotency-Key': `qa-link-cvu-part-refund-${runId}` },
   }), 201);
   assert.equal(refundedPartial.link.status, 'refunded');
+  assert.equal(refundedPartial.link.collectedAmount, 0);
+  assert.equal(refundedPartial.link.refundedAmount, 8);
+  assert.equal(refundedPartial.link.refunds.length, 2);
 
   const beneficiaryCuit = '30000075678';
   const echeqPayload = {

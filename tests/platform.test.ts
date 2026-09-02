@@ -26,7 +26,7 @@ import { parseBookTransferInput, statementPeriod } from '../app/lib/platform/boo
 import { normalizeWalletInput, normalizeWalletProgramInput, normalizeWalletTransition, parseWalletPocketTransferInput } from '../app/lib/platform/wallets-input.ts';
 import { classifyRailValue, isSandboxCvu, isWellFormedCbu, issueSandboxCvu, normalizeAlias } from '../app/lib/platform/cbu.ts';
 import { aliasChangeBlocked, ALIAS_CHANGE_WINDOW_MS, normalizeAssignAliasInput, normalizeDebitRequestInput, normalizeInstantTransferInput, normalizeIssueInstrumentInput, normalizePaymentQrInput, normalizeQrDebtInput, normalizeQrSaleOrderInput } from '../app/lib/platform/instant-payments-input.ts';
-import { normalizeCollectionTillInboundInput, normalizeCollectionTillInput, normalizePaymentLinkInput, normalizePaymentLinkPayInput } from '../app/lib/platform/collections-input.ts';
+import { normalizeCollectionTillInboundInput, normalizeCollectionTillInput, normalizePaymentLinkInput, normalizePaymentLinkPayInput, normalizePaymentLinkRefundInput } from '../app/lib/platform/collections-input.ts';
 import { normalizeCuit } from '../app/lib/platform/cuit.ts';
 import { normalizeEcheqAcceptInput, normalizeEcheqDepositInput, normalizeEcheqEndorseInput, normalizeEcheqInput } from '../app/lib/platform/echeqs-input.ts';
 import { isLocalPostgres, postgresClientOptions, resolvePostgresUrl } from '../db/postgres-connection.mjs';
@@ -198,6 +198,7 @@ test('los rieles oficiales son contrapartes reguladas y el adaptador falla cerra
   assert.match(collections?.sandboxCoverage ?? '', /cimbra_qr/);
   assert.match(collections?.sandboxCoverage ?? '', /cimbra_cvu/);
   assert.match(collections?.sandboxCoverage ?? '', /parcial/);
+  assert.match(collections?.sandboxCoverage ?? '', /devolución/);
   assert.match(collections?.sandboxCoverage ?? '', /ítems/);
   assert.throws(
     () => dispatchOfficialRail('coelsa_transfers', [{ id: 'coelsa_transfers', status: 'unwired' }]),
@@ -487,6 +488,13 @@ test('cobranzas validan links de cobro, medios sandbox y rechazan adquirencia de
   assert.deepEqual(normalizePaymentLinkPayInput({ method: 'sandbox_inbound' }), {
     method: 'sandbox_inbound', payerAccountId: null, amountMinor: null,
   });
+  assert.deepEqual(normalizePaymentLinkRefundInput({}), { amountMinor: null, creditId: null });
+  assert.deepEqual(normalizePaymentLinkRefundInput({ amount: '3.00' }), { amountMinor: 300n, creditId: null });
+  assert.deepEqual(normalizePaymentLinkRefundInput({
+    amount: '3.00', creditId: '00000000-0000-4000-8000-000000000014',
+  }), { amountMinor: 300n, creditId: '00000000-0000-4000-8000-000000000014' });
+  assert.equal(normalizePaymentLinkRefundInput({ amount: '3.00', idDeuda: 1 }), null);
+  assert.equal(normalizePaymentLinkRefundInput({ transaccionId: 1 }), null);
   const till = normalizeCollectionTillInput({
     accountId, externalReference: 'TILL-001', name: ' Mostrador Sur ', alias: 'comercio.sur',
   });

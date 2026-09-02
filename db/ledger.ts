@@ -528,6 +528,9 @@ export async function reverseTransactionInTransaction(input: ReverseTransactionI
       const paymentLink = await transaction.prepare('SELECT id FROM payment_links WHERE organization_id = ? AND transaction_id = ? LIMIT 1')
         .bind(input.organizationId, original.id).first<{ id: string }>();
       if (paymentLink) throw new LedgerError('Esta transacción debe revertirse desde su link de cobro.', 409, 'collection_refund_required');
+      const collectionCredit = await transaction.prepare('SELECT id FROM payment_link_credits WHERE organization_id = ? AND transaction_id = ? LIMIT 1')
+        .bind(input.organizationId, original.id).first<{ id: string }>();
+      if (collectionCredit) throw new LedgerError('Esta transacción debe revertirse desde su link de cobro.', 409, 'collection_refund_required');
       const echeq = await transaction.prepare('SELECT id FROM echeqs WHERE organization_id = ? AND transaction_id = ? LIMIT 1')
         .bind(input.organizationId, original.id).first<{ id: string }>();
       if (echeq) throw new LedgerError('El depósito de un ECHEQ no se revierte por la reversa genérica.', 409, 'echeq_deposit_irreversible');
@@ -680,6 +683,110 @@ export async function reverseTransactionInTransaction(input: ReverseTransactionI
       }),
       replayed: false,
     };
+}
+
+export async function compensateTransactionAmount(input: {
+  organizationId: string; actor: AuthUser; transactionId: string; amountMinor: bigint;
+  idempotencyKey: string; markOriginalReversed: boolean;
+}, transaction: DatabaseClient) {
+  const operationKey = `reversal:${input.idempotencyKey}`;
+  const existing = await transaction.prepare(
+    `SELECT id, counterparty, description, amount_minor::text AS amountMinor, currency, status,
+      risk_score AS riskScore, reversal_of AS reversalOf, created_at AS createdAt
+     FROM transactions WHERE organization_id = ? AND idempotency_key = ? LIMIT 1`,
+  ).bind(input.organizationId, operationKey).first<StoredTransaction>();
+  if (existing) {
+    const existingAbs = BigInt(existing.amountMinor) < 0n ? -BigInt(existing.amountMinor) : BigInt(existing.amountMinor);
+    if (existingAbs !== input.amountMinor) {
+      throw new LedgerError('La Idempotency-Key ya fue usada para otra reversa.', 409, 'idempotency_mismatch');
+    }
+    return { transaction: serializeTransaction(existing), replayed: true };
+  }
+
+  const original = await transaction.prepare(
+    `SELECT id, counterparty, description, amount_minor::text AS amountMinor, currency, status,
+      risk_score AS riskScore, reversal_of AS reversalOf, created_at AS createdAt
+     FROM transactions WHERE id = ? AND organization_id = ? FOR UPDATE`,
+  ).bind(input.transactionId, input.organizationId).first<StoredTransaction>();
+  if (!original) throw new LedgerError('Transferencia no encontrada.', 404, 'transaction_not_found');
+  if (original.status !== 'settled') throw new LedgerError('Sólo se puede compensar una transferencia liquidada.', 409, 'transaction_not_reversible');
+  if (input.amountMinor <= 0n) throw new LedgerError('El importe a devolver debe ser positivo.', 400, 'invalid_refund_amount');
+  const originalAbs = BigInt(original.amountMinor) < 0n ? -BigInt(original.amountMinor) : BigInt(original.amountMinor);
+  if (input.amountMinor > originalAbs) {
+    throw new LedgerError('El importe a devolver supera la transacción original.', 409, 'refund_exceeds_transaction');
+  }
+
+  const originalJournal = await transaction.prepare(
+    `SELECT id FROM ledger_journals WHERE transaction_id = ? AND organization_id = ? LIMIT 1`,
+  ).bind(original.id, input.organizationId).first<{ id: string }>();
+  if (!originalJournal) throw new LedgerError('La transferencia no tiene un asiento contable.', 409, 'journal_missing');
+  const postings = await transaction.prepare(
+    `SELECT account_id AS accountId, direction, amount_minor::text AS amountMinor
+     FROM ledger_postings WHERE journal_id = ? ORDER BY id`,
+  ).bind(originalJournal.id).all<{ accountId: string; direction: Direction; amountMinor: string }>();
+  if (postings.results.length < 2) throw new LedgerError('La transferencia no tiene un asiento contable.', 409, 'journal_missing');
+  for (const posting of postings.results) {
+    await transaction.prepare('SELECT id FROM financial_accounts WHERE id = ? FOR UPDATE').bind(posting.accountId).first();
+    if (posting.direction === 'credit') {
+      const current = await accountBalanceMinor(posting.accountId, transaction);
+      const held = await activeHoldsMinor(posting.accountId, transaction);
+      if (input.amountMinor > current - held) {
+        throw new LedgerError('Saldo disponible insuficiente para devolver el cobro.', 422, 'insufficient_funds');
+      }
+    }
+  }
+
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const reversalAmount = BigInt(original.amountMinor) < 0n ? input.amountMinor : -input.amountMinor;
+  await transaction.prepare(
+    `INSERT INTO transactions
+      (id, organization_id, idempotency_key, type, counterparty, description, amount_minor, currency, status, risk_score, reversal_of, created_at, updated_at)
+     VALUES (?, ?, ?, 'reversal', ?, ?, ?, ?, 'settled', 0, ?, ?, ?)`,
+  ).bind(
+    id, input.organizationId, operationKey, original.counterparty, `Devolución: ${original.description}`,
+    reversalAmount.toString(), original.currency, input.markOriginalReversed ? original.id : null, now, now,
+  ).run();
+  await postJournal({
+    organizationId: input.organizationId,
+    transactionId: id,
+    idempotencyKey: operationKey,
+    kind: 'reversal',
+    description: `Devolución de ${original.id}`,
+    currency: original.currency,
+    reversalOf: originalJournal.id,
+    postings: postings.results.map((posting) => ({
+      accountId: posting.accountId,
+      direction: posting.direction === 'debit' ? 'credit' : 'debit',
+      amountMinor: input.amountMinor,
+    })),
+    createdAt: now,
+  }, transaction);
+
+  if (input.markOriginalReversed) {
+    await transaction.prepare("UPDATE transactions SET status = 'reversed', updated_at = ? WHERE id = ?").bind(now, original.id).run();
+    await transaction.prepare("UPDATE ledger_journals SET status = 'reversed' WHERE id = ?").bind(originalJournal.id).run();
+    const instantTransfer = await transaction.prepare(`SELECT id FROM instant_transfers
+      WHERE organization_id = ? AND transaction_id = ? LIMIT 1 FOR UPDATE`)
+      .bind(input.organizationId, original.id).first<{ id: string }>();
+    if (instantTransfer) {
+      await transaction.prepare(`UPDATE instant_transfers SET status = 'returned', reversal_transaction_id = ?, updated_at = ? WHERE id = ?`)
+        .bind(id, now, instantTransfer.id).run();
+      await insertAudit(transaction, {
+        organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.transfer_returned',
+        resourceType: 'instant_transfer', resourceId: instantTransfer.id, payload: { transactionId: original.id, reversalId: id },
+      });
+    }
+  }
+
+  return {
+    transaction: serializeTransaction({
+      ...original, id, amountMinor: reversalAmount.toString(), status: 'settled',
+      riskScore: 0, reversalOf: input.markOriginalReversed ? original.id : null,
+      description: `Devolución: ${original.description}`, createdAt: now,
+    }),
+    replayed: false,
+  };
 }
 
 export async function resolveHold(input: {

@@ -29,6 +29,11 @@ const errorResponses = [
 const changelog = [
   {
     date: '01 SEP 2026',
+    title: 'Devolución parcial de un link de cobro',
+    detail: 'POST /api/v1/payment-links/{id}/refund acepta amount y creditId opcionales. Vacío devuelve lo cobrado pendiente. Un parcial deja postings compensatorios sin mutar el asiento original. Un link CVU puede reabrirse si el neto queda por debajo del monto; internal, QR e inbound permanecen cerrados. GET embebe refunds y partiallyRefunded. OpenAPI sigue en 178 operaciones.',
+  },
+  {
+    date: '01 SEP 2026',
     title: 'Ítems de checkout y créditos embebidos en el link',
     detail: 'POST /api/v1/payment-links acepta items[] informativos (máx. 20). No controlan el monto ni sustituyen un carrito PCI. GET, list y pay embeben items, credits y partiallyCollected. successUrl, errorUrl y configuracionCheckout se rechazan. OpenAPI sigue en 178 operaciones.',
   },
@@ -438,7 +443,8 @@ const link = await cimbra.paymentLinks.create({
 await cimbra.paymentLinks.pay(link.data.link.id, {
   method: 'cimbra_qr',
   payerAccountId: '<payer_account_uuid>',
-});`;
+});
+await cimbra.paymentLinks.refund(link.data.link.id, { amount: '3.00' });`;
 
   return <main className="docs-shell docs-shell-expanded">
     <header className="docs-topbar">
@@ -641,12 +647,12 @@ await cimbra.paymentLinks.pay(link.data.link.id, {
 
       <section id="collections" className="docs-section">
         <p className="docs-kicker">ARGENTINA · COBRANZAS</p><h2>Un link de cobro y un punto de recaudación, sin fingir adquirencia de red.</h2>
-        <p className="docs-section-lede">El comercio emite un link contra una cuenta ARS argentina, opcionalmente asociado a una deuda QR abierta o a un punto de recaudación. El pagador liquida desde otra cuenta Cimbra, con inbound sandbox, pagando el QR de la deuda o acreditando el CVU del till. La devolución del link usa postings compensatorios y no reabre la deuda.</p>
+        <p className="docs-section-lede">El comercio emite un link contra una cuenta ARS argentina, opcionalmente asociado a una deuda QR abierta o a un punto de recaudación. El pagador liquida desde otra cuenta Cimbra, con inbound sandbox, pagando el QR de la deuda o acreditando el CVU del till. La devolución usa postings compensatorios: total o parcial. Un link CVU puede reabrirse si el neto queda por debajo del monto; no se reabre la deuda QR.</p>
         <div className="webhook-contract-grid">
-          <article><strong>Link</strong><p>Monto, vencimiento y payload <code>cimbra:link:v1</code>. Puede llevar <code>qrDebtId</code>, <code>collectionTillId</code> e <code>items</code> de detalle. GET embebe <code>credits</code> y <code>partiallyCollected</code>. Owner/Admin/Operator crean; Viewer sólo consulta.</p></article>
+          <article><strong>Link</strong><p>Monto, vencimiento y payload <code>cimbra:link:v1</code>. Puede llevar <code>qrDebtId</code>, <code>collectionTillId</code> e <code>items</code> de detalle. GET embebe <code>credits</code>, <code>refunds</code>, <code>partiallyCollected</code> y <code>partiallyRefunded</code>. Owner/Admin/Operator crean y devuelven; Viewer sólo consulta.</p></article>
           <article><strong>Punto de recaudación</strong><p><code>collection_tills</code> emite un CVU <code>000+9999</code> del till. Transferencias internas e inbound quedan con <code>collectionTillId</code>. No es caja BIND.</p></article>
           <article><strong>Scopes</strong><p><code>payments:read/write</code> protege S2S. El cobro entra al motor de riesgo y puede quedar en hold.</p></article>
-          <article><strong>Límite real</strong><p>No hay checkout PCI, marcas, sucursales ni liquidación a un adquirente. El cobro por CVU admite parciales y overpay; QR e internal siguen monto cerrado. Un inbound suelto al till no imputa el link. El CVU del till no viaja por Coelsa. BIND y el resto siguen como benchmarks, no conectores.</p></article>
+          <article><strong>Límite real</strong><p>No hay checkout PCI, marcas, sucursales ni liquidación a un adquirente. El cobro por CVU admite parciales, overpay y devolución parcial; QR e internal siguen monto cerrado. Un inbound suelto al till no imputa el link. El CVU del till no viaja por Coelsa. BIND y el resto siguen como benchmarks, no conectores.</p></article>
         </div>
         <CodeBlock language="TYPESCRIPT · SDK REAL" value={collectionsExample} />
       </section>

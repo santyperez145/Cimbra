@@ -1253,17 +1253,33 @@ paths:
   /api/v1/payment-links/{id}/refund:
     post:
       operationId: refundPaymentLink
-      summary: Refund a settled collection with compensating ledger entries
+      summary: Refund a settled collection in full or in part with compensating ledger entries
+      description: Omitting amount returns the remaining collected balance. amount refunds that ARS value from CVU credits in chronological order, or from the single closed-amount collection. creditId limits the refund to one CVU credit. A CVU link can reopen while collected remains below the original amount. Internal, QR and inbound stay closed after a partial refund. Not a card chargeback or BIND contracargo.
       security: [{ session: [] }, { bearerApiKey: [] }]
       parameters:
         - $ref: '#/components/parameters/ResourceId'
         - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                amount:
+                  oneOf:
+                    - { type: string, pattern: '^\d+(?:\.\d+)?$' }
+                    - { type: number, exclusiveMinimum: 0, maximum: 10000000 }
+                creditId: { type: [string, 'null'], format: uuid }
       responses:
-        '201': { description: Collection refunded }
+        '201': { description: Collection refunded in full or in part }
         '200': { description: Idempotent replay }
+        '400': { description: Invalid payload }
         '403': { description: Missing payments:write scope or finance.write permission }
-        '404': { description: Payment link not found }
-        '409': { description: Link is not paid }
+        '404': { description: Payment link or credit not found }
+        '409': { description: Nothing to refund or amount exceeds collected }
+        '422': { description: Insufficient merchant funds }
   /api/v1/collection-tills:
     get:
       operationId: listCollectionTills
@@ -3902,7 +3918,7 @@ components:
         updatedAt: { type: string, format: date-time }
     PaymentLink:
       type: object
-      required: [id, accountId, accountReference, customerName, amountMinor, amount, collectedMinor, collectedAmount, remainingMinor, remainingAmount, partiallyCollected, checkoutUrl, currency, description, externalReference, allowedMethods, payload, qrDebtId, collectionTillId, qrPayload, cvu, items, credits, status, expiresAt, paidMethod, payerAccountId, payerAccountReference, transactionId, reversalTransactionId, createdAt, updatedAt]
+      required: [id, accountId, accountReference, customerName, amountMinor, amount, collectedMinor, collectedAmount, remainingMinor, remainingAmount, refundedMinor, refundedAmount, partiallyCollected, partiallyRefunded, checkoutUrl, currency, description, externalReference, allowedMethods, payload, qrDebtId, collectionTillId, qrPayload, cvu, items, credits, refunds, status, expiresAt, paidMethod, payerAccountId, payerAccountReference, transactionId, reversalTransactionId, createdAt, updatedAt]
       additionalProperties: false
       properties:
         id: { type: string, format: uuid }
@@ -3915,7 +3931,10 @@ components:
         collectedAmount: { type: number }
         remainingMinor: { type: string }
         remainingAmount: { type: number }
+        refundedMinor: { type: string }
+        refundedAmount: { type: number }
         partiallyCollected: { type: boolean }
+        partiallyRefunded: { type: boolean }
         checkoutUrl: { type: string }
         currency: { type: string, enum: [ARS] }
         description: { type: string }
@@ -3934,6 +3953,9 @@ components:
         credits:
           type: array
           items: { $ref: '#/components/schemas/PaymentLinkCredit' }
+        refunds:
+          type: array
+          items: { $ref: '#/components/schemas/PaymentLinkRefund' }
         status: { type: string, enum: [open, pending, paid, expired, cancelled, refunded] }
         expiresAt: { type: string, format: date-time }
         paidMethod: { type: [string, 'null'], enum: [internal, sandbox_inbound, cimbra_qr, cimbra_cvu] }
@@ -3970,15 +3992,30 @@ components:
     PaymentLinkCredit:
       type: object
       additionalProperties: false
-      required: [id, amountMinor, amount, method, payerAccountId, transactionId, instantTransferId, createdAt]
+      required: [id, amountMinor, amount, refundedMinor, refundedAmount, remainingMinor, remainingAmount, method, payerAccountId, transactionId, instantTransferId, createdAt]
       properties:
         id: { type: string, format: uuid }
         amountMinor: { type: string }
         amount: { type: number }
+        refundedMinor: { type: string }
+        refundedAmount: { type: number }
+        remainingMinor: { type: string }
+        remainingAmount: { type: number }
         method: { type: string, enum: [cimbra_cvu] }
         payerAccountId: { type: [string, 'null'], format: uuid }
         transactionId: { type: string, format: uuid }
         instantTransferId: { type: [string, 'null'], format: uuid }
+        createdAt: { type: string, format: date-time }
+    PaymentLinkRefund:
+      type: object
+      additionalProperties: false
+      required: [id, amountMinor, amount, creditId, transactionId, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        amountMinor: { type: string }
+        amount: { type: number }
+        creditId: { type: [string, 'null'], format: uuid }
+        transactionId: { type: string, format: uuid }
         createdAt: { type: string, format: date-time }
     CollectionTill:
       type: object

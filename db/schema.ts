@@ -1216,6 +1216,7 @@ export const paymentLinks = pgTable('payment_links', {
   qrDebtId: text('qr_debt_id').references(() => qrDebts.id, { onDelete: 'restrict' }),
   collectionTillId: text('collection_till_id').references((): AnyPgColumn => collectionTills.id, { onDelete: 'restrict' }),
   collectedMinor: bigint('collected_minor', { mode: 'bigint' }).notNull().default(sql`0`),
+  refundedMinor: bigint('refunded_minor', { mode: 'bigint' }).notNull().default(sql`0`),
   items: text('items').notNull().default('[]'),
   createdBy: text('created_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
   createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
@@ -1235,6 +1236,7 @@ export const paymentLinks = pgTable('payment_links', {
   check('payment_links_paid_method', sql`${table.paidMethod} IS NULL OR ${table.paidMethod} IN ('internal', 'sandbox_inbound', 'cimbra_qr', 'cimbra_cvu')`),
   check('payment_links_amount_positive', sql`${table.amountMinor} > 0`),
   check('payment_links_collected_nonnegative', sql`${table.collectedMinor} >= 0`),
+  check('payment_links_refunded_nonnegative', sql`${table.refundedMinor} >= 0`),
   check('payment_links_items_array', sql`jsonb_typeof(${table.items}::jsonb) = 'array'`),
 ]);
 
@@ -1244,6 +1246,7 @@ export const paymentLinkCredits = pgTable('payment_link_credits', {
   paymentLinkId: text('payment_link_id').notNull().references(() => paymentLinks.id, { onDelete: 'restrict' }),
   idempotencyKey: text('idempotency_key').notNull(), requestFingerprint: text('request_fingerprint').notNull(),
   amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(),
+  refundedMinor: bigint('refunded_minor', { mode: 'bigint' }).notNull().default(sql`0`),
   method: text('method').notNull(),
   payerAccountId: text('payer_account_id').references(() => accounts.id, { onDelete: 'restrict' }),
   transactionId: text('transaction_id').notNull().references(() => transactions.id, { onDelete: 'restrict' }),
@@ -1257,6 +1260,24 @@ export const paymentLinkCredits = pgTable('payment_link_credits', {
   index('idx_payment_link_credits_link_created').on(table.paymentLinkId, table.createdAt),
   check('payment_link_credits_method', sql`${table.method} = 'cimbra_cvu'`),
   check('payment_link_credits_amount_positive', sql`${table.amountMinor} > 0`),
+  check('payment_link_credits_refunded_range', sql`${table.refundedMinor} >= 0 AND ${table.refundedMinor} <= ${table.amountMinor}`),
+]);
+
+export const paymentLinkRefunds = pgTable('payment_link_refunds', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  paymentLinkId: text('payment_link_id').notNull().references(() => paymentLinks.id, { onDelete: 'restrict' }),
+  creditId: text('credit_id').references(() => paymentLinkCredits.id, { onDelete: 'restrict' }),
+  idempotencyKey: text('idempotency_key').notNull(), requestFingerprint: text('request_fingerprint').notNull(),
+  amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(),
+  transactionId: text('transaction_id').notNull().references(() => transactions.id, { onDelete: 'restrict' }),
+  createdBy: text('created_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_payment_link_refunds_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  uniqueIndex('idx_payment_link_refunds_transaction').on(table.transactionId),
+  index('idx_payment_link_refunds_link_created').on(table.paymentLinkId, table.createdAt),
+  check('payment_link_refunds_amount_positive', sql`${table.amountMinor} > 0`),
 ]);
 
 export const collectionTills = pgTable('collection_tills', {
