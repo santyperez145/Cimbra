@@ -162,12 +162,12 @@ export type LiveReadiness = {
     kind: 'corporate' | 'regulatory_registry' | 'safeguarding' | 'directory' | 'instant_credit' | 'instant_debit' | 'echeq_clearing' | 'cvu_assignment' | 'qr_pct' | 'card_issuing' | 'bill_payments';
     counterpartyKind: 'clearing_house' | 'bank' | 'card_scheme' | 'official_registry' | 'regulated_sponsor' | 'corporate';
     counterparty: string; officialUrl: string; summary: string; wiringContract: string;
-    productIds: string[]; status: 'unwired' | 'contracted' | 'certified' | 'live'; adapterRegistered: boolean;
+    productIds: string[]; status: 'unwired' | 'negotiating' | 'contracted' | 'certified' | 'live'; adapterRegistered: boolean;
   }>;
   fintechPath: {
     jurisdiction: 'AR'; intendedFigure: 'PSPCP'; summary: string;
     officialSources: Array<{ name: string; url: string; surface: string }>;
-    gates: Array<{ id: string; connectionId: string | null; name: string; summary: string; status: 'unwired' | 'contracted' | 'certified' | 'live'; met: boolean }>;
+    gates: Array<{ id: string; connectionId: string | null; name: string; summary: string; status: 'unwired' | 'negotiating' | 'contracted' | 'certified' | 'live'; met: boolean }>;
     metCount: number; gateCount: number;
   };
   capitalPlan: {

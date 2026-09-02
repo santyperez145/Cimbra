@@ -21,7 +21,11 @@ type Environment = {
 
 type Rail = {
   id: string; name: string; counterparty: string; officialUrl: string; summary: string; wiringContract: string;
-  status: 'unwired' | 'contracted' | 'certified' | 'live'; adapterRegistered: boolean; productIds: string[];
+  status: 'unwired' | 'negotiating' | 'contracted' | 'certified' | 'live'; adapterRegistered: boolean; productIds: string[];
+  evidence?: {
+    counterpartyLegalName: string; contractReference: string; safeguardingAccountRef: string;
+  };
+  dueDiligenceRequiredMet?: boolean;
 };
 
 type FintechPath = {
@@ -68,11 +72,11 @@ const productLabels = {
 } as const;
 
 const railLabels = {
-  unwired: 'Sin cablear', contracted: 'Contrato', certified: 'Certificado', live: 'Live',
+  unwired: 'Sin cablear', negotiating: 'Negociando', contracted: 'Contrato', certified: 'Certificado', live: 'Live',
 } as const;
 
 const railStatusClass = {
-  unwired: 'roadmap', contracted: 'foundation', certified: 'sandbox', live: 'live',
+  unwired: 'roadmap', negotiating: 'foundation', contracted: 'foundation', certified: 'sandbox', live: 'live',
 } as const;
 
 export default function PlatformPanel() {
@@ -134,7 +138,7 @@ export default function PlatformPanel() {
       {(readiness?.capitalPlan?.forbidden ?? []).map((item) => <div key={item.id}><span className="movement"><i>○</i><b>{item.name}<small>{item.summary}</small></b></span><em className="capability-status roadmap">Prohibido</em></div>)}
     </article>
     <article className="module-list capability-list"><div className="card-head"><div><h2>Rieles oficiales listos para cablear</h2><p>BCRA, Coelsa, banco patrocinante, PCI y originadores. El estado se persiste para cuando exista contrato y certificación; el adaptador Cimbra se registra fuera del ledger. Ningún competidor aparece como contraparte.</p></div><b>{loading ? 'Cargando…' : `${readiness?.summary.officialRailsLive ?? 0}/${readiness?.summary.officialRailsTotal ?? 0} live`}</b></div>
-      {(readiness?.rails ?? []).map((rail) => <div key={rail.id}><span className="movement"><i>{rail.status === 'live' && rail.adapterRegistered ? '✓' : '○'}</i><b>{rail.name}<small>{rail.counterparty} · <a href={rail.officialUrl} target="_blank" rel="noreferrer">fuente oficial</a></small><small>{rail.summary}</small><small>Puerto: {rail.wiringContract}{rail.adapterRegistered ? ' · adaptador registrado' : ' · sin adaptador'}</small></b></span><em className={`capability-status ${railStatusClass[rail.status]}`}>{railLabels[rail.status]}</em></div>)}
+      {(readiness?.rails ?? []).map((rail) => <div key={rail.id}><span className="movement"><i>{rail.status === 'live' && rail.adapterRegistered ? '✓' : '○'}</i><b>{rail.name}<small>{rail.counterparty}{rail.evidence?.counterpartyLegalName ? ` · ${rail.evidence.counterpartyLegalName}` : ''} · <a href={rail.officialUrl} target="_blank" rel="noreferrer">fuente oficial</a></small><small>{rail.summary}</small><small>Puerto: {rail.wiringContract}{rail.adapterRegistered ? ' · adaptador registrado' : ' · sin adaptador'}{rail.id === 'sponsor_bank' ? (rail.dueDiligenceRequiredMet ? ' · DD sponsor completo' : ' · DD sponsor pendiente') : ''}</small></b></span><em className={`capability-status ${railStatusClass[rail.status]}`}>{railLabels[rail.status]}</em></div>)}
     </article>
     <article className="module-list capability-list"><div className="card-head"><div><h2>Productos del catálogo público</h2><p>Nombres y cobertura tomados de BIND APIBANK, BIND PSP, Pomelo Issuing y tapi. Homologan por separado; cada uno declara los rieles oficiales que faltan. Dock documenta Pix y tarjetas en Brasil: no hay producto AR inventado. Wibond no publica un contrato de riel usable.</p></div><b>{loading ? 'Cargando…' : `${readiness?.summary.integracion ?? 0} en integración`}</b></div>
       {(readiness?.products ?? []).map((product) => <div key={product.id}><span className="movement"><i>⌁</i><b>{product.name}<small>{product.benchmark} · {product.network}</small><small>Sandbox: {product.sandboxCoverage}</small><small>Falta: {product.missingForProduction}</small><small>Rieles: {product.requiredRailIds.join(', ') || 'ninguno'}{product.missingOfficialRails.length ? ` · sin live: ${product.missingOfficialRails.join(', ')}` : ''}{product.adapterReady ? ' · adaptador listo' : ' · sin adaptador'}</small></b></span><em className={`capability-status ${product.status === 'go_live' ? 'live' : product.status === 'homologacion' ? 'sandbox' : 'roadmap'}`}>{productLabels[product.status]}</em></div>)}

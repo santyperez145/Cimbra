@@ -29,6 +29,11 @@ const errorResponses = [
 const changelog = [
   {
     date: '02 SEP 2026',
+    title: 'Banco patrocinante operable en /ops',
+    detail: 'official_rail_connections suma negotiating, evidencia de sponsor (razón social, CUIT, contrato, safeguarding) y due diligence PSPCP. /ops opera PATCH /api/ops/rails/{id}. BIND Banco es candidato a entidad financiera patrocinante; bindX/BIND PSP siguen fuera del core. El adaptador documental no despacha fondos. OpenAPI permanece en 192 operaciones.',
+  },
+  {
+    date: '02 SEP 2026',
     title: 'Movimientos sobre la API de transferencias',
     detail: 'La consola deja el snapshot del dashboard y opera GET/POST /api/v1/transfers con detalle, paginación, export CSV y reversas compensatorias. Viewer lee; operator/admin/owner escriben. OpenAPI permanece en 192 operaciones.',
   },

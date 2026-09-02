@@ -13,7 +13,8 @@ const contentSecurityPolicy = [
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
   "connect-src 'self'",
-  'upgrade-insecure-requests',
+  // En local HTTP, upgrade-insecure-requests rompe fetch/login al forzar HTTPS.
+  ...(process.env.NODE_ENV === 'development' ? [] : ['upgrade-insecure-requests']),
 ].join('; ');
 
 const nextConfig: NextConfig = {

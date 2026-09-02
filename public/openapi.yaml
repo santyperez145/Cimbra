@@ -4783,7 +4783,7 @@ components:
               summary: { type: string }
               wiringContract: { type: string }
               productIds: { type: array, items: { type: string } }
-              status: { type: string, enum: [unwired, contracted, certified, live] }
+              status: { type: string, enum: [unwired, negotiating, contracted, certified, live] }
               adapterRegistered: { type: boolean }
         fintechPath:
           type: object
@@ -4811,7 +4811,7 @@ components:
                   connectionId: { type: ['string', 'null'] }
                   name: { type: string }
                   summary: { type: string }
-                  status: { type: string, enum: [unwired, contracted, certified, live] }
+                  status: { type: string, enum: [unwired, negotiating, contracted, certified, live] }
                   met: { type: boolean }
             metCount: { type: integer }
             gateCount: { type: integer }

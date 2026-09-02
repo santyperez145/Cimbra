@@ -45,7 +45,7 @@ export const HELP_ARTICLES = [
     id: 'pspcp',
     title: 'Camino PSPCP y dinero real',
     summary: 'La inscripción BCRA es gratuita, pero exige persona jurídica y banco patrocinante.',
-    body: 'USD 500 cubre Gate 1 (consulta legal, dominio, entrevistas y correo). No constituye SAS, no paga Coelsa, no activa AWS ni marca Go Live. El data room público está en /investors.',
+    body: 'USD 500 cubre Gate 1 (consulta legal, dominio, entrevistas y correo). No constituye SAS, no paga Coelsa ni el retainer del banco patrocinante, no activa AWS ni marca Go Live. BIND Banco puede ser el sponsor regulado; bindX no es el producto. El data room público está en /investors y la evidencia del sponsor se opera en /ops.',
   },
   {
     id: 'api-keys',

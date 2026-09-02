@@ -34,13 +34,37 @@ type ServiceTopology = {
   posture: string;
 };
 
+type RailStatus = 'unwired' | 'negotiating' | 'contracted' | 'certified' | 'live';
+
+type Rail = {
+  id: string; name: string; counterparty: string; summary: string; status: RailStatus;
+  adapterRegistered: boolean; wiringContract: string;
+  evidence: {
+    evidenceNote: string; counterpartyLegalName: string; counterpartyTaxId: string;
+    contractReference: string; safeguardingAccountRef: string;
+    dueDiligence: Array<{ checkId: string; status: string; note: string }>;
+  };
+  dueDiligenceRequiredMet: boolean;
+};
+
+type RailsBundle = {
+  rails: Rail[];
+  sponsorCandidates: Array<{ id: string; label: string; summary: string; rfiTopics: readonly string[] }>;
+  dueDiligenceCatalog: Array<{ id: string; required: boolean; name: string; summary: string }>;
+  fintechPath: { metCount: number; gateCount: number; intendedFigure: string };
+};
+
 type Overview = {
   operator: { email: string; role: string };
   tenants: Tenant[];
   leads: Lead[];
   supportCases: PlatformCase[];
   services: ServiceTopology;
-  readiness: { effectiveMode: string; liveReady: boolean; blockReason: string | null };
+  rails: RailsBundle;
+  readiness: {
+    effectiveMode: string; liveReady: boolean; blockReason: string | null;
+    fintechPath?: { metCount: number; gateCount: number };
+  };
 };
 
 const STATUS_LABELS: Record<SupportStatus, string> = {
@@ -52,13 +76,24 @@ const LEAD_LABELS: Record<LeadStatus, string> = {
   new: 'Nuevo', contacted: 'Contactado', qualified: 'Calificado', closed: 'Cerrado',
 };
 
+const RAIL_LABELS: Record<RailStatus, string> = {
+  unwired: 'Sin cablear', negotiating: 'Negociando', contracted: 'Contrato',
+  certified: 'Certificado', live: 'Live',
+};
+
 function isOpenStatus(status: SupportStatus) {
   return status !== 'resolved' && status !== 'closed';
 }
 
+function nextRailStatus(status: RailStatus): RailStatus | null {
+  const order: RailStatus[] = ['unwired', 'negotiating', 'contracted', 'certified', 'live'];
+  const index = order.indexOf(status);
+  return index >= 0 && index < order.length - 1 ? order[index + 1] : null;
+}
+
 export default function OpsClient({ operatorEmail }: { operatorEmail: string }) {
   const [data, setData] = useState<Overview | null>(null);
-  const [section, setSection] = useState<'tenants' | 'support' | 'leads' | 'services'>('tenants');
+  const [section, setSection] = useState<'tenants' | 'support' | 'leads' | 'services' | 'rails'>('rails');
   const [selectedCase, setSelectedCase] = useState('');
   const [messages, setMessages] = useState<SupportMessage[]>([]);
   const [busy, setBusy] = useState(true);
@@ -137,8 +172,51 @@ export default function OpsClient({ operatorEmail }: { operatorEmail: string }) 
     setBusy(false);
   }
 
+  async function saveSponsor(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const payload = new FormData(form);
+    const dueDiligence = (data?.rails.dueDiligenceCatalog ?? []).map((check) => ({
+      checkId: check.id,
+      status: String(payload.get(`dd_${check.id}`) ?? 'pending'),
+      note: String(payload.get(`dd_note_${check.id}`) ?? ''),
+    }));
+    setBusy(true); setFeedback('');
+    const response = await authenticatedFetch('/api/ops/rails/sponsor_bank', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        status: payload.get('status'),
+        evidenceNote: payload.get('evidenceNote'),
+        counterpartyLegalName: payload.get('counterpartyLegalName'),
+        counterpartyTaxId: payload.get('counterpartyTaxId'),
+        contractReference: payload.get('contractReference'),
+        safeguardingAccountRef: payload.get('safeguardingAccountRef'),
+        dueDiligence,
+      }),
+    });
+    const result = await response.json() as { error?: string | { message?: string } };
+    if (response.ok) { await load(); setFeedback('Banco patrocinante actualizado. El adaptador documental no despacha fondos ni usa bindX.'); }
+    else setFeedback(typeof result.error === 'string' ? result.error : result.error?.message ?? 'No pudimos guardar el sponsor.');
+    setBusy(false);
+  }
+
+  async function advanceRail(id: string, status: RailStatus) {
+    const next = nextRailStatus(status);
+    if (!next) return;
+    setBusy(true); setFeedback('');
+    const response = await authenticatedFetch(`/api/ops/rails/${id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: next }),
+    });
+    const result = await response.json() as { error?: string | { message?: string } };
+    if (response.ok) { await load(); setFeedback(`${id} pasó a ${RAIL_LABELS[next].toLowerCase()}.`); }
+    else setFeedback(typeof result.error === 'string' ? result.error : result.error?.message ?? 'No pudimos avanzar el riel.');
+    setBusy(false);
+  }
+
   const openCases = data?.supportCases.filter((item) => isOpenStatus(item.status)) ?? [];
-  const newLeads = data?.leads.filter((item) => item.status === 'new') ?? [];
+  const sponsor = data?.rails.rails.find((rail) => rail.id === 'sponsor_bank');
+  const ddById = new Map((sponsor?.evidence.dueDiligence ?? []).map((item) => [item.checkId, item]));
 
   return <main className="ops-shell">
     <header className="ops-topbar">
@@ -149,7 +227,7 @@ export default function OpsClient({ operatorEmail }: { operatorEmail: string }) 
     {data && <div className="module-metrics ops-metrics">
       <article><strong>{data.tenants.length}</strong><span>tenants</span></article>
       <article><strong>{openCases.length}</strong><span>casos abiertos</span></article>
-      <article><strong>{newLeads.length}</strong><span>leads nuevos</span></article>
+      <article><strong>{data.readiness.fintechPath ? `${data.readiness.fintechPath.metCount}/${data.readiness.fintechPath.gateCount}` : '—'}</strong><span>gates PSPCP</span></article>
       <article><strong>{data.readiness.effectiveMode}</strong><span>modo efectivo</span></article>
     </div>}
 
@@ -157,6 +235,7 @@ export default function OpsClient({ operatorEmail }: { operatorEmail: string }) 
     {feedback && <div className="form-feedback ledger-feedback">{feedback}</div>}
 
     <nav className="ops-tabs">
+      <button className={section === 'rails' ? 'active' : ''} onClick={() => setSection('rails')}>Sponsor / rieles</button>
       <button className={section === 'tenants' ? 'active' : ''} onClick={() => setSection('tenants')}>Tenants</button>
       <button className={section === 'support' ? 'active' : ''} onClick={() => setSection('support')}>Soporte</button>
       <button className={section === 'leads' ? 'active' : ''} onClick={() => setSection('leads')}>Leads</button>
@@ -164,6 +243,56 @@ export default function OpsClient({ operatorEmail }: { operatorEmail: string }) 
     </nav>
 
     {!data ? <p className="operations-empty">{busy ? 'Cargando plano de control…' : 'Sin datos disponibles.'}</p> : <>
+      {section === 'rails' && <div className="operations-layout">
+        <article className="operations-detail">
+          <div className="operations-detail-head"><div><small>BANCO PATROCINANTE · PSPCP</small><h2>Sponsor bancario del BaaS propio</h2><p>BIND Banco puede ser la entidad financiera patrocinante. BIND PSP / bindX no son el producto.</p></div></div>
+          <p className="ops-note">El retainer del sponsor está fuera del envelope de USD 500. Acá registrás negociación y evidencia; liveReady sigue fail-closed hasta hostname, Coelsa y el resto de rieles.</p>
+          {(data.rails.sponsorCandidates ?? []).map((candidate) => <details key={candidate.id} open={candidate.id === 'bind_banco_ef'}>
+            <summary><strong>{candidate.label}</strong></summary>
+            <p>{candidate.summary}</p>
+            <ul>{candidate.rfiTopics.map((topic) => <li key={topic}>{topic}</li>)}</ul>
+          </details>)}
+          {sponsor && <form className="case-thread" onSubmit={saveSponsor}>
+            <label>Estado<select name="status" defaultValue={sponsor.status} required>
+              {(['unwired', 'negotiating', 'contracted', 'certified', 'live'] as RailStatus[]).map((status) => (
+                <option key={status} value={status}>{RAIL_LABELS[status]}</option>
+              ))}
+            </select></label>
+            <label>Razón social del banco<input name="counterpartyLegalName" defaultValue={sponsor.evidence.counterpartyLegalName} maxLength={200} placeholder="Entidad financiera regulada" /></label>
+            <label>CUIT / id fiscal<input name="counterpartyTaxId" defaultValue={sponsor.evidence.counterpartyTaxId} maxLength={20} placeholder="30-XXXXXXXX-X" /></label>
+            <label>Referencia de contrato<input name="contractReference" defaultValue={sponsor.evidence.contractReference} maxLength={120} placeholder="Contrato-patrocinio-…" /></label>
+            <label>Cuenta safeguarding (ref, sin secretos)<input name="safeguardingAccountRef" defaultValue={sponsor.evidence.safeguardingAccountRef} maxLength={120} placeholder="Cuenta a la vista · ref interna" /></label>
+            <label>Nota de evidencia<textarea name="evidenceNote" defaultValue={sponsor.evidence.evidenceNote} maxLength={2000} rows={3} /></label>
+            <h3>Due diligence del sponsor</h3>
+            {(data.rails.dueDiligenceCatalog ?? []).map((check) => {
+              const current = ddById.get(check.id);
+              return <fieldset key={check.id} className="ops-dd-item">
+                <legend>{check.name}{check.required ? ' · requerido' : ''}</legend>
+                <p>{check.summary}</p>
+                <select name={`dd_${check.id}`} defaultValue={current?.status ?? 'pending'}>
+                  <option value="pending">Pendiente</option>
+                  <option value="passed">Cumple</option>
+                  <option value="failed">No cumple</option>
+                  <option value="waived">Waived</option>
+                </select>
+                <input name={`dd_note_${check.id}`} defaultValue={current?.note ?? ''} maxLength={500} placeholder="Nota breve" />
+              </fieldset>;
+            })}
+            <button disabled={busy}>Guardar sponsor bancario</button>
+          </form>}
+        </article>
+        <aside className="operations-queue">
+          <p className="ops-note">Rieles oficiales · {data.rails.fintechPath.metCount}/{data.rails.fintechPath.gateCount} gates PSPCP</p>
+          {data.rails.rails.map((rail) => <div key={rail.id} className="work-item-row">
+            <span className={`work-priority ${rail.status === 'live' ? 'low' : 'high'}`} />
+            <span><strong>{rail.name}</strong><small>{rail.counterparty} · {RAIL_LABELS[rail.status]}{rail.adapterRegistered ? ' · adaptador listo' : ''}</small></span>
+            {nextRailStatus(rail.status) && rail.id !== 'sponsor_bank' && (
+              <button type="button" disabled={busy} onClick={() => advanceRail(rail.id, rail.status)}>Avanzar</button>
+            )}
+          </div>)}
+        </aside>
+      </div>}
+
       {section === 'tenants' && <article className="module-list">
         <div className="card-head"><div><h2>Tenants</h2><p>Organizaciones dadas de alta, sin acceso a sus datos financieros desde esta vista</p></div><b>{data.tenants.length}</b></div>
         {data.tenants.length === 0 ? <div className="table-empty">Todavía no hay organizaciones registradas.</div> : data.tenants.map((tenant) => <div key={tenant.id}>

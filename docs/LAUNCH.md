@@ -56,7 +56,7 @@ El data room público vive en `/investors` y se deriva de `live-readiness`, el c
 
 ## Gate 2 — piloto con fondos controlados
 
-- licencia aplicable o sponsor bancario/PSP y contratos de acceso al riel firmados;
+- licencia aplicable o sponsor bancario (entidad financiera regulada; p. ej. BIND Banco como candidato a `sponsor_bank`, sin adoptar bindX) y contratos de acceso al riel firmados; la evidencia se opera en `/ops` → Sponsor / rieles;
 - inscripción en el Registro de PSP del BCRA (y billeteras interoperables si corresponde) con evidencia en `official_rail_connections`;
 - KYC/KYB, AML, sanciones y monitoreo con responsables definidos;
 - ledger productivo autoritativo e independiente de bancos, cámaras y redes;

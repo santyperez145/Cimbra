@@ -1,6 +1,10 @@
 import { PlatformRailError } from './operating-mode.ts';
+import {
+  dueDiligenceProgress, emptyOfficialRailEvidence, sponsorBankDocumentaryReady,
+  type OfficialRailEvidence,
+} from './sponsor-bank.ts';
 
-export const RAIL_CONNECTION_STATUSES = ['unwired', 'contracted', 'certified', 'live'] as const;
+export const RAIL_CONNECTION_STATUSES = ['unwired', 'negotiating', 'contracted', 'certified', 'live'] as const;
 export type RailConnectionStatus = typeof RAIL_CONNECTION_STATUSES[number];
 
 export const RAIL_COUNTERPARTY_KINDS = [
@@ -74,8 +78,8 @@ export const OFFICIAL_RAIL_CONNECTIONS: readonly OfficialRailDefinition[] = [
     country: 'AR', kind: 'safeguarding', counterpartyKind: 'bank',
     counterparty: 'Entidad financiera patrocinante',
     officialUrl: 'https://www.bcra.gob.ar/inscripcion-registro-proveedores-servicios-de-pago/',
-    summary: 'Para inscribirse como PSPCP el BCRA exige informar el o los bancos patrocinantes, los servicios de pago y los modos de restitución de fondos.',
-    wiringContract: 'Contrato de patrocinio y cuentas a la vista del sponsor. Credenciales y host quedan fuera del ledger.',
+    summary: 'Para inscribirse como PSPCP el BCRA exige informar el o los bancos patrocinantes, los servicios de pago y los modos de restitución de fondos. La identidad del banco (p. ej. una EF regulada candidata) vive en la evidencia persistida, no en este catálogo genérico.',
+    wiringContract: 'Contrato de patrocinio y cuentas a la vista del sponsor. Credenciales y host quedan fuera del ledger. El adaptador es documental: no despacha fondos ni usa APIs de BaaS competidores.',
     productIds: ['account_lookup', 'transfers', 'debin', 'echeq', 'cvu', 'qr_interoperable', 'collections'],
   },
   {
@@ -202,12 +206,21 @@ type StatusErrorConstructor = new (message: string, status?: number, code?: stri
 export type OfficialRailConnection = OfficialRailDefinition & {
   status: RailConnectionStatus;
   adapterRegistered: boolean;
+  evidence: OfficialRailEvidence;
+  dueDiligenceRequiredMet: boolean;
+};
+
+export type OfficialRailOverride = {
+  id: string;
+  status: RailConnectionStatus;
+  evidence?: OfficialRailEvidence;
 };
 
 /**
- * Registro de adaptadores de riel. Vacío a propósito: el dominio y el ledger
- * ya existen; el cableado real se agrega aquí sin reescribir productos.
- * Un adaptador no debe abrir una transacción SQL durante una llamada de red.
+ * Registro de adaptadores de riel de red/fondos. Vacío a propósito.
+ * El banco patrocinante usa un adaptador documental calculado desde evidencia
+ * (contrato + due diligence), nunca un conector hacia BaaS competidores.
+ * Un adaptador de fondos no debe abrir una transacción SQL durante la llamada de red.
  */
 export const OFFICIAL_RAIL_ADAPTERS: Partial<Record<string, { id: string }>> = {};
 
@@ -219,15 +232,33 @@ export function requiredRailIdsForProduct(productId: string) {
   return OFFICIAL_RAIL_CONNECTIONS.filter((rail) => rail.productIds.includes(productId)).map((rail) => rail.id);
 }
 
+function documentaryAdapterRegistered(railId: string, status: RailConnectionStatus, evidence: OfficialRailEvidence) {
+  if (railId === 'sponsor_bank') return sponsorBankDocumentaryReady(evidence, status);
+  return false;
+}
+
 export function materializeOfficialRails(
-  overrides: ReadonlyArray<{ id: string; status: RailConnectionStatus }> = [],
+  overrides: ReadonlyArray<OfficialRailOverride | { id: string; status: RailConnectionStatus }> = [],
 ): OfficialRailConnection[] {
-  const byId = new Map(overrides.map((row) => [row.id, row.status]));
-  return OFFICIAL_RAIL_CONNECTIONS.map((rail) => ({
-    ...rail,
-    status: byId.get(rail.id) ?? 'unwired',
-    adapterRegistered: Boolean(OFFICIAL_RAIL_ADAPTERS[rail.id]),
-  }));
+  const byId = new Map(overrides.map((row) => [row.id, row]));
+  return OFFICIAL_RAIL_CONNECTIONS.map((rail) => {
+    const override = byId.get(rail.id);
+    const status = override?.status ?? 'unwired';
+    const evidence = ('evidence' in (override ?? {}) && override && 'evidence' in override && override.evidence)
+      ? override.evidence
+      : emptyOfficialRailEvidence();
+    const adapterRegistered = Boolean(OFFICIAL_RAIL_ADAPTERS[rail.id])
+      || documentaryAdapterRegistered(rail.id, status, evidence);
+    return {
+      ...rail,
+      status,
+      evidence,
+      dueDiligenceRequiredMet: rail.id === 'sponsor_bank'
+        ? dueDiligenceProgress(evidence.dueDiligence).requiredMet
+        : true,
+      adapterRegistered,
+    };
+  });
 }
 
 export function missingLiveRailsForProduct(

@@ -11,6 +11,36 @@ export function publicOrigin(request: Request): string {
   return new URL(request.url).origin;
 }
 
+function requestHostOrigin(request: Request): string | null {
+  const host = request.headers.get('x-forwarded-host')?.split(',')[0]?.trim()
+    || request.headers.get('host')?.trim();
+  if (!host) return null;
+  const proto = request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim()
+    || new URL(request.url).protocol.replace(':', '');
+  try {
+    return new URL(`${proto}://${host}`).origin;
+  } catch {
+    return null;
+  }
+}
+
+/** Orígenes confiables para mutaciones same-site: host de la request, Host header y CIMBRA_PUBLIC_URL. */
+export function trustedMutationOrigins(request: Request): Set<string> {
+  const origins = new Set<string>();
+  try {
+    origins.add(new URL(request.url).origin);
+  } catch { /* ignore malformed request URL */ }
+  const fromHost = requestHostOrigin(request);
+  if (fromHost) origins.add(fromHost);
+  const configured = setting('CIMBRA_PUBLIC_URL');
+  if (configured) {
+    try {
+      origins.add(new URL(configured).origin);
+    } catch { /* ignore malformed env */ }
+  }
+  return origins;
+}
+
 export function safeReturnTo(value: string | null | undefined): string {
   if (!value || !value.startsWith('/') || value.startsWith('//')) return '/console';
   try {

@@ -330,6 +330,13 @@
       "when": 1788381892823,
       "tag": "0046_glorious_jean_grey",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1788387600000,
+      "tag": "0047_sponsor_bank_evidence",
+      "breakpoints": true
     }
   ]
 }

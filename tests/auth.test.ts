@@ -1,9 +1,49 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { mutationAllowed } from '../app/lib/auth/http.ts';
 import {
   createRecoveryCode, createTotpSecret, decodeBase32, encodeBase32, normalizeRecoveryCode,
   recoveryCodeHash, totpCode, totpProvisioningUri, verifyTotp,
 } from '../app/lib/auth/totp.ts';
+
+test('acepta el origen del host local aunque CIMBRA_PUBLIC_URL apunte a producción', () => {
+  const previous = process.env.CIMBRA_PUBLIC_URL;
+  process.env.CIMBRA_PUBLIC_URL = 'https://cimbra-rose.vercel.app';
+  try {
+    const local = new Request('http://localhost:3000/api/auth/login', {
+      method: 'POST',
+      headers: { Origin: 'http://localhost:3000', Host: 'localhost:3000' },
+    });
+    assert.equal(mutationAllowed(local), true);
+
+    const loopback = new Request('http://localhost:3000/api/auth/login', {
+      method: 'POST',
+      headers: { Origin: 'http://127.0.0.1:3000', Host: '127.0.0.1:3000' },
+    });
+    assert.equal(mutationAllowed(loopback), true);
+
+    const configured = new Request('http://localhost:3000/api/auth/login', {
+      method: 'POST',
+      headers: { Origin: 'https://cimbra-rose.vercel.app' },
+    });
+    assert.equal(mutationAllowed(configured), true);
+
+    const evil = new Request('http://localhost:3000/api/auth/login', {
+      method: 'POST',
+      headers: { Origin: 'https://evil.example', 'Sec-Fetch-Site': 'cross-site' },
+    });
+    assert.equal(mutationAllowed(evil), false);
+
+    const spoofed = new Request('http://localhost:3000/api/auth/login', {
+      method: 'POST',
+      headers: { Origin: 'https://evil.example', Host: 'localhost:3000' },
+    });
+    assert.equal(mutationAllowed(spoofed), false);
+  } finally {
+    if (previous === undefined) delete process.env.CIMBRA_PUBLIC_URL;
+    else process.env.CIMBRA_PUBLIC_URL = previous;
+  }
+});
 
 test('implementa los vectores RFC 6238 para SHA-1', async () => {
   const secret = encodeBase32(new TextEncoder().encode('12345678901234567890'));

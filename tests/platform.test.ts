@@ -11,8 +11,12 @@ import { SERVICE_CATALOG, serviceTopology } from '../app/lib/platform/service-ca
 import { normalizeLeadStatusInput, normalizeOrganizationPatch, normalizeSupportCaseInput, normalizeSupportMessageInput } from '../app/lib/platform/support-input.ts';
 import { buildInvestorEvidence } from '../app/lib/platform/investor-evidence.ts';
 import { COMPETITOR_REFERENCES, evaluateLiveReadiness, PLATFORM_PRODUCTS, requireLiveApiKeysEnabled, requireSandboxLedgerOrCertifiedRail } from '../app/lib/platform/live-readiness.ts';
-import { dispatchOfficialRail, OFFICIAL_RAIL_ADAPTERS, OFFICIAL_RAIL_CONNECTIONS, requiredRailIdsForProduct } from '../app/lib/platform/official-rails.ts';
+import { dispatchOfficialRail, materializeOfficialRails, OFFICIAL_RAIL_ADAPTERS, OFFICIAL_RAIL_CONNECTIONS, requiredRailIdsForProduct } from '../app/lib/platform/official-rails.ts';
 import { PlatformRailError } from '../app/lib/platform/operating-mode.ts';
+import {
+  assertSponsorBankTransition, dueDiligenceProgress, emptyOfficialRailEvidence, SPONSOR_BANK_CANDIDATES,
+  SPONSOR_DUE_DILIGENCE_CHECKS, sponsorBankDocumentaryReady,
+} from '../app/lib/platform/sponsor-bank.ts';
 import { matchReconciliationEntries } from '../app/lib/platform/reconciliation.ts';
 import { systemAmountRisk } from '../app/lib/platform/risk-engine.ts';
 import { csvObjects, CsvError } from '../app/lib/platform/csv.ts';
@@ -187,6 +191,7 @@ test('los rieles oficiales son contrapartes reguladas y el adaptador falla cerra
   assert.ok(OFFICIAL_RAIL_CONNECTIONS.length >= 10);
   assert.equal(new Set(OFFICIAL_RAIL_CONNECTIONS.map((rail) => rail.id)).size, OFFICIAL_RAIL_CONNECTIONS.length);
   assert.deepEqual(Object.keys(OFFICIAL_RAIL_ADAPTERS), []);
+  assert.ok(OFFICIAL_RAIL_CONNECTIONS.some((rail) => rail.id === 'sponsor_bank'));
   for (const rail of OFFICIAL_RAIL_CONNECTIONS) {
     assert.equal(competitors.test(rail.counterparty), false, rail.id);
     assert.equal(competitors.test(rail.officialUrl), false, rail.id);
@@ -235,6 +240,7 @@ test('el envelope de USD 500 cubre Gate 1 y no habilita live ni rieles', () => {
   assert.equal(isForbiddenCapitalSpend('coelsa_membership'), true);
   assert.equal(isForbiddenCapitalSpend('mark_go_live'), true);
   assert.equal(isForbiddenCapitalSpend('competitor_connector'), true);
+  assert.equal(isForbiddenCapitalSpend('sponsor_bank'), true);
   assert.equal(isForbiddenCapitalSpend('legal_consult'), false);
   assert.equal(normalizeDemoIntent('investor'), 'investor');
   assert.equal(normalizeDemoIntent('unknown'), 'design_session');
@@ -846,4 +852,39 @@ test('el importador CSV conserva comas escapadas y exige el contrato canónico',
   ]);
   assert.throws(() => csvObjects('reference,direction,amount\nA,credit,1'), CsvError);
   assert.throws(() => csvObjects('external_reference,direction,amount\n"A,credit,1'), /sin cierre/);
+});
+
+test('el banco patrocinante admite evidencia documental sin adoptar bindX como core', () => {
+  assert.ok(SPONSOR_BANK_CANDIDATES.some((item) => item.id === 'bind_banco_ef'));
+  assert.ok(SPONSOR_DUE_DILIGENCE_CHECKS.some((item) => item.id === 'no_competitor_baas' && item.required));
+  const base = {
+    ...emptyOfficialRailEvidence(),
+    counterpartyLegalName: 'Entidad Financiera Regulada SA',
+    counterpartyTaxId: '30712345678',
+    contractReference: 'PAT-2026-001',
+    safeguardingAccountRef: 'cta-clientes-001',
+    dueDiligence: SPONSOR_DUE_DILIGENCE_CHECKS.filter((item) => item.required).map((item) => ({
+      checkId: item.id, status: 'passed' as const, note: 'ok', updatedAt: '2026-09-02T00:00:00.000Z',
+    })),
+  };
+  assert.equal(assertSponsorBankTransition('unwired', 'live', base), 'Transición inválida de unwired a live.');
+  assert.equal(assertSponsorBankTransition('unwired', 'negotiating', emptyOfficialRailEvidence()), null);
+  assert.equal(assertSponsorBankTransition('negotiating', 'contracted', base), null);
+  assert.equal(assertSponsorBankTransition('contracted', 'certified', base), null);
+  assert.equal(sponsorBankDocumentaryReady(base, 'certified'), true);
+  assert.equal(dueDiligenceProgress(base.dueDiligence).requiredMet, true);
+
+  const blocked = {
+    ...base,
+    dueDiligence: base.dueDiligence.map((item) => (
+      item.checkId === 'no_competitor_baas' ? { ...item, status: 'failed' as const } : item
+    )),
+  };
+  assert.match(assertSponsorBankTransition('contracted', 'certified', blocked) ?? '', /BaaS competidor/);
+
+  const rails = materializeOfficialRails([{ id: 'sponsor_bank', status: 'certified', evidence: base }]);
+  const sponsor = rails.find((rail) => rail.id === 'sponsor_bank');
+  assert.equal(sponsor?.adapterRegistered, true);
+  assert.equal(sponsor?.dueDiligenceRequiredMet, true);
+  assert.equal(evaluateLiveReadiness([], [{ id: 'sponsor_bank', status: 'certified' }]).liveReady, false);
 });

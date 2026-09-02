@@ -1,4 +1,4 @@
-import { publicOrigin } from './config';
+import { trustedMutationOrigins } from './config.ts';
 
 export function mutationAllowed(request: Request): boolean {
   const method = request.method.toUpperCase();
@@ -8,7 +8,7 @@ export function mutationAllowed(request: Request): boolean {
   const origin = request.headers.get('origin');
   if (!origin) return true;
   try {
-    return new URL(origin).origin === publicOrigin(request);
+    return trustedMutationOrigins(request).has(new URL(origin).origin);
   } catch {
     return false;
   }

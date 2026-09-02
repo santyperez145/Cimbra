@@ -1409,11 +1409,16 @@ export const officialRailConnections = pgTable('official_rail_connections', {
   id: text('id').primaryKey(),
   status: text('status').notNull().default('unwired'),
   evidenceNote: text('evidence_note').notNull().default(''),
+  counterpartyLegalName: text('counterparty_legal_name').notNull().default(''),
+  counterpartyTaxId: text('counterparty_tax_id').notNull().default(''),
+  contractReference: text('contract_reference').notNull().default(''),
+  safeguardingAccountRef: text('safeguarding_account_ref').notNull().default(''),
+  dueDiligenceJson: text('due_diligence_json').notNull().default('[]'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 }, (table) => [
   index('idx_official_rail_connections_status').on(table.status),
-  check('official_rail_connections_status', sql`${table.status} IN ('unwired', 'contracted', 'certified', 'live')`),
+  check('official_rail_connections_status', sql`${table.status} IN ('unwired', 'negotiating', 'contracted', 'certified', 'live')`),
 ]);
 
 export const echeqEndorsements = pgTable('echeq_endorsements', {
