@@ -1151,7 +1151,7 @@ paths:
     post:
       operationId: createPaymentLink
       summary: Create a sandbox collection link against an Argentine ARS account
-      description: Payload format cimbra:link:v1 is not a card network checkout. Allowed methods are internal Cimbra accounts, sandbox inbound cash-in, Cimbra QR of an associated open debt (cimbra_qr) or the sandbox CVU of an associated collection till (cimbra_cvu). Card, POS, hosted PCI checkout and interoperable QR return 422. Only cimbra_cvu accepts partial credits, multiple credits or an amount above the remaining balance. QR and internal collection stay closed-amount.
+      description: Payload format cimbra:link:v1 is not a card network checkout. Allowed methods are internal Cimbra accounts, sandbox inbound cash-in, Cimbra QR of an associated open debt (cimbra_qr) or the sandbox CVU of an associated collection till (cimbra_cvu). Optional items are checkout display only and do not change the amount to collect. Card, POS, hosted PCI checkout, successUrl/errorUrl and interoperable QR return 422 or 400. Only cimbra_cvu accepts partial credits, multiple credits or an amount above the remaining balance. QR and internal collection stay closed-amount.
       security: [{ session: [] }, { bearerApiKey: [] }]
       parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody:
@@ -1178,6 +1178,10 @@ paths:
                   items: { type: string, enum: [internal, sandbox_inbound, cimbra_qr, cimbra_cvu] }
                 qrDebtId: { type: [string, 'null'], format: uuid }
                 collectionTillId: { type: [string, 'null'], format: uuid }
+                items:
+                  type: array
+                  maxItems: 20
+                  items: { $ref: '#/components/schemas/PaymentLinkItemInput' }
       responses:
         '201': { description: Payment link created }
         '200': { description: Idempotent replay }
@@ -1188,6 +1192,7 @@ paths:
     get:
       operationId: retrievePaymentLink
       summary: Retrieve a collection payment link
+      description: The response embeds informational checkout items, CVU credits and partiallyCollected. Items do not change the amount to collect.
       security: [{ session: [] }, { bearerApiKey: [] }]
       parameters: [{ $ref: '#/components/parameters/ResourceId' }]
       responses:
@@ -3897,7 +3902,7 @@ components:
         updatedAt: { type: string, format: date-time }
     PaymentLink:
       type: object
-      required: [id, accountId, accountReference, customerName, amountMinor, amount, collectedMinor, collectedAmount, remainingMinor, remainingAmount, checkoutUrl, currency, description, externalReference, allowedMethods, payload, qrDebtId, collectionTillId, qrPayload, cvu, status, expiresAt, paidMethod, payerAccountId, payerAccountReference, transactionId, reversalTransactionId, createdAt, updatedAt]
+      required: [id, accountId, accountReference, customerName, amountMinor, amount, collectedMinor, collectedAmount, remainingMinor, remainingAmount, partiallyCollected, checkoutUrl, currency, description, externalReference, allowedMethods, payload, qrDebtId, collectionTillId, qrPayload, cvu, items, credits, status, expiresAt, paidMethod, payerAccountId, payerAccountReference, transactionId, reversalTransactionId, createdAt, updatedAt]
       additionalProperties: false
       properties:
         id: { type: string, format: uuid }
@@ -3910,6 +3915,7 @@ components:
         collectedAmount: { type: number }
         remainingMinor: { type: string }
         remainingAmount: { type: number }
+        partiallyCollected: { type: boolean }
         checkoutUrl: { type: string }
         currency: { type: string, enum: [ARS] }
         description: { type: string }
@@ -3922,6 +3928,12 @@ components:
         collectionTillId: { type: [string, 'null'], format: uuid }
         qrPayload: { type: [string, 'null'] }
         cvu: { type: [string, 'null'] }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/PaymentLinkItem' }
+        credits:
+          type: array
+          items: { $ref: '#/components/schemas/PaymentLinkCredit' }
         status: { type: string, enum: [open, pending, paid, expired, cancelled, refunded] }
         expiresAt: { type: string, format: date-time }
         paidMethod: { type: [string, 'null'], enum: [internal, sandbox_inbound, cimbra_qr, cimbra_cvu] }
@@ -3931,6 +3943,43 @@ components:
         reversalTransactionId: { type: [string, 'null'], format: uuid }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+    PaymentLinkItemInput:
+      type: object
+      additionalProperties: false
+      required: [description, amount]
+      properties:
+        description: { type: string, minLength: 2, maxLength: 180 }
+        amount:
+          oneOf:
+            - { type: string, pattern: '^\d+(?:\.\d+)?$' }
+            - { type: number, exclusiveMinimum: 0, maximum: 10000000 }
+        quantity: { type: integer, minimum: 1, maximum: 9999 }
+        code: { type: [string, 'null'], maxLength: 80 }
+        additional: { type: [string, 'null'], maxLength: 180 }
+    PaymentLinkItem:
+      type: object
+      additionalProperties: false
+      required: [description, amountMinor, amount, quantity, code, additional]
+      properties:
+        description: { type: string }
+        amountMinor: { type: string }
+        amount: { type: number }
+        quantity: { type: integer }
+        code: { type: [string, 'null'] }
+        additional: { type: [string, 'null'] }
+    PaymentLinkCredit:
+      type: object
+      additionalProperties: false
+      required: [id, amountMinor, amount, method, payerAccountId, transactionId, instantTransferId, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        amountMinor: { type: string }
+        amount: { type: number }
+        method: { type: string, enum: [cimbra_cvu] }
+        payerAccountId: { type: [string, 'null'], format: uuid }
+        transactionId: { type: string, format: uuid }
+        instantTransferId: { type: [string, 'null'], format: uuid }
+        createdAt: { type: string, format: date-time }
     CollectionTill:
       type: object
       required: [id, accountId, accountReference, customerName, name, externalReference, cvu, alias, aliasChangedAt, paymentQrId, status, createdAt, updatedAt]

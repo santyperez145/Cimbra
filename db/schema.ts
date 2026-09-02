@@ -1216,6 +1216,7 @@ export const paymentLinks = pgTable('payment_links', {
   qrDebtId: text('qr_debt_id').references(() => qrDebts.id, { onDelete: 'restrict' }),
   collectionTillId: text('collection_till_id').references((): AnyPgColumn => collectionTills.id, { onDelete: 'restrict' }),
   collectedMinor: bigint('collected_minor', { mode: 'bigint' }).notNull().default(sql`0`),
+  items: text('items').notNull().default('[]'),
   createdBy: text('created_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
   createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
 }, (table) => [
@@ -1234,6 +1235,7 @@ export const paymentLinks = pgTable('payment_links', {
   check('payment_links_paid_method', sql`${table.paidMethod} IS NULL OR ${table.paidMethod} IN ('internal', 'sandbox_inbound', 'cimbra_qr', 'cimbra_cvu')`),
   check('payment_links_amount_positive', sql`${table.amountMinor} > 0`),
   check('payment_links_collected_nonnegative', sql`${table.collectedMinor} >= 0`),
+  check('payment_links_items_array', sql`jsonb_typeof(${table.items}::jsonb) = 'array'`),
 ]);
 
 export const paymentLinkCredits = pgTable('payment_link_credits', {

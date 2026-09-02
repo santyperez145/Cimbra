@@ -7,6 +7,7 @@ import { assertSandboxLedgerOrCertifiedRail } from './platform-rails';
 import type {
   CollectionMethod, NormalizedCollectionTillInboundInput, NormalizedCollectionTillInput, NormalizedPaymentLinkInput, NormalizedPaymentLinkPayInput,
 } from '@/app/lib/platform/collections-input';
+import { storedPaymentLinkItems } from '@/app/lib/platform/collections-input';
 import type { ProtectedRiskSignals } from '@/app/lib/platform/risk-signals';
 import { type DatabaseClient, getDatabaseClient } from './client';
 import {
@@ -32,8 +33,13 @@ type LinkRow = {
   paidMethod: CollectionMethod | null; payerAccountId: string | null; payerAccountReference: string | null;
   transactionId: string | null; reversalTransactionId: string | null;
   qrDebtId: string | null; collectionTillId: string | null; qrPayload: string | null; cvu: string | null;
-  collectedMinor: string;
+  collectedMinor: string; items: string;
   requestFingerprint: string; payFingerprint: string | null; createdAt: string; updatedAt: string;
+};
+
+type CreditRow = {
+  id: string; paymentLinkId: string; amountMinor: string; method: CollectionMethod;
+  payerAccountId: string | null; transactionId: string; instantTransferId: string | null; createdAt: string;
 };
 
 const linkSelect = `SELECT pl.id, pl.account_id AS "accountId", a.account_reference AS "accountReference",
@@ -43,7 +49,7 @@ const linkSelect = `SELECT pl.id, pl.account_id AS "accountId", a.account_refere
   payer.account_reference AS "payerAccountReference", pl.transaction_id AS "transactionId",
   pl.reversal_transaction_id AS "reversalTransactionId", pl.qr_debt_id AS "qrDebtId",
   pl.collection_till_id AS "collectionTillId", q.payload AS "qrPayload", ct.cvu,
-  pl.collected_minor::text AS "collectedMinor",
+  pl.collected_minor::text AS "collectedMinor", pl.items,
   pl.request_fingerprint AS "requestFingerprint",
   pl.pay_fingerprint AS "payFingerprint", pl.created_at AS "createdAt", pl.updated_at AS "updatedAt"
   FROM payment_links pl JOIN accounts a ON a.id = pl.account_id JOIN customers c ON c.id = a.customer_id
@@ -77,12 +83,38 @@ function checkoutUrlFor(id: string) {
   }
 }
 
-function serializeLink(row: LinkRow) {
-  const { requestFingerprint: _fingerprint, payFingerprint: _pay, ...publicRow } = row;
+function parseStoredItems(value: string | undefined) {
+  try {
+    const parsed = JSON.parse(value || '[]') as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap((entry) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return [];
+      const item = entry as Record<string, unknown>;
+      const description = typeof item.description === 'string' ? item.description : '';
+      const amountMinor = typeof item.amountMinor === 'string' ? item.amountMinor : '';
+      const quantity = Number(item.quantity);
+      if (!description || !amountMinor || !Number.isInteger(quantity) || quantity < 1) return [];
+      return [{
+        description,
+        amountMinor,
+        amount: minorToMajorNumber(BigInt(amountMinor), 'ARS' as Currency),
+        quantity,
+        code: typeof item.code === 'string' ? item.code : null,
+        additional: typeof item.additional === 'string' ? item.additional : null,
+      }];
+    });
+  } catch {
+    return [];
+  }
+}
+
+function serializeLink(row: LinkRow, credits: CreditRow[] = []) {
+  const { requestFingerprint: _fingerprint, payFingerprint: _pay, items: itemsJson, ...publicRow } = row;
   void _fingerprint; void _pay;
   const amountMinor = BigInt(row.amountMinor);
   const collectedMinor = BigInt(row.collectedMinor ?? '0');
   const remainingMinor = collectedMinor >= amountMinor ? 0n : amountMinor - collectedMinor;
+  const status = effectiveStatus(row);
   return {
     ...publicRow,
     amount: minorToMajorNumber(amountMinor, row.currency),
@@ -90,10 +122,45 @@ function serializeLink(row: LinkRow) {
     collectedAmount: minorToMajorNumber(collectedMinor, row.currency),
     remainingMinor: remainingMinor.toString(),
     remainingAmount: minorToMajorNumber(remainingMinor, row.currency),
+    partiallyCollected: collectedMinor > 0n && remainingMinor > 0n && (status === 'open' || status === 'pending'),
     checkoutUrl: checkoutUrlFor(row.id),
     allowedMethods: parseMethods(row.allowedMethods),
-    status: effectiveStatus(row),
+    items: parseStoredItems(itemsJson),
+    credits: credits.map((credit) => ({
+      id: credit.id,
+      amountMinor: credit.amountMinor,
+      amount: minorToMajorNumber(BigInt(credit.amountMinor), row.currency),
+      method: credit.method,
+      payerAccountId: credit.payerAccountId,
+      transactionId: credit.transactionId,
+      instantTransferId: credit.instantTransferId,
+      createdAt: credit.createdAt,
+    })),
+    status,
   };
+}
+
+async function loadCredits(database: DatabaseClient, linkIds: string[]) {
+  const grouped = new Map<string, CreditRow[]>();
+  if (linkIds.length === 0) return grouped;
+  const rows = await database.prepare(
+    `SELECT id, payment_link_id AS "paymentLinkId", amount_minor::text AS "amountMinor", method,
+      payer_account_id AS "payerAccountId", transaction_id AS "transactionId",
+      instant_transfer_id AS "instantTransferId", created_at AS "createdAt"
+     FROM payment_link_credits WHERE payment_link_id IN (${linkIds.map(() => '?').join(', ')})
+     ORDER BY created_at, id`,
+  ).bind(...linkIds).all<CreditRow>();
+  for (const row of rows.results) {
+    const list = grouped.get(row.paymentLinkId) ?? [];
+    list.push(row);
+    grouped.set(row.paymentLinkId, list);
+  }
+  return grouped;
+}
+
+async function presentLink(row: LinkRow, database: DatabaseClient) {
+  const credits = (await loadCredits(database, [row.id])).get(row.id) ?? [];
+  return serializeLink(row, credits);
 }
 
 async function loadAccount(database: DatabaseClient, organizationId: string, accountId: string, lock = false) {
@@ -237,27 +304,34 @@ export async function listPaymentLinks(input: { organizationId: string; limit: n
   const rows = input.cursor
     ? await statement.bind(input.organizationId, input.cursor.createdAt, input.cursor.id, input.limit + 1).all<LinkRow>()
     : await statement.bind(input.organizationId, input.limit + 1).all<LinkRow>();
-  return rows.results.map(serializeLink);
+  const creditsByLink = await loadCredits(getDatabaseClient(), rows.results.map((row) => row.id));
+  return rows.results.map((row) => serializeLink(row, creditsByLink.get(row.id) ?? []));
 }
 
 export async function retrievePaymentLink(organizationId: string, id: string, database = getDatabaseClient()) {
   const row = await retrieveLinkRow(organizationId, id, database);
-  return row ? serializeLink(row) : null;
+  return row ? presentLink(row, database) : null;
 }
 
 export async function retrievePublicPaymentLink(id: string) {
   const database = getDatabaseClient();
   const row = await database.prepare(`${linkSelect} WHERE pl.id = ? LIMIT 1`).bind(id).first<LinkRow>();
   if (!row) return null;
-  return serializeLink(await expireIfNeeded(database, row));
+  return presentLink(await expireIfNeeded(database, row), database);
 }
 
 export async function createPaymentLink(input: {
   organizationId: string; actor: AuthUser; idempotencyKey: string; link: NormalizedPaymentLinkInput;
 }) {
-  const { qrDebtId, collectionTillId, ...rest } = input.link;
+  const { qrDebtId, collectionTillId, items, amountMinor, ...rest } = input.link;
   const fingerprint = await sha256(JSON.stringify({
-    ...rest, amountMinor: input.link.amountMinor.toString(),
+    ...rest, amountMinor: amountMinor.toString(),
+    ...(items.length ? {
+      items: items.map((item) => ({
+        description: item.description, amountMinor: item.amountMinor.toString(),
+        quantity: item.quantity, code: item.code, additional: item.additional,
+      })),
+    } : {}),
     ...(qrDebtId ? { qrDebtId } : {}),
     ...(collectionTillId ? { collectionTillId } : {}),
   }));
@@ -270,7 +344,7 @@ export async function createPaymentLink(input: {
       if (existing.requestFingerprint !== fingerprint) {
         throw new CollectionError('La Idempotency-Key ya fue usada con otro link de cobro.', 409, 'idempotency_mismatch');
       }
-      return { link: serializeLink(existing), replayed: true };
+      return { link: await presentLink(existing, database), replayed: true };
     }
     await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
       .bind(`${input.organizationId}:payment-link-ref:${input.link.externalReference}`).first();
@@ -312,11 +386,12 @@ export async function createPaymentLink(input: {
     await database.prepare(`INSERT INTO payment_links
       (id, organization_id, idempotency_key, request_fingerprint, account_id, amount_minor, currency, description,
        external_reference, allowed_methods, payload, status, expires_at, paid_method, payer_account_id, transaction_id,
-       reversal_transaction_id, qr_debt_id, collection_till_id, collected_minor, created_by, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'ARS', ?, ?, ?, ?, 'open', ?, NULL, NULL, NULL, NULL, ?, ?, 0, ?, ?, ?)`)
+       reversal_transaction_id, qr_debt_id, collection_till_id, collected_minor, items, created_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'ARS', ?, ?, ?, ?, 'open', ?, NULL, NULL, NULL, NULL, ?, ?, 0, ?, ?, ?, ?)`)
       .bind(id, input.organizationId, input.idempotencyKey, fingerprint, account.id, input.link.amountMinor.toString(),
         input.link.description, input.link.externalReference, JSON.stringify(input.link.methods), payload, expiresAt,
-        input.link.qrDebtId, input.link.collectionTillId, input.actor.userId, createdAt, createdAt).run();
+        input.link.qrDebtId, input.link.collectionTillId, storedPaymentLinkItems(input.link.items),
+        input.actor.userId, createdAt, createdAt).run();
     await insertAudit(database, {
       organizationId: input.organizationId, actorId: input.actor.userId, action: 'collection.link_created',
       resourceType: 'payment_link', resourceId: id,
@@ -325,7 +400,7 @@ export async function createPaymentLink(input: {
         qrDebtId: input.link.qrDebtId, collectionTillId: input.link.collectionTillId,
       },
     });
-    return { link: serializeLink((await retrieveLinkRow(input.organizationId, id, database))!), replayed: false };
+    return { link: await presentLink((await retrieveLinkRow(input.organizationId, id, database))!, database), replayed: false };
   });
 }
 
@@ -339,7 +414,7 @@ export async function cancelPaymentLink(input: {
       .bind(input.organizationId, input.linkId).first<LinkRow>();
     if (!row) throw new CollectionError('Link de cobro no encontrado.', 404, 'payment_link_not_found');
     const current = await expireIfNeeded(database, row);
-    if (current.status === 'cancelled') return { link: serializeLink(current), replayed: true };
+    if (current.status === 'cancelled') return { link: await presentLink(current, database), replayed: true };
     if (current.status !== 'open') {
       throw new CollectionError('Sólo se puede cancelar un link abierto.', 409, 'payment_link_not_open');
     }
@@ -350,7 +425,7 @@ export async function cancelPaymentLink(input: {
       organizationId: input.organizationId, actorId: input.actor.userId, action: 'collection.link_cancelled',
       resourceType: 'payment_link', resourceId: current.id, payload: { idempotencyKey: input.idempotencyKey },
     });
-    return { link: serializeLink({ ...current, status: 'cancelled', updatedAt: now }), replayed: false };
+    return { link: await presentLink({ ...current, status: 'cancelled', updatedAt: now }, database), replayed: false };
   });
 }
 
@@ -387,10 +462,10 @@ export async function payPaymentLink(input: {
         if (existingCredit.requestFingerprint !== fingerprint || existingCredit.paymentLinkId !== current.id) {
           throw new CollectionError('La Idempotency-Key ya fue usada con otro cobro.', 409, 'idempotency_mismatch');
         }
-        return { link: serializeLink((await retrieveLinkRow(input.organizationId, current.id, database))!), replayed: true };
+        return { link: await presentLink((await retrieveLinkRow(input.organizationId, current.id, database))!, database), replayed: true };
       }
     } else if (current.payFingerprint === fingerprint && (current.status === 'paid' || current.status === 'pending')) {
-      return { link: serializeLink(current), replayed: true };
+      return { link: await presentLink(current, database), replayed: true };
     }
     if (current.status === 'paid' || current.status === 'pending') {
       throw new CollectionError('El link ya fue cobrado.', 409, 'payment_link_already_paid');
@@ -464,7 +539,7 @@ export async function payPaymentLink(input: {
         resourceType: 'payment_link', resourceId: current.id,
         payload: { method: input.payment.method, status: movement.status, transactionId: movement.transactionId },
       });
-      return { link: serializeLink((await retrieveLinkRow(input.organizationId, current.id, database))!), replayed: false };
+      return { link: await presentLink((await retrieveLinkRow(input.organizationId, current.id, database))!, database), replayed: false };
     }
     if (input.payment.method === 'cimbra_cvu') {
       if (!current.collectionTillId) {
@@ -553,7 +628,7 @@ export async function payPaymentLink(input: {
         resourceType: 'payment_link', resourceId: current.id,
         payload: { method: 'cimbra_cvu', status: linkStatus, transactionId, creditId, amountMinor: creditAmount.toString(), collectedMinor: settledCollected.toString() },
       });
-      return { link: serializeLink((await retrieveLinkRow(input.organizationId, current.id, database))!), replayed: false };
+      return { link: await presentLink((await retrieveLinkRow(input.organizationId, current.id, database))!, database), replayed: false };
     }
     let payment;
     try {
@@ -576,7 +651,7 @@ export async function payPaymentLink(input: {
       resourceType: 'payment_link', resourceId: current.id,
       payload: { method: 'sandbox_inbound', status, transactionId: payment.payment.id },
     });
-    return { link: serializeLink((await retrieveLinkRow(input.organizationId, current.id, database))!), replayed: false };
+    return { link: await presentLink((await retrieveLinkRow(input.organizationId, current.id, database))!, database), replayed: false };
   });
 }
 
@@ -596,7 +671,7 @@ export async function refundPaymentLink(input: {
           'SELECT id FROM transactions WHERE organization_id = ? AND idempotency_key = ? LIMIT 1',
         ).bind(input.organizationId, `reversal:${input.idempotencyKey}`).first<{ id: string }>();
         if (existing) {
-          return { link: serializeLink((await retrieveLinkRow(input.organizationId, row.id, database))!), replayed: true };
+          return { link: await presentLink((await retrieveLinkRow(input.organizationId, row.id, database))!, database), replayed: true };
         }
         throw new CollectionError('El cobro ya fue devuelto.', 409, 'payment_link_already_refunded');
       }
@@ -626,7 +701,7 @@ export async function refundPaymentLink(input: {
       throw error;
     }
     return {
-      link: serializeLink((await retrieveLinkRow(input.organizationId, row.id, database))!),
+      link: await presentLink((await retrieveLinkRow(input.organizationId, row.id, database))!, database),
       reversal: reversal.transaction, replayed: reversal.replayed,
     };
   });

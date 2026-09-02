@@ -38,8 +38,17 @@ export default async function PublicPayPage({ params }: { params: Promise<{ id: 
       <p className="legal-updated">{link.customerName} · {link.externalReference}</p>
       <section>
         <h2>Importe</h2>
-        <p>Total {money(link.amount)}. Cobrado {money(link.collectedAmount)}. Restante {money(link.remainingAmount)}. Estado: {STATUS_LABELS[link.status] ?? link.status}.</p>
+        <p>Total {money(link.amount)}. Cobrado {money(link.collectedAmount)}. Restante {money(link.remainingAmount)}. Estado: {STATUS_LABELS[link.status] ?? link.status}{link.partiallyCollected ? ' · cobro parcial' : ''}.</p>
       </section>
+      {link.items.length > 0 && <section>
+        <h2>Detalle</h2>
+        {link.items.map((item) => <p key={`${item.description}-${item.amountMinor}`}>{item.quantity} × {item.description} · {money(item.amount)}{item.code ? ` · ${item.code}` : ''}</p>)}
+        <p>El detalle es informativo: no cambia el monto a cobrar ni sustituye un carrito de adquirente.</p>
+      </section>}
+      {link.credits.length > 0 && <section>
+        <h2>Créditos al CVU</h2>
+        {link.credits.map((credit) => <p key={credit.id}>{money(credit.amount)} · {credit.method} · {credit.createdAt.slice(0, 10)}</p>)}
+      </section>}
       {showsQr && <section>
         <h2>QR Cimbra</h2>
         <p>El pagador liquida la deuda asociada con el payload <code>{link.qrPayload}</code>. El monto del QR es cerrado.</p>

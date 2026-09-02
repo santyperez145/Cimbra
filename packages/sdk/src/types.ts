@@ -316,13 +316,22 @@ export type QrDebt = {
   expiresAt: string; paidTransferId: string | null; createdAt: string; updatedAt: string;
 };
 export type CollectionMethod = 'internal' | 'sandbox_inbound' | 'cimbra_qr' | 'cimbra_cvu';
+export type PaymentLinkItem = {
+  description: string; amountMinor: string; amount: number; quantity: number;
+  code: string | null; additional: string | null;
+};
+export type PaymentLinkCredit = {
+  id: string; amountMinor: string; amount: number; method: 'cimbra_cvu';
+  payerAccountId: string | null; transactionId: string; instantTransferId: string | null; createdAt: string;
+};
 export type PaymentLink = {
   id: string; accountId: string; accountReference: string; customerName: string;
   amountMinor: string; amount: number; collectedMinor: string; collectedAmount: number;
-  remainingMinor: string; remainingAmount: number; checkoutUrl: string;
+  remainingMinor: string; remainingAmount: number; partiallyCollected: boolean; checkoutUrl: string;
   currency: 'ARS'; description: string; externalReference: string;
   allowedMethods: CollectionMethod[]; payload: string;
   qrDebtId: string | null; collectionTillId: string | null; qrPayload: string | null; cvu: string | null;
+  items: PaymentLinkItem[]; credits: PaymentLinkCredit[];
   status: 'open' | 'pending' | 'paid' | 'expired' | 'cancelled' | 'refunded'; expiresAt: string;
   paidMethod: CollectionMethod | null; payerAccountId: string | null; payerAccountReference: string | null;
   transactionId: string | null; reversalTransactionId: string | null; createdAt: string; updatedAt: string;
@@ -476,6 +485,7 @@ export type CreateQrDebtInput = {
 export type CreatePaymentLinkInput = {
   accountId: string; externalReference: string; description: string; amount: string; currency: 'ARS';
   expiresInMinutes?: number; methods?: CollectionMethod[]; qrDebtId?: string | null; collectionTillId?: string | null;
+  items?: Array<{ description: string; amount: string; quantity?: number; code?: string | null; additional?: string | null }>;
 };
 export type CreateCollectionTillInput = {
   accountId: string; externalReference: string; name: string; paymentQrId?: string | null; alias?: string | null;

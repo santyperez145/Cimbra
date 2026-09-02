@@ -1146,14 +1146,23 @@ try {
     body: JSON.stringify({
       accountId: destinationAccount.id, externalReference: `FAC-CVU-PART-${runId}`, description: 'Link parcial CVU',
       amount: '8.00', currency: 'ARS', methods: ['cimbra_cvu'], collectionTillId: linkedTill.till.id,
+      items: [
+        { description: 'Honorarios', amount: '5.00', quantity: 1 },
+        { description: 'Gastos', amount: '3.00', quantity: 1 },
+      ],
     }),
   }), 201);
   assert.equal(partialCvuLink.link.collectedAmount, 0); assert.equal(partialCvuLink.link.remainingAmount, 8);
+  assert.equal(partialCvuLink.link.partiallyCollected, false);
+  assert.equal(partialCvuLink.link.items.length, 2);
+  assert.equal(partialCvuLink.link.items[0].description, 'Honorarios');
+  assert.equal(partialCvuLink.link.credits.length, 0);
   assert.match(partialCvuLink.link.checkoutUrl, /\/pay\//);
   const publicCheckout = await fetch(new URL(`/pay/${partialCvuLink.link.id}`, target), { redirect: 'manual' });
   assert.equal(publicCheckout.status, 200);
   const publicHtml = await publicCheckout.text();
   assert.match(publicHtml, /CVU sandbox/);
+  assert.match(publicHtml, /Honorarios/);
   assert.match(publicHtml, /no es un checkout de tarjeta/i);
   assert.equal(publicCheckout.headers.get('set-cookie'), null);
   const amountOnQr = await json(await request(`/api/v1/payment-links/${syncLink.link.id}/pay`, {
@@ -1167,6 +1176,12 @@ try {
   }), 201);
   assert.equal(firstPartial.link.status, 'open');
   assert.equal(firstPartial.link.collectedAmount, 3); assert.equal(firstPartial.link.remainingAmount, 5);
+  assert.equal(firstPartial.link.partiallyCollected, true);
+  assert.equal(firstPartial.link.credits.length, 1);
+  assert.equal(firstPartial.link.credits[0].amount, 3);
+  const checkoutAfterPartial = await fetch(new URL(`/pay/${partialCvuLink.link.id}`, target), { redirect: 'manual' });
+  assert.equal(checkoutAfterPartial.status, 200);
+  assert.match(await checkoutAfterPartial.text(), /Créditos al CVU/);
   const replayPartial = await json(await request(`/api/v1/payment-links/${partialCvuLink.link.id}/pay`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-link-cvu-part-a-${runId}` },
     body: JSON.stringify({ method: 'cimbra_cvu', payerAccountId: account.id, amount: '3.00' }),
@@ -1179,6 +1194,8 @@ try {
   assert.equal(secondPartial.link.status, 'paid');
   assert.equal(secondPartial.link.paidMethod, 'cimbra_cvu');
   assert.equal(secondPartial.link.collectedAmount, 8); assert.equal(secondPartial.link.remainingAmount, 0);
+  assert.equal(secondPartial.link.partiallyCollected, false);
+  assert.equal(secondPartial.link.credits.length, 2);
   const refundedPartial = await json(await request(`/api/v1/payment-links/${partialCvuLink.link.id}/refund`, {
     method: 'POST', headers: { 'Idempotency-Key': `qa-link-cvu-part-refund-${runId}` },
   }), 201);

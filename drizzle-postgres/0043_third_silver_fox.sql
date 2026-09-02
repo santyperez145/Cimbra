@@ -1,0 +1,2 @@
+ALTER TABLE "payment_links" ADD COLUMN "items" text DEFAULT '[]' NOT NULL;--> statement-breakpoint
+ALTER TABLE "payment_links" ADD CONSTRAINT "payment_links_items_array" CHECK (jsonb_typeof("payment_links"."items"::jsonb) = 'array');

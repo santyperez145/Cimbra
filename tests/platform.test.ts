@@ -198,6 +198,7 @@ test('los rieles oficiales son contrapartes reguladas y el adaptador falla cerra
   assert.match(collections?.sandboxCoverage ?? '', /cimbra_qr/);
   assert.match(collections?.sandboxCoverage ?? '', /cimbra_cvu/);
   assert.match(collections?.sandboxCoverage ?? '', /parcial/);
+  assert.match(collections?.sandboxCoverage ?? '', /ítems/);
   assert.throws(
     () => dispatchOfficialRail('coelsa_transfers', [{ id: 'coelsa_transfers', status: 'unwired' }]),
     (error: unknown) => error instanceof PlatformRailError && error.code === 'rail_not_wired',
@@ -404,6 +405,7 @@ test('cobranzas validan links de cobro, medios sandbox y rechazan adquirencia de
   if (!('unsupportedMethod' in link)) {
     assert.equal(link.amountMinor, 150050n);
     assert.deepEqual(link.methods, ['internal', 'sandbox_inbound']);
+    assert.deepEqual(link.items, []);
   }
   const cardCreate = normalizePaymentLinkInput({
     accountId, externalReference: 'FAC-002', description: 'Tarjeta', amount: '10', currency: 'ARS', methods: ['card'],
@@ -425,6 +427,41 @@ test('cobranzas validan links de cobro, medios sandbox y rechazan adquirencia de
   }
   assert.equal(normalizePaymentLinkInput({
     accountId, externalReference: 'FAC-005', description: 'QR sin deuda', amount: '10', currency: 'ARS', methods: ['cimbra_qr'],
+  }), null);
+  assert.equal(normalizePaymentLinkInput({
+    accountId, externalReference: 'FAC-006', description: 'Redirect', amount: '10', currency: 'ARS',
+    successUrl: 'https://example.com/ok',
+  }), null);
+  assert.equal(normalizePaymentLinkInput({
+    accountId, externalReference: 'FAC-007', description: 'Checkout anidado', amount: '10', currency: 'ARS',
+    configuracionCheckout: { items: [] },
+  }), null);
+  const withItems = normalizePaymentLinkInput({
+    accountId, externalReference: 'FAC-008', description: 'Con ítems', amount: '80.00', currency: 'ARS',
+    items: [
+      { description: 'Honorarios', amount: '50.00', quantity: 1, code: 'HON' },
+      { description: 'Gastos', amount: '3.00', additional: 'Viáticos' },
+    ],
+  });
+  assert.ok(withItems); assert.ok(!('unsupportedMethod' in withItems));
+  if (!('unsupportedMethod' in withItems)) {
+    assert.equal(withItems.items.length, 2);
+    assert.equal(withItems.items[0].amountMinor, 5000n);
+    assert.equal(withItems.items[0].quantity, 1);
+    assert.equal(withItems.items[0].code, 'HON');
+    assert.equal(withItems.items[1].quantity, 1);
+    assert.equal(withItems.items[1].additional, 'Viáticos');
+  }
+  assert.ok(normalizePaymentLinkInput({
+    accountId, externalReference: 'FAC-009', description: 'Sin detalle', amount: '10', currency: 'ARS', items: [],
+  }));
+  assert.equal(normalizePaymentLinkInput({
+    accountId, externalReference: 'FAC-010', description: 'Ítem corto', amount: '10', currency: 'ARS',
+    items: [{ description: 'X', amount: '1.00' }],
+  }), null);
+  assert.equal(normalizePaymentLinkInput({
+    accountId, externalReference: 'FAC-011', description: 'Demasiados ítems', amount: '10', currency: 'ARS',
+    items: Array.from({ length: 21 }, (_, index) => ({ description: `Item ${index + 10}`, amount: '1.00' })),
   }), null);
   const qrPay = normalizePaymentLinkPayInput({ method: 'cimbra_qr', payerAccountId: payerId });
   assert.ok(qrPay); assert.ok(!('unsupportedMethod' in qrPay));

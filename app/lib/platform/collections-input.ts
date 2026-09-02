@@ -32,7 +32,7 @@ function parseMethods(value: unknown): CollectionMethod[] | UnsupportedCollectio
 export function normalizePaymentLinkInput(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const body = value as Record<string, unknown>;
-  if (!hasOnlyKeys(body, ['accountId', 'externalReference', 'description', 'amount', 'currency', 'expiresInMinutes', 'methods', 'qrDebtId', 'collectionTillId'])) {
+  if (!hasOnlyKeys(body, ['accountId', 'externalReference', 'description', 'amount', 'currency', 'expiresInMinutes', 'methods', 'qrDebtId', 'collectionTillId', 'items'])) {
     return null;
   }
   const accountId = typeof body.accountId === 'string' ? body.accountId : '';
@@ -59,10 +59,51 @@ export function normalizePaymentLinkInput(value: unknown) {
   let amountMinor: bigint;
   try { amountMinor = majorToMinor(body.amount, currency); } catch { return null; }
   if (amountMinor <= 0n || amountMinor > majorToMinor('10000000', currency)) return null;
+  const items = parsePaymentLinkItems(body.items);
+  if (!items) return null;
   return {
     accountId, externalReference, description, amountMinor, currency: currency as Currency, expiresInMinutes, methods,
-    qrDebtId, collectionTillId,
+    qrDebtId, collectionTillId, items,
   };
+}
+
+export type NormalizedPaymentLinkItem = {
+  description: string; amountMinor: bigint; quantity: number; code: string | null; additional: string | null;
+};
+
+export function parsePaymentLinkItems(value: unknown): NormalizedPaymentLinkItem[] | null {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value) || value.length > 20) return null;
+  const items: NormalizedPaymentLinkItem[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+    const item = entry as Record<string, unknown>;
+    if (!hasOnlyKeys(item, ['description', 'amount', 'quantity', 'code', 'additional'])) return null;
+    const description = collapsed(item.description, 2, 180);
+    const quantity = item.quantity === undefined ? 1 : Number(item.quantity);
+    const code = item.code === undefined || item.code === null || item.code === ''
+      ? null : collapsed(item.code, 1, 80);
+    const additional = item.additional === undefined || item.additional === null || item.additional === ''
+      ? null : collapsed(item.additional, 1, 180);
+    if (!description || !Number.isInteger(quantity) || quantity < 1 || quantity > 9999) return null;
+    if (item.code !== undefined && item.code !== null && item.code !== '' && !code) return null;
+    if (item.additional !== undefined && item.additional !== null && item.additional !== '' && !additional) return null;
+    let itemAmountMinor: bigint;
+    try { itemAmountMinor = majorToMinor(item.amount, 'ARS'); } catch { return null; }
+    if (itemAmountMinor <= 0n || itemAmountMinor > majorToMinor('10000000', 'ARS')) return null;
+    items.push({ description, amountMinor: itemAmountMinor, quantity, code, additional });
+  }
+  return items;
+}
+
+export function storedPaymentLinkItems(items: NormalizedPaymentLinkItem[]) {
+  return JSON.stringify(items.map((item) => ({
+    description: item.description,
+    amountMinor: item.amountMinor.toString(),
+    quantity: item.quantity,
+    code: item.code,
+    additional: item.additional,
+  })));
 }
 
 export function normalizePaymentLinkPayInput(value: unknown) {

@@ -7,10 +7,12 @@ import { authenticatedFetch } from '@/app/lib/platform/client-http';
 type Account = { id: string; accountReference: string; currency: string; status: string };
 type PaymentLink = {
   id: string; accountId: string; accountReference: string; customerName: string;
-  amount: number; collectedAmount: number; remainingAmount: number; currency: string; description: string; externalReference: string;
+  amount: number; collectedAmount: number; remainingAmount: number; partiallyCollected: boolean; currency: string; description: string; externalReference: string;
   allowedMethods: string[]; payload: string; qrDebtId: string | null; collectionTillId: string | null;
   qrPayload: string | null; cvu: string | null; checkoutUrl: string; status: string; expiresAt: string;
   paidMethod: string | null; payerAccountReference: string | null; createdAt: string;
+  items: Array<{ description: string; amount: number; quantity: number }>;
+  credits: Array<{ id: string; amount: number; method: string; createdAt: string }>;
 };
 type CollectionTill = {
   id: string; accountId: string; accountReference: string; customerName: string;
@@ -88,6 +90,11 @@ export default function CollectionsPanel({ role, accounts }: { role: Organizatio
     const methods = ['internal', 'sandbox_inbound', 'cimbra_qr', 'cimbra_cvu'].filter((method) => data.get(method) === 'on');
     const qrDebtId = String(data.get('qrDebtId') ?? '');
     const collectionTillId = String(data.get('collectionTillId') ?? '');
+    const itemDescription = String(data.get('itemDescription') ?? '').trim();
+    const itemAmount = String(data.get('itemAmount') ?? '').trim();
+    const items = itemDescription && itemAmount
+      ? [{ description: itemDescription, amount: itemAmount, quantity: Number(data.get('itemQuantity') || 1) }]
+      : undefined;
     const response = await authenticatedFetch('/api/v1/payment-links', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
@@ -95,7 +102,7 @@ export default function CollectionsPanel({ role, accounts }: { role: Organizatio
         accountId: data.get('accountId'), externalReference: data.get('externalReference'),
         description: data.get('description'), amount: data.get('amount'), currency: 'ARS',
         expiresInMinutes: Number(data.get('expiresInMinutes') || 60), methods,
-        qrDebtId: qrDebtId || undefined, collectionTillId: collectionTillId || undefined,
+        qrDebtId: qrDebtId || undefined, collectionTillId: collectionTillId || undefined, items,
       }),
     });
     const result = await response.json() as { error?: unknown };
@@ -229,6 +236,9 @@ export default function CollectionsPanel({ role, accounts }: { role: Organizatio
           </fieldset>
           <label>Deuda QR opcional<select name="qrDebtId" defaultValue=""><option value="">Sin asociar</option>{openDebts.map((debt) => <option key={debt.id} value={debt.id}>{debt.externalReference} · {money(debt.amount)}</option>)}</select></label>
           <label>Punto opcional<select name="collectionTillId" defaultValue=""><option value="">Sin asociar</option>{tills.filter((till) => till.status === 'active').map((till) => <option key={till.id} value={till.id}>{till.name} · {till.cvu.slice(-4)}</option>)}</select></label>
+          <label>Ítem de detalle (opcional, no cambia el monto)<input name="itemDescription" minLength={2} maxLength={180} placeholder="Factura N° 456" /></label>
+          <label>Monto del ítem<input name="itemAmount" type="number" min="0.01" step="0.01" /></label>
+          <label>Cantidad<input name="itemQuantity" type="number" min={1} max={9999} defaultValue={1} /></label>
           <button className="app-primary" disabled={busy || arsAccounts.length === 0}>{busy ? 'Creando…' : 'Crear link'}</button>
         </form>
       </article>
@@ -291,7 +301,7 @@ export default function CollectionsPanel({ role, accounts }: { role: Organizatio
         <div className="movement">
           <strong>{link.externalReference}</strong>
           <span>{link.accountReference} · {link.customerName}</span>
-          <small>{link.payload} · {link.allowedMethods.join(' · ')}{link.qrPayload ? ` · ${link.qrPayload}` : ''}{link.cvu ? ` · ${link.cvu}` : ''}{link.checkoutUrl ? ` · ${link.checkoutUrl}` : ''}{link.paidMethod ? ` · cobrado ${link.paidMethod}` : ''}{link.payerAccountReference ? ` · pagador ${link.payerAccountReference}` : ''}</small>
+          <small>{link.payload} · {link.allowedMethods.join(' · ')}{link.qrPayload ? ` · ${link.qrPayload}` : ''}{link.cvu ? ` · ${link.cvu}` : ''}{link.checkoutUrl ? ` · ${link.checkoutUrl}` : ''}{(link.items?.length ?? 0) > 0 ? ` · ${link.items.length} ítems` : ''}{(link.credits?.length ?? 0) > 0 ? ` · ${link.credits.length} créditos` : ''}{link.partiallyCollected ? ' · cobro parcial' : ''}{link.paidMethod ? ` · cobrado ${link.paidMethod}` : ''}{link.payerAccountReference ? ` · pagador ${link.payerAccountReference}` : ''}</small>
         </div>
         <strong>{money(link.collectedAmount ?? 0, link.currency)} / {money(link.amount, link.currency)}</strong>
         <span>{STATUS_LABELS[link.status] ?? link.status}</span>

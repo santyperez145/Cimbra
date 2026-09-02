@@ -281,6 +281,7 @@ const link = await cimbra.paymentLinks.create({
   currency: 'ARS',
   methods: ['cimbra_qr'],
   qrDebtId: '00000000-0000-4000-8000-000000000099',
+  items: [{ description: 'Honorarios agosto', amount: '18500.00', quantity: 1 }],
 });
 await cimbra.paymentLinks.pay(link.data.link.id, {
   method: 'cimbra_qr',
@@ -288,7 +289,7 @@ await cimbra.paymentLinks.pay(link.data.link.id, {
 });
 ```
 
-El payload `cimbra:link:v1` no es un checkout de red. `cimbra_qr` liquida la deuda asociada al monto cerrado. `cimbra_cvu` acredita el till y admite parciales, varios créditos o un importe mayor al restante; `checkoutUrl` apunta a `/pay/{id}` sin formulario PCI. Tarjeta, POS, checkout de adquirente y QR interoperable responden `422`.
+El payload `cimbra:link:v1` no es un checkout de red. `items` es detalle informativo y no cambia el monto a cobrar. `cimbra_qr` liquida la deuda asociada al monto cerrado. `cimbra_cvu` acredita el till y admite parciales, varios créditos o un importe mayor al restante; GET embebe `credits` y `partiallyCollected`. `checkoutUrl` apunta a `/pay/{id}` sin formulario PCI. Tarjeta, POS, checkout de adquirente y QR interoperable responden `422`.
 
 ```ts
 await cimbra.paymentLinks.pay(cvuLink.data.link.id, {

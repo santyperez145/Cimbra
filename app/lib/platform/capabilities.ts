@@ -73,8 +73,8 @@ export const PLATFORM_CAPABILITIES: readonly PlatformCapability[] = [
   },
   {
     id: 'acquiring', name: 'Acquiring & Collections', domain: 'commerce', availability: 'sandbox', delivery: 'cimbra_native',
-    summary: 'Links de cobro sandbox, asociación a deuda QR o till CVU, créditos parciales al CVU, checkout público de marca blanca, puntos de recaudación con CVU propio, eco cerrado, inbound ledger y devoluciones compensatorias.',
-    features: ['payment links', 'link associated with QR debt', 'link associated with collection till', 'CVU partial credits', 'white-label checkout page', 'collection tills', 'sandbox CVU per till', 'internal collect', 'sandbox inbound cash-in', 'compensating refunds'],
+    summary: 'Links de cobro sandbox, asociación a deuda QR o till CVU, ítems de checkout informativos, créditos parciales al CVU, checkout público de marca blanca, puntos de recaudación con CVU propio, eco cerrado, inbound ledger y devoluciones compensatorias.',
+    features: ['payment links', 'link associated with QR debt', 'link associated with collection till', 'checkout display items', 'embedded CVU credits', 'CVU partial credits', 'white-label checkout page', 'collection tills', 'sandbox CVU per till', 'internal collect', 'sandbox inbound cash-in', 'compensating refunds'],
     interfaces: ['rest_api', 'webhooks', 'sdk', 'console'],     regulatoryBoundary: 'El sandbox cobra entre cuentas Cimbra, acredita un till con CVU 000+9999 o simula un inbound sobre el ledger. No procesa tarjetas, POS, Tap to Phone ni QR interoperable. El CVU del till no viaja por Coelsa. Adquirencia real exige licencia o sponsor, PCI/EMV y acuerdos con marcas. BIND, Dock, tapi, Pismo, Pomelo y Wibond no son conectores.',
   },
   {
