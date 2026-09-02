@@ -73,9 +73,9 @@ export const PLATFORM_CAPABILITIES: readonly PlatformCapability[] = [
   },
   {
     id: 'acquiring', name: 'Acquiring & Collections', domain: 'commerce', availability: 'sandbox', delivery: 'cimbra_native',
-    summary: 'Links de cobro sandbox, eco cerrado entre cuentas Cimbra, inbound ledger y devoluciones compensatorias.',
-    features: ['payment links', 'internal collect', 'sandbox inbound cash-in', 'compensating refunds'],
-    interfaces: ['rest_api', 'webhooks', 'sdk', 'console'],     regulatoryBoundary: 'El sandbox cobra entre cuentas Cimbra o simula un inbound sobre el ledger. No procesa tarjetas, POS, Tap to Phone ni QR interoperable. Adquirencia real exige licencia o sponsor, PCI/EMV y acuerdos con marcas. BIND, Dock, tapi, Pismo, Pomelo y Wibond no son conectores.',
+    summary: 'Links de cobro sandbox, puntos de recaudación con CVU propio, eco cerrado, inbound ledger y devoluciones compensatorias.',
+    features: ['payment links', 'collection tills', 'sandbox CVU per till', 'internal collect', 'sandbox inbound cash-in', 'compensating refunds'],
+    interfaces: ['rest_api', 'webhooks', 'sdk', 'console'],     regulatoryBoundary: 'El sandbox cobra entre cuentas Cimbra, acredita un till con CVU 000+9999 o simula un inbound sobre el ledger. No procesa tarjetas, POS, Tap to Phone ni QR interoperable. El CVU del till no viaja por Coelsa. Adquirencia real exige licencia o sponsor, PCI/EMV y acuerdos con marcas. BIND, Dock, tapi, Pismo, Pomelo y Wibond no son conectores.',
   },
   {
     id: 'echeqs', name: 'ECHEQ', domain: 'payments', availability: 'sandbox', delivery: 'cimbra_native',

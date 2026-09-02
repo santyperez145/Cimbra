@@ -1,4 +1,5 @@
 import { majorToMinor, normalizeCurrency, type Currency } from '../ledger/money.ts';
+import { normalizeAlias } from './cbu.ts';
 
 export const COLLECTION_METHODS = ['internal', 'sandbox_inbound'] as const;
 export const UNSUPPORTED_COLLECTION_METHODS = ['card', 'pos', 'tap_to_phone', 'qr_interoperable'] as const;
@@ -72,3 +73,37 @@ export function normalizePaymentLinkPayInput(value: unknown) {
 
 export type NormalizedPaymentLinkInput = Exclude<ReturnType<typeof normalizePaymentLinkInput>, null | { unsupportedMethod: UnsupportedCollectionMethod }>;
 export type NormalizedPaymentLinkPayInput = Exclude<ReturnType<typeof normalizePaymentLinkPayInput>, null | { unsupportedMethod: UnsupportedCollectionMethod }>;
+
+export function normalizeCollectionTillInput(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const body = value as Record<string, unknown>;
+  if (!hasOnlyKeys(body, ['accountId', 'externalReference', 'name', 'paymentQrId', 'alias'])) return null;
+  const accountId = typeof body.accountId === 'string' ? body.accountId : '';
+  const externalReference = collapsed(body.externalReference, 2, 100);
+  const name = collapsed(body.name, 2, 80);
+  const paymentQrId = body.paymentQrId === undefined || body.paymentQrId === null || body.paymentQrId === ''
+    ? null : typeof body.paymentQrId === 'string' ? body.paymentQrId : '';
+  const alias = body.alias === undefined || body.alias === null || body.alias === ''
+    ? null : normalizeAlias(body.alias);
+  if (!uuid.test(accountId) || !externalReference || !name) return null;
+  if (paymentQrId && !uuid.test(paymentQrId)) return null;
+  if (body.alias !== undefined && body.alias !== null && body.alias !== '' && !alias) return null;
+  return { accountId, externalReference, name, paymentQrId, alias };
+}
+
+export function normalizeCollectionTillInboundInput(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const body = value as Record<string, unknown>;
+  if (!hasOnlyKeys(body, ['externalReference', 'description', 'amount', 'currency', 'signals'])) return null;
+  const externalReference = collapsed(body.externalReference, 2, 100);
+  const description = collapsed(body.description, 2, 180);
+  const currency = normalizeCurrency(body.currency);
+  if (!externalReference || !description || (body.currency !== undefined && currency !== 'ARS')) return null;
+  let amountMinor: bigint;
+  try { amountMinor = majorToMinor(body.amount, 'ARS'); } catch { return null; }
+  if (amountMinor <= 0n || amountMinor > majorToMinor('10000000', 'ARS')) return null;
+  return { externalReference, description, amountMinor, currency: 'ARS' as Currency };
+}
+
+export type NormalizedCollectionTillInput = Exclude<ReturnType<typeof normalizeCollectionTillInput>, null>;
+export type NormalizedCollectionTillInboundInput = Exclude<ReturnType<typeof normalizeCollectionTillInboundInput>, null>;

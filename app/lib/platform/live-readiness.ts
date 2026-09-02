@@ -94,8 +94,8 @@ export const PLATFORM_PRODUCTS: readonly Omit<PlatformProduct, 'status' | 'requi
     benchmark: 'BIND PSP Cobro — deuda, QR, transferencia/CVU y cuenta recaudadora',
     documentationUrl: 'https://psp.bind.com.ar/developers/cobro',
     network: 'Transferencias 3.0 / DEBIN / QR interoperable',
-    sandboxCoverage: 'Links cimbra:link:v1, eco cerrado e inbound de ledger. Tarjeta, POS y QR de red responden 422.',
-    missingForProduction: 'Botón de pago, caja, POS y liquidación a cuenta recaudadora homologada.',
+    sandboxCoverage: 'Links cimbra:link:v1, puntos de recaudación collection_tills con CVU sandbox propio, eco cerrado e inbound de ledger. Tarjeta, POS y QR de red responden 422.',
+    missingForProduction: 'Botón de pago, POS y liquidación a cuenta recaudadora homologada. El CVU del till no viaja por Coelsa.',
   },
   {
     id: 'card_issuing', name: 'Issuing de tarjetas', country: 'LATAM',

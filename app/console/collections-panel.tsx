@@ -11,9 +11,16 @@ type PaymentLink = {
   allowedMethods: string[]; payload: string; status: string; expiresAt: string;
   paidMethod: string | null; payerAccountReference: string | null; createdAt: string;
 };
+type CollectionTill = {
+  id: string; accountId: string; accountReference: string; customerName: string;
+  name: string; externalReference: string; cvu: string; alias: string | null;
+  paymentQrId: string | null; status: string; createdAt: string;
+};
+type PaymentQr = { id: string; accountId: string; kind: string; status: string; description: string };
 
 const STATUS_LABELS: Record<string, string> = {
   open: 'Abierto', pending: 'En revisión', paid: 'Cobrado', expired: 'Expirado', cancelled: 'Cancelado', refunded: 'Devuelto',
+  active: 'Activo', disabled: 'Deshabilitado',
 };
 
 function apiError(value: unknown, fallback: string) {
@@ -30,6 +37,8 @@ function money(value: number, currency = 'ARS') {
 
 export default function CollectionsPanel({ role, accounts }: { role: OrganizationRole; accounts: Account[] }) {
   const [links, setLinks] = useState<PaymentLink[]>([]);
+  const [tills, setTills] = useState<CollectionTill[]>([]);
+  const [staticQrs, setStaticQrs] = useState<PaymentQr[]>([]);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState('');
   const canOperate = roleCan(role, 'finance.write');
@@ -38,12 +47,24 @@ export default function CollectionsPanel({ role, accounts }: { role: Organizatio
   const paidCount = links.filter((link) => link.status === 'paid').length;
   const refundedCount = links.filter((link) => link.status === 'refunded').length;
   const pendingCount = links.filter((link) => link.status === 'pending' || link.status === 'expired' || link.status === 'cancelled').length;
+  const activeTills = tills.filter((till) => till.status === 'active').length;
 
   const load = useCallback(async () => {
-    const response = await authenticatedFetch('/api/v1/payment-links?limit=50', { cache: 'no-store' });
-    const result = await response.json() as { data?: PaymentLink[] };
-    if (!response.ok) throw new Error(apiError(result, 'No pudimos cargar los links de cobro.'));
-    setLinks(result.data ?? []);
+    const [linksResponse, tillsResponse, qrResponse] = await Promise.all([
+      authenticatedFetch('/api/v1/payment-links?limit=50', { cache: 'no-store' }),
+      authenticatedFetch('/api/v1/collection-tills?limit=50', { cache: 'no-store' }),
+      authenticatedFetch('/api/v1/payment-qrs?limit=50', { cache: 'no-store' }),
+    ]);
+    const linksResult = await linksResponse.json() as { data?: PaymentLink[]; error?: unknown };
+    if (!linksResponse.ok) throw new Error(apiError(linksResult, 'No pudimos cargar los links de cobro.'));
+    const tillsResult = await tillsResponse.json() as { data?: CollectionTill[]; error?: unknown };
+    if (!tillsResponse.ok) throw new Error(apiError(tillsResult, 'No pudimos cargar los puntos de recaudación.'));
+    setLinks(linksResult.data ?? []);
+    setTills(tillsResult.data ?? []);
+    if (qrResponse.ok) {
+      const qrResult = await qrResponse.json() as { data?: PaymentQr[] };
+      setStaticQrs((qrResult.data ?? []).filter((qr) => qr.kind === 'static' && qr.status === 'active'));
+    }
   }, []);
 
   useEffect(() => {
@@ -94,10 +115,71 @@ export default function CollectionsPanel({ role, accounts }: { role: Organizatio
     await load().catch((error: Error) => setFeedback(error.message));
   }
 
-  async function mutate(path: string, fallback: string) {
+  async function createTill(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const paymentQrId = String(data.get('paymentQrId') ?? '');
+    const alias = String(data.get('alias') ?? '').trim();
+    setBusy(true); setFeedback('');
+    const response = await authenticatedFetch('/api/v1/collection-tills', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
+      body: JSON.stringify({
+        accountId: data.get('accountId'), externalReference: data.get('externalReference'),
+        name: data.get('name'), paymentQrId: paymentQrId || undefined, alias: alias || undefined,
+      }),
+    });
+    const result = await response.json() as { error?: unknown };
+    setBusy(false);
+    if (!response.ok) { setFeedback(apiError(result, 'No pudimos crear el punto de recaudación.')); return; }
+    form.reset();
+    await load().catch((error: Error) => setFeedback(error.message));
+  }
+
+  async function creditTill(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const tillId = String(data.get('tillId') ?? '');
+    setBusy(true); setFeedback('');
+    const response = await authenticatedFetch(`/api/v1/collection-tills/${encodeURIComponent(tillId)}/inbound`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
+      body: JSON.stringify({
+        externalReference: data.get('externalReference'), description: data.get('description'),
+        amount: data.get('amount'), currency: 'ARS',
+      }),
+    });
+    const result = await response.json() as { error?: unknown };
+    setBusy(false);
+    if (!response.ok) { setFeedback(apiError(result, 'No pudimos acreditar el punto de recaudación.')); return; }
+    form.reset();
+    await load().catch((error: Error) => setFeedback(error.message));
+  }
+
+  async function assignTillAlias(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const tillId = String(data.get('tillId') ?? '');
+    setBusy(true); setFeedback('');
+    const response = await authenticatedFetch(`/api/v1/collection-tills/${encodeURIComponent(tillId)}/alias`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
+      body: JSON.stringify({ alias: data.get('alias') }),
+    });
+    const result = await response.json() as { error?: unknown };
+    setBusy(false);
+    if (!response.ok) { setFeedback(apiError(result, 'No pudimos asignar el alias.')); return; }
+    form.reset();
+    await load().catch((error: Error) => setFeedback(error.message));
+  }
+
+  async function mutate(path: string, fallback: string, method = 'POST') {
     setBusy(true); setFeedback('');
     const response = await authenticatedFetch(path, {
-      method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() },
+      method, headers: { 'Idempotency-Key': crypto.randomUUID() },
     });
     const result = await response.json() as { error?: unknown };
     setBusy(false);
@@ -106,15 +188,16 @@ export default function CollectionsPanel({ role, accounts }: { role: Organizatio
   }
 
   return <div className="module-view wallets-console collections-console">
-    <div className="module-view-head"><div><p>ARGENTINA · COBRANZAS</p><h1>Links de cobro</h1><span>Cobro sandbox contra cuentas ARS argentinas. No es botón de pago de red, POS ni QR interoperable.</span></div><span className="module-health"><i /> {openCount} abiertos</span></div>
+    <div className="module-view-head"><div><p>ARGENTINA · COBRANZAS</p><h1>Cobranzas</h1><span>Links de cobro y puntos de recaudación con CVU propio. No es caja BIND, POS ni botón de tarjeta.</span></div><span className="module-health"><i /> {openCount} abiertos · {activeTills} puntos</span></div>
     {feedback && <div className="form-feedback ledger-feedback">{feedback}</div>}
     <div className="module-metrics">
       <article><span>Abiertos</span><strong>{openCount}</strong></article>
       <article><span>Cobrados</span><strong>{paidCount}</strong></article>
       <article><span>Devueltos</span><strong>{refundedCount}</strong></article>
-      <article><span>Otros</span><strong>{pendingCount}</strong></article>
+      <article><span>Puntos activos</span><strong>{activeTills}</strong></article>
     </div>
-    <p className="role-boundary-copy">El link de cobro sandbox se paga con una cuenta Cimbra del tenant o con un inbound ledger. No procesa tarjetas, POS, Tap to Phone ni QR interoperable.</p>
+    <p className="role-boundary-copy">El link de cobro sandbox se paga con una cuenta Cimbra del tenant o con un inbound ledger. El punto de recaudación emite un CVU sandbox propio: las transferencias internas y el inbound se atribuyen a ese punto. No procesa tarjetas, POS, Tap to Phone ni QR interoperable.</p>
+    {pendingCount > 0 && <p className="role-boundary-copy">{pendingCount} links en revisión, expirados o cancelados.</p>}
 
     {canOperate && <div className="compliance-grid wallets-grid">
       <article className="integration-card"><div className="card-head"><div><h2>Crear link de cobro</h2><p>Cuenta ARS argentina · monto cerrado</p></div></div>
@@ -140,7 +223,48 @@ export default function CollectionsPanel({ role, accounts }: { role: Organizatio
           <button className="app-primary" disabled={busy}>{busy ? 'Cobrando…' : 'Cobrar'}</button>
         </form>
       </article>
+      <article className="integration-card"><div className="card-head"><div><h2>Crear punto de recaudación</h2><p>CVU sandbox propio · no es caja BIND</p></div></div>
+        <form className="book-statement-body" onSubmit={createTill}>
+          <label>Cuenta cobradora<select name="accountId" required defaultValue=""><option value="" disabled>Seleccionar</option>{arsAccounts.map((account) => <option key={account.id} value={account.id}>{account.accountReference}</option>)}</select></label>
+          <label>Nombre<input name="name" required minLength={2} maxLength={80} placeholder="Mostrador Sur" /></label>
+          <label>Referencia<input name="externalReference" required minLength={2} maxLength={100} placeholder="TILL-001" /></label>
+          <label>Alias opcional<input name="alias" minLength={6} maxLength={20} placeholder="COMERCIO.SUR" /></label>
+          <label>QR estático opcional<select name="paymentQrId" defaultValue=""><option value="">Sin asociar</option>{staticQrs.map((qr) => <option key={qr.id} value={qr.id}>{qr.description}</option>)}</select></label>
+          <button className="app-primary" disabled={busy || arsAccounts.length === 0}>{busy ? 'Creando…' : 'Crear punto'}</button>
+        </form>
+      </article>
+      <article className="integration-card"><div className="card-head"><div><h2>Acreditar un punto</h2><p>Inbound ledger al CVU del till</p></div></div>
+        <form className="book-statement-body" onSubmit={creditTill}>
+          <label>Punto<select name="tillId" required defaultValue=""><option value="" disabled>Seleccionar</option>{tills.filter((till) => till.status === 'active').map((till) => <option key={till.id} value={till.id}>{till.name} · {till.cvu.slice(-4)}</option>)}</select></label>
+          <label>Referencia<input name="externalReference" required minLength={2} maxLength={100} placeholder="INB-001" /></label>
+          <label>Concepto<input name="description" required minLength={2} maxLength={180} /></label>
+          <label>Monto ARS<input name="amount" type="number" min="0.01" step="0.01" required /></label>
+          <button className="app-primary" disabled={busy}>{busy ? 'Acreditando…' : 'Acreditar'}</button>
+        </form>
+      </article>
+      <article className="integration-card"><div className="card-head"><div><h2>Alias del punto</h2><p>Un cambio real cada 24 h</p></div></div>
+        <form className="book-statement-body" onSubmit={assignTillAlias}>
+          <label>Punto<select name="tillId" required defaultValue=""><option value="" disabled>Seleccionar</option>{tills.filter((till) => till.status === 'active').map((till) => <option key={till.id} value={till.id}>{till.name}</option>)}</select></label>
+          <label>Alias<input name="alias" required minLength={6} maxLength={20} placeholder="COMERCIO.SUR" /></label>
+          <button className="app-primary" disabled={busy}>{busy ? 'Asignando…' : 'Asignar alias'}</button>
+        </form>
+      </article>
     </div>}
+
+    <article className="module-list">
+      <div className="card-head"><div><h2>Puntos de recaudación</h2><p>CVU sandbox por till · no viaja por Coelsa</p></div></div>
+      {tills.length === 0 && <div className="table-empty">Todavía no hay puntos de recaudación en este tenant.</div>}
+      {tills.map((till) => <div key={till.id}>
+        <div className="movement">
+          <strong>{till.name}</strong>
+          <span>{till.accountReference} · {till.customerName}</span>
+          <small>{till.cvu}{till.alias ? ` · ${till.alias}` : ''} · {till.externalReference}</small>
+        </div>
+        <strong>{till.cvu.slice(-4)}</strong>
+        <span>{STATUS_LABELS[till.status] ?? till.status}</span>
+        {canOperate && till.status === 'active' && <button type="button" className="danger-link" disabled={busy} onClick={() => void mutate(`/api/v1/collection-tills/${till.id}`, 'No pudimos deshabilitar el punto.', 'DELETE')}>Deshabilitar</button>}
+      </div>)}
+    </article>
 
     <article className="module-list">
       <div className="card-head"><div><h2>Links de cobro</h2><p>Payload cimbra:link:v1 · no es un checkout de red</p></div></div>

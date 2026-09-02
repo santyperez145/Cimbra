@@ -288,6 +288,21 @@ await cimbra.paymentLinks.pay(link.data.link.id, {
 
 El payload `cimbra:link:v1` no es un checkout de red. Tarjeta, POS y QR interoperable responden `422`.
 
+```ts
+const till = await cimbra.collectionTills.create({
+  accountId: '00000000-0000-4000-8000-000000000001',
+  externalReference: 'TILL-001',
+  name: 'Mostrador Sur',
+});
+await cimbra.collectionTills.inbound(till.data.till.id, {
+  externalReference: 'INB-001',
+  description: 'Transferencia recibida',
+  amount: '1500.00',
+});
+```
+
+El CVU del till es sandbox (`000`+`9999`) y no viaja por Coelsa. No es una caja BIND.
+
 ## ECHEQ sandbox (Argentina)
 
 ```ts

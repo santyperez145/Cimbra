@@ -1,14 +1,19 @@
 import { sha256 } from '@/app/lib/auth/crypto';
 import type { AuthUser } from '@/app/lib/auth/types';
 import { type Currency, minorToMajorNumber } from '@/app/lib/ledger/money';
+import { issueSandboxCvu, railLast4 } from '@/app/lib/platform/cbu';
+import { aliasChangeBlocked } from '@/app/lib/platform/instant-payments-input';
 import { assertSandboxLedgerOrCertifiedRail } from './platform-rails';
-import type { CollectionMethod, NormalizedPaymentLinkInput, NormalizedPaymentLinkPayInput } from '@/app/lib/platform/collections-input';
+import type {
+  CollectionMethod, NormalizedCollectionTillInboundInput, NormalizedCollectionTillInput, NormalizedPaymentLinkInput, NormalizedPaymentLinkPayInput,
+} from '@/app/lib/platform/collections-input';
 import type { ProtectedRiskSignals } from '@/app/lib/platform/risk-signals';
 import { type DatabaseClient, getDatabaseClient } from './client';
 import {
   accountBalanceMinor, activeHoldsMinor, createAccountPaymentInTransaction, insertAudit, LedgerError, postJournal,
   reverseTransactionInTransaction,
 } from './ledger';
+import { retrieveInstantTransfer } from './instant-payments';
 import { assessRisk, persistRiskAssessment, RiskError } from './risk';
 
 export class CollectionError extends Error {
@@ -17,7 +22,7 @@ export class CollectionError extends Error {
 
 type AccountRow = {
   id: string; ledgerAccountId: string; accountReference: string; customerName: string;
-  currency: Currency; country: string; status: string;
+  taxIdLast4: string; currency: Currency; country: string; status: string;
 };
 
 type LinkRow = {
@@ -66,7 +71,7 @@ function serializeLink(row: LinkRow) {
 async function loadAccount(database: DatabaseClient, organizationId: string, accountId: string, lock = false) {
   return database.prepare(
     `SELECT a.id, a.ledger_account_id AS "ledgerAccountId", a.account_reference AS "accountReference",
-      c.name AS "customerName", a.currency, a.country, a.status
+      c.name AS "customerName", c.tax_id_last4 AS "taxIdLast4", a.currency, a.country, a.status
      FROM accounts a JOIN customers c ON c.id = a.customer_id
      WHERE a.organization_id = ? AND a.id = ? LIMIT 1 ${lock ? 'FOR UPDATE OF a' : ''}`,
   ).bind(organizationId, accountId).first<AccountRow>();
@@ -76,7 +81,7 @@ function assertCollector(account: AccountRow | null): asserts account is Account
   if (!account) throw new CollectionError('Cuenta no encontrada.', 404, 'account_not_found');
   if (account.status !== 'active') throw new CollectionError('La cuenta no está activa.', 409, 'account_inactive');
   if (account.currency !== 'ARS') throw new CollectionError('Las cobranzas sandbox de Argentina operan sólo en ARS.', 409, 'currency_mismatch');
-  if (account.country !== 'AR') throw new CollectionError('El link de cobro sandbox sólo se emite para cuentas argentinas.', 409, 'country_mismatch');
+  if (account.country !== 'AR') throw new CollectionError('Las cobranzas sandbox de Argentina operan sólo con cuentas argentinas.', 409, 'country_mismatch');
 }
 
 async function retrieveLinkRow(organizationId: string, id: string, database: DatabaseClient) {
@@ -357,3 +362,266 @@ export async function refundPaymentLink(input: {
     };
   });
 }
+
+type TillRow = {
+  id: string; accountId: string; accountReference: string; customerName: string; taxIdLast4: string;
+  name: string; externalReference: string; cvu: string; alias: string | null; aliasChangedAt: string | null;
+  paymentQrId: string | null; status: string; requestFingerprint: string; createdAt: string; updatedAt: string;
+};
+
+const tillSelect = `SELECT ct.id, ct.account_id AS "accountId", a.account_reference AS "accountReference",
+  c.name AS "customerName", c.tax_id_last4 AS "taxIdLast4", ct.name, ct.external_reference AS "externalReference",
+  ct.cvu, ct.alias, ct.alias_changed_at AS "aliasChangedAt", ct.payment_qr_id AS "paymentQrId", ct.status,
+  ct.request_fingerprint AS "requestFingerprint", ct.created_at AS "createdAt", ct.updated_at AS "updatedAt"
+  FROM collection_tills ct JOIN accounts a ON a.id = ct.account_id JOIN customers c ON c.id = a.customer_id`;
+
+function serializeTill(row: TillRow) {
+  const { requestFingerprint: _fingerprint, taxIdLast4: _tax, ...publicRow } = row;
+  void _fingerprint; void _tax;
+  return publicRow;
+}
+
+async function retrieveTillRow(organizationId: string, id: string, database: DatabaseClient) {
+  return database.prepare(`${tillSelect} WHERE ct.organization_id = ? AND ct.id = ? LIMIT 1`)
+    .bind(organizationId, id).first<TillRow>();
+}
+
+async function aliasTaken(database: DatabaseClient, organizationId: string, alias: string, exceptTillId?: string) {
+  const instrument = await database.prepare(
+    "SELECT id FROM rail_instruments WHERE organization_id = ? AND value = ? LIMIT 1",
+  ).bind(organizationId, alias).first<{ id: string }>();
+  if (instrument) return true;
+  const till = exceptTillId
+    ? await database.prepare(
+      'SELECT id FROM collection_tills WHERE organization_id = ? AND alias = ? AND id <> ? LIMIT 1',
+    ).bind(organizationId, alias, exceptTillId).first<{ id: string }>()
+    : await database.prepare(
+      'SELECT id FROM collection_tills WHERE organization_id = ? AND alias = ? LIMIT 1',
+    ).bind(organizationId, alias).first<{ id: string }>();
+  return Boolean(till);
+}
+
+export async function listCollectionTills(input: { organizationId: string; limit: number; cursor?: { createdAt: string; id: string } }) {
+  const clause = input.cursor ? 'AND (ct.created_at, ct.id) < (?, ?)' : '';
+  const statement = getDatabaseClient().prepare(
+    `${tillSelect} WHERE ct.organization_id = ? ${clause} ORDER BY ct.created_at DESC, ct.id DESC LIMIT ?`,
+  );
+  const rows = input.cursor
+    ? await statement.bind(input.organizationId, input.cursor.createdAt, input.cursor.id, input.limit + 1).all<TillRow>()
+    : await statement.bind(input.organizationId, input.limit + 1).all<TillRow>();
+  return rows.results.map(serializeTill);
+}
+
+export async function retrieveCollectionTill(organizationId: string, id: string, database = getDatabaseClient()) {
+  const row = await retrieveTillRow(organizationId, id, database);
+  return row ? serializeTill(row) : null;
+}
+
+export async function createCollectionTill(input: {
+  organizationId: string; actor: AuthUser; idempotencyKey: string; till: NormalizedCollectionTillInput;
+}) {
+  await assertSandboxLedgerOrCertifiedRail('collections', CollectionError);
+  const fingerprint = await sha256(JSON.stringify(input.till));
+  return getDatabaseClient().transaction(async (database) => {
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:collection-till:${input.idempotencyKey}`).first();
+    const existing = await database.prepare(`${tillSelect} WHERE ct.organization_id = ? AND ct.idempotency_key = ? LIMIT 1`)
+      .bind(input.organizationId, input.idempotencyKey).first<TillRow>();
+    if (existing) {
+      if (existing.requestFingerprint !== fingerprint) {
+        throw new CollectionError('La Idempotency-Key ya fue usada con otro punto de recaudación.', 409, 'idempotency_mismatch');
+      }
+      return { till: serializeTill(existing), replayed: true };
+    }
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:collection-till-ref:${input.till.externalReference}`).first();
+    const referenceOwner = await database.prepare(
+      'SELECT id FROM collection_tills WHERE organization_id = ? AND external_reference = ? LIMIT 1',
+    ).bind(input.organizationId, input.till.externalReference).first<{ id: string }>();
+    if (referenceOwner) {
+      throw new CollectionError('La referencia externa ya pertenece a otro punto de recaudación.', 409, 'external_reference_conflict');
+    }
+    const account = await loadAccount(database, input.organizationId, input.till.accountId, true);
+    assertCollector(account);
+    if (input.till.paymentQrId) {
+      const qr = await database.prepare(
+        `SELECT id FROM payment_qrs WHERE organization_id = ? AND id = ? AND account_id = ? AND kind = 'static' AND status = 'active' LIMIT 1`,
+      ).bind(input.organizationId, input.till.paymentQrId, account.id).first<{ id: string }>();
+      if (!qr) throw new CollectionError('El QR estático debe estar activo y pertenecer a la misma cuenta cobradora.', 422, 'invalid_static_qr');
+      const takenQr = await database.prepare(
+        'SELECT id FROM collection_tills WHERE organization_id = ? AND payment_qr_id = ? LIMIT 1',
+      ).bind(input.organizationId, input.till.paymentQrId).first<{ id: string }>();
+      if (takenQr) throw new CollectionError('Ese QR estático ya está asociado a otro punto de recaudación.', 409, 'payment_qr_in_use');
+    }
+    if (input.till.alias && await aliasTaken(database, input.organizationId, input.till.alias)) {
+      throw new CollectionError('El alias ya está asignado en este tenant.', 409, 'alias_conflict');
+    }
+    const id = crypto.randomUUID();
+    const cvu = issueSandboxCvu(account.id, id);
+    const createdAt = new Date().toISOString();
+    await database.prepare(`INSERT INTO collection_tills
+      (id, organization_id, idempotency_key, request_fingerprint, account_id, payment_qr_id, name, external_reference,
+       cvu, alias, alias_changed_at, status, created_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'active', ?, ?, ?)`)
+      .bind(id, input.organizationId, input.idempotencyKey, fingerprint, account.id, input.till.paymentQrId,
+        input.till.name, input.till.externalReference, cvu, input.till.alias, input.actor.userId, createdAt, createdAt).run();
+    await insertAudit(database, {
+      organizationId: input.organizationId, actorId: input.actor.userId, action: 'collection.till_created',
+      resourceType: 'collection_till', resourceId: id,
+      payload: { accountId: account.id, cvuLast4: railLast4(cvu), paymentQrId: input.till.paymentQrId },
+    });
+    return { till: serializeTill((await retrieveTillRow(input.organizationId, id, database))!), replayed: false };
+  });
+}
+
+export async function assignCollectionTillAlias(input: {
+  organizationId: string; actor: AuthUser; tillId: string; idempotencyKey: string; alias: string;
+}) {
+  await assertSandboxLedgerOrCertifiedRail('collections', CollectionError);
+  return getDatabaseClient().transaction(async (database) => {
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:collection-till-alias:${input.idempotencyKey}`).first();
+    const replay = await database.prepare(`${tillSelect} WHERE ct.organization_id = ? AND ct.assign_idempotency_key = ? LIMIT 1`)
+      .bind(input.organizationId, input.idempotencyKey).first<TillRow>();
+    if (replay) {
+      if (replay.alias !== input.alias) {
+        throw new CollectionError('La Idempotency-Key ya fue usada con otro alias.', 409, 'idempotency_mismatch');
+      }
+      return { till: serializeTill(replay), replayed: true };
+    }
+    const row = await database.prepare(`${tillSelect} WHERE ct.organization_id = ? AND ct.id = ? LIMIT 1 FOR UPDATE OF ct`)
+      .bind(input.organizationId, input.tillId).first<TillRow>();
+    if (!row) throw new CollectionError('Punto de recaudación no encontrado.', 404, 'collection_till_not_found');
+    if (row.status !== 'active') throw new CollectionError('El punto de recaudación no está activo.', 409, 'collection_till_disabled');
+    if (row.alias === input.alias) return { till: serializeTill(row), replayed: false };
+    if (row.alias && aliasChangeBlocked(row.aliasChangedAt)) {
+      throw new CollectionError('El alias no puede modificarse más de una vez en 24 horas.', 422, 'alias_change_rate_limited');
+    }
+    if (await aliasTaken(database, input.organizationId, input.alias, row.id)) {
+      throw new CollectionError('El alias ya está asignado en este tenant.', 422, 'alias_conflict');
+    }
+    const now = new Date().toISOString();
+    const changing = Boolean(row.alias) && row.alias !== input.alias;
+    await database.prepare(`UPDATE collection_tills
+      SET alias = ?, assign_idempotency_key = ?, alias_changed_at = ?, updated_at = ?
+      WHERE id = ?`)
+      .bind(input.alias, input.idempotencyKey, changing ? now : null, now, row.id).run();
+    await insertAudit(database, {
+      organizationId: input.organizationId, actorId: input.actor.userId, action: 'collection.till_alias_assigned',
+      resourceType: 'collection_till', resourceId: row.id,
+      payload: { aliasLast4: railLast4(input.alias), previousLast4: row.alias ? railLast4(row.alias) : null },
+    });
+    return { till: serializeTill({ ...row, alias: input.alias, aliasChangedAt: changing ? now : null, updatedAt: now }), replayed: false };
+  });
+}
+
+export async function disableCollectionTill(input: {
+  organizationId: string; actor: AuthUser; tillId: string; idempotencyKey: string;
+}) {
+  await assertSandboxLedgerOrCertifiedRail('collections', CollectionError);
+  return getDatabaseClient().transaction(async (database) => {
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:collection-till-disable:${input.tillId}`).first();
+    const row = await database.prepare(`${tillSelect} WHERE ct.organization_id = ? AND ct.id = ? LIMIT 1 FOR UPDATE OF ct`)
+      .bind(input.organizationId, input.tillId).first<TillRow>();
+    if (!row) throw new CollectionError('Punto de recaudación no encontrado.', 404, 'collection_till_not_found');
+    if (row.status === 'disabled') return { till: serializeTill(row), replayed: true };
+    const now = new Date().toISOString();
+    await database.prepare(
+      "UPDATE collection_tills SET status = 'disabled', cancel_idempotency_key = ?, updated_at = ? WHERE id = ?",
+    ).bind(input.idempotencyKey, now, row.id).run();
+    await insertAudit(database, {
+      organizationId: input.organizationId, actorId: input.actor.userId, action: 'collection.till_disabled',
+      resourceType: 'collection_till', resourceId: row.id, payload: { cvuLast4: railLast4(row.cvu) },
+    });
+    return { till: serializeTill({ ...row, status: 'disabled', updatedAt: now }), replayed: false };
+  });
+}
+
+export async function creditCollectionTill(input: {
+  organizationId: string; actor: AuthUser; tillId: string; idempotencyKey: string;
+  inbound: NormalizedCollectionTillInboundInput; signals?: ProtectedRiskSignals;
+}) {
+  await assertSandboxLedgerOrCertifiedRail('collections', CollectionError);
+  const fingerprint = await sha256(JSON.stringify({
+    tillId: input.tillId, ...input.inbound, amountMinor: input.inbound.amountMinor.toString(), signals: input.signals ?? {},
+  }));
+  return getDatabaseClient().transaction(async (database) => {
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:collection-till-inbound:${input.idempotencyKey}`).first();
+    const existing = await database.prepare(
+      'SELECT id FROM instant_transfers WHERE organization_id = ? AND idempotency_key = ? LIMIT 1',
+    ).bind(input.organizationId, input.idempotencyKey).first<{ id: string }>();
+    if (existing) {
+      const stored = await database.prepare(
+        'SELECT request_fingerprint AS "requestFingerprint", collection_till_id AS "collectionTillId" FROM instant_transfers WHERE id = ? LIMIT 1',
+      ).bind(existing.id).first<{ requestFingerprint: string; collectionTillId: string | null }>();
+      if (!stored || stored.requestFingerprint !== fingerprint || stored.collectionTillId !== input.tillId) {
+        throw new CollectionError('La Idempotency-Key ya fue usada con otro inbound de recaudación.', 409, 'idempotency_mismatch');
+      }
+      const row = await retrieveTillRow(input.organizationId, input.tillId, database);
+      const transfer = await retrieveInstantTransfer(input.organizationId, existing.id, database);
+      if (!row || !transfer) {
+        throw new CollectionError('La Idempotency-Key ya fue usada con otro inbound de recaudación.', 409, 'idempotency_mismatch');
+      }
+      return { till: serializeTill(row), transfer, replayed: true };
+    }
+    const row = await database.prepare(`${tillSelect} WHERE ct.organization_id = ? AND ct.id = ? LIMIT 1 FOR UPDATE OF ct`)
+      .bind(input.organizationId, input.tillId).first<TillRow>();
+    if (!row) throw new CollectionError('Punto de recaudación no encontrado.', 404, 'collection_till_not_found');
+    if (row.status !== 'active') throw new CollectionError('El punto de recaudación no está activo.', 409, 'collection_till_disabled');
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:instant-ref:${input.inbound.externalReference}`).first();
+    const referenceOwner = await database.prepare(
+      'SELECT id FROM instant_transfers WHERE organization_id = ? AND external_reference = ? LIMIT 1',
+    ).bind(input.organizationId, input.inbound.externalReference).first<{ id: string }>();
+    if (referenceOwner) {
+      throw new CollectionError('La referencia externa ya pertenece a otra transferencia instantánea.', 409, 'external_reference_conflict');
+    }
+    const merchant = await loadAccount(database, input.organizationId, row.accountId, true);
+    assertCollector(merchant);
+    let payment;
+    try {
+      payment = await createAccountPaymentInTransaction({
+        organizationId: input.organizationId, actor: input.actor, idempotencyKey: `till-in-${input.idempotencyKey}`,
+        accountId: merchant.id, direction: 'cash_in', counterparty: `till:${railLast4(row.cvu)}`,
+        description: input.inbound.description, amountMinor: input.inbound.amountMinor, currency: 'ARS', signals: input.signals,
+      }, database);
+    } catch (error) {
+      if (error instanceof LedgerError) throw new CollectionError(error.message, error.status, error.code);
+      throw error;
+    }
+    if ('declined' in payment) return { declined: payment.declined, replayed: payment.replayed };
+    const id = crypto.randomUUID();
+    const createdAt = new Date().toISOString();
+    const hash = await sha256(row.cvu);
+    await database.prepare(`INSERT INTO instant_transfers
+      (id, organization_id, idempotency_key, request_fingerprint, scheme, direction, source_account_id, destination_account_id,
+       counterparty_kind, counterparty_hash, counterparty_last4, counterparty_holder_name, counterparty_tax_last4,
+       amount_minor, currency, description, external_reference, status, rail, transaction_id, reversal_transaction_id,
+       qr_payload, expires_at, collection_till_id, created_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, 'credit_push', 'inbound', NULL, ?, 'cvu', ?, ?, ?, ?, ?, 'ARS', ?, ?, ?, 'cimbra_sandbox', ?, NULL, NULL, NULL, ?, ?, ?, ?)`)
+      .bind(
+        id, input.organizationId, input.idempotencyKey, fingerprint, merchant.id, hash, railLast4(row.cvu),
+        merchant.customerName, merchant.taxIdLast4, input.inbound.amountMinor.toString(), input.inbound.description,
+        input.inbound.externalReference, payment.payment.status === 'review' ? 'pending' : 'settled', payment.payment.id,
+        row.id, input.actor.userId, createdAt, createdAt,
+      ).run();
+    await insertAudit(database, {
+      organizationId: input.organizationId, actorId: input.actor.userId, action: 'collection.till_credited',
+      resourceType: 'collection_till', resourceId: row.id,
+      payload: { transferId: id, amountMinor: input.inbound.amountMinor.toString(), direction: 'inbound' },
+    });
+    await insertAudit(database, {
+      organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.transfer_created',
+      resourceType: 'instant_transfer', resourceId: id,
+      payload: { scheme: 'credit_push', direction: 'inbound', collectionTillId: row.id, amountMinor: input.inbound.amountMinor.toString() },
+    });
+    return {
+      till: serializeTill(row),
+      transfer: await retrieveInstantTransfer(input.organizationId, id, database),
+      replayed: false,
+    };
+  });
+}
+

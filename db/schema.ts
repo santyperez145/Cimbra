@@ -1104,6 +1104,7 @@ export const instantTransfers = pgTable('instant_transfers', {
   transactionId: text('transaction_id').references(() => transactions.id, { onDelete: 'restrict' }),
   reversalTransactionId: text('reversal_transaction_id').references(() => transactions.id, { onDelete: 'restrict' }),
   qrPayload: text('qr_payload'), expiresAt: text('expires_at'),
+  collectionTillId: text('collection_till_id').references((): AnyPgColumn => collectionTills.id, { onDelete: 'restrict' }),
   createdBy: text('created_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
   createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
 }, (table) => [
@@ -1113,6 +1114,7 @@ export const instantTransfers = pgTable('instant_transfers', {
   uniqueIndex('idx_instant_transfers_reversal').on(table.reversalTransactionId),
   index('idx_instant_transfers_org_created').on(table.organizationId, table.createdAt),
   index('idx_instant_transfers_org_scheme').on(table.organizationId, table.scheme, table.createdAt),
+  index('idx_instant_transfers_collection_till').on(table.collectionTillId),
   check('instant_transfers_scheme', sql`${table.scheme} IN ('credit_push', 'debit_pull', 'qr_collect')`),
   check('instant_transfers_direction', sql`${table.direction} IN ('outbound', 'inbound', 'internal')`),
   check('instant_transfers_counterparty_kind', sql`${table.counterpartyKind} IN ('cvu', 'cbu', 'alias')`),
@@ -1226,6 +1228,31 @@ export const paymentLinks = pgTable('payment_links', {
   check('payment_links_status', sql`${table.status} IN ('open', 'pending', 'paid', 'expired', 'cancelled', 'refunded')`),
   check('payment_links_paid_method', sql`${table.paidMethod} IS NULL OR ${table.paidMethod} IN ('internal', 'sandbox_inbound')`),
   check('payment_links_amount_positive', sql`${table.amountMinor} > 0`),
+]);
+
+export const collectionTills = pgTable('collection_tills', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  idempotencyKey: text('idempotency_key').notNull(), requestFingerprint: text('request_fingerprint').notNull(),
+  accountId: text('account_id').notNull().references(() => accounts.id, { onDelete: 'restrict' }),
+  paymentQrId: text('payment_qr_id').references(() => paymentQrs.id, { onDelete: 'restrict' }),
+  name: text('name').notNull(), externalReference: text('external_reference').notNull(),
+  cvu: text('cvu').notNull(), alias: text('alias'), aliasChangedAt: text('alias_changed_at'),
+  status: text('status').notNull().default('active'),
+  assignIdempotencyKey: text('assign_idempotency_key'),
+  cancelIdempotencyKey: text('cancel_idempotency_key'),
+  createdBy: text('created_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
+  createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_collection_tills_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  uniqueIndex('idx_collection_tills_org_reference').on(table.organizationId, table.externalReference),
+  uniqueIndex('idx_collection_tills_cvu').on(table.cvu),
+  uniqueIndex('idx_collection_tills_org_alias').on(table.organizationId, table.alias).where(sql`${table.alias} IS NOT NULL`),
+  uniqueIndex('idx_collection_tills_payment_qr').on(table.paymentQrId).where(sql`${table.paymentQrId} IS NOT NULL`),
+  uniqueIndex('idx_collection_tills_org_assign_idempotency').on(table.organizationId, table.assignIdempotencyKey).where(sql`${table.assignIdempotencyKey} IS NOT NULL`),
+  uniqueIndex('idx_collection_tills_org_cancel_idempotency').on(table.organizationId, table.cancelIdempotencyKey).where(sql`${table.cancelIdempotencyKey} IS NOT NULL`),
+  index('idx_collection_tills_org_created').on(table.organizationId, table.createdAt),
+  check('collection_tills_status', sql`${table.status} IN ('active', 'disabled')`),
 ]);
 
 export const echeqs = pgTable('echeqs', {

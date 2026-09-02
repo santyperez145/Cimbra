@@ -295,7 +295,7 @@ export type InstantTransfer = {
   amountMinor: string; amount: number; currency: 'ARS'; description: string; externalReference: string;
   status: 'pending' | 'accepted' | 'rejected' | 'settled' | 'returned' | 'expired' | 'cancelled'; rail: 'cimbra_sandbox';
   transactionId: string | null; reversalTransactionId: string | null; qrPayload: string | null; expiresAt: string | null;
-  createdAt: string; updatedAt: string;
+  collectionTillId: string | null; createdAt: string; updatedAt: string;
 };
 export type PaymentQr = {
   id: string; accountId: string; accountReference: string; amountMinor: string | null; amount: number | null;
@@ -323,6 +323,11 @@ export type PaymentLink = {
   status: 'open' | 'pending' | 'paid' | 'expired' | 'cancelled' | 'refunded'; expiresAt: string;
   paidMethod: CollectionMethod | null; payerAccountId: string | null; payerAccountReference: string | null;
   transactionId: string | null; reversalTransactionId: string | null;   createdAt: string; updatedAt: string;
+};
+export type CollectionTill = {
+  id: string; accountId: string; accountReference: string; customerName: string;
+  name: string; externalReference: string; cvu: string; alias: string | null; aliasChangedAt: string | null;
+  paymentQrId: string | null; status: 'active' | 'disabled'; createdAt: string; updatedAt: string;
 };
 export type EcheqStatus = 'issued' | 'accepted' | 'endorsed' | 'pending' | 'deposited' | 'cancelled' | 'returned' | 'rejected' | 'expired';
 export type Echeq = {
@@ -468,6 +473,12 @@ export type CreateQrDebtInput = {
 export type CreatePaymentLinkInput = {
   accountId: string; externalReference: string; description: string; amount: string; currency: 'ARS';
   expiresInMinutes?: number; methods?: CollectionMethod[];
+};
+export type CreateCollectionTillInput = {
+  accountId: string; externalReference: string; name: string; paymentQrId?: string | null; alias?: string | null;
+};
+export type CreditCollectionTillInput = {
+  externalReference: string; description: string; amount: string; currency?: 'ARS'; signals?: RiskSignalsInput;
 };
 export type PayPaymentLinkInput = { method: CollectionMethod | 'card' | 'pos' | 'tap_to_phone' | 'qr_interoperable'; payerAccountId?: string; signals?: RiskSignalsInput };
 export type CreateEcheqInput = {

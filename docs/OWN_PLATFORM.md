@@ -20,7 +20,7 @@ La independencia tecnológica no elimina la realidad de los rieles. Para mover f
 | Card Issuing | programas, lifecycle, límites y controles por canal/MCC; tokenización futura | API, webhooks, SDK, consola | Sandbox operativo sin PAN/CVV ni red |
 | Disputes & Chargebacks | disputas parciales, lifecycle, evidencia, créditos compensables, SLA | API, SDK, eventos, consola | Sandbox |
 | Card Processing | autorización, stand-in, clearing, presentments, 3DS | API, ISO 8583, eventos, archivos | Roadmap |
-| Acquiring & Collections | links de cobro, eco cerrado, inbound sandbox, refunds; POS/tarjetas/QR interoperable futuro | API, webhooks, SDK, consola | Sandbox operativo; sin tarjetas, POS, Tap to Phone ni QR interoperable |
+| Acquiring & Collections | links de cobro, puntos de recaudación con CVU sandbox, eco cerrado, inbound sandbox, refunds; POS/tarjetas/QR interoperable futuro | API, webhooks, SDK, consola | Sandbox operativo; sin tarjetas, POS, Tap to Phone, QR interoperable ni Coelsa |
 | Bill Payments & Top-ups | catálogo tenant, deuda emitida, pago, recargas, gift cards, reversas y mandatos recurrentes | API, webhooks, SDK, consola | Sandbox operativo; sin cobertura, biller externo ni débito homologado |
 | Wallets | white-label, balances, pockets y configuración de programa | API, webhooks, SDK, consola | Sandbox operativo; sin custodia ni app de consumidor |
 | Lending | originación, líneas, schedules, intereses y cobranza | API, webhooks, SDK, consola | Roadmap |

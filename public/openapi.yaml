@@ -1253,6 +1253,125 @@ paths:
         '403': { description: Missing payments:write scope or finance.write permission }
         '404': { description: Payment link not found }
         '409': { description: Link is not paid }
+  /api/v1/collection-tills:
+    get:
+      operationId: listCollectionTills
+      summary: List sandbox collection tills
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200': { description: Collection till page }
+        '403': { description: Missing payments:read scope or console role }
+    post:
+      operationId: createCollectionTill
+      summary: Create a collection till with its own sandbox CVU
+      description: Own Cimbra contract. Issues a sandbox CVU (000+9999) attributed to this till, not a second CVU of the collector account. Optional static QR of the same account. Optional alias. Not a BIND caja, Coelsa CVU or POS.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [accountId, externalReference, name]
+              properties:
+                accountId: { type: string, format: uuid }
+                externalReference: { type: string, minLength: 2, maxLength: 100 }
+                name: { type: string, minLength: 2, maxLength: 80 }
+                paymentQrId: { type: [string, 'null'], format: uuid }
+                alias: { type: [string, 'null'], minLength: 6, maxLength: 20 }
+      responses:
+        '201': { description: Collection till created }
+        '200': { description: Idempotent replay }
+        '400': { description: Invalid payload }
+        '403': { description: Missing payments:write scope or finance.write permission }
+        '409': { description: Duplicate reference, alias or static QR }
+        '422': { description: Static QR is not an active static QR of the same account }
+  /api/v1/collection-tills/{id}:
+    get:
+      operationId: retrieveCollectionTill
+      summary: Retrieve a collection till
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses:
+        '200': { description: Collection till }
+        '403': { description: Missing payments:read scope or console role }
+        '404': { description: Collection till not found }
+    delete:
+      operationId: disableCollectionTill
+      summary: Disable a collection till and its sandbox CVU
+      description: Irreversible. The CVU and alias stop resolving in the tenant directory. A new POST creates another till. Returns 200 JSON, including idempotent replay. Not a Coelsa disable.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200': { description: Collection till disabled or idempotent replay }
+        '403': { description: Missing payments:write scope or finance.write permission }
+        '404': { description: Collection till not found }
+  /api/v1/collection-tills/{id}/alias:
+    patch:
+      operationId: assignCollectionTillAlias
+      summary: Assign or change the tenant alias of a collection till
+      description: Uniqueness is tenant-scoped against rail instruments and other tills. A real change is limited to once per 24 hours; the first assignment does not start that window.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [alias]
+              properties:
+                alias: { type: string, minLength: 6, maxLength: 20 }
+      responses:
+        '200': { description: Alias assigned, unchanged or replayed }
+        '400': { description: Invalid alias format }
+        '403': { description: Missing payments:write scope or finance.write permission }
+        '404': { description: Collection till not found }
+        '409': { description: Till disabled or idempotency mismatch }
+        '422': { description: Alias taken in tenant or more than one change in 24 hours }
+  /api/v1/collection-tills/{id}/inbound:
+    post:
+      operationId: creditCollectionTill
+      summary: Credit a collection till with a sandbox inbound cash-in
+      description: Ledger cash-in to the collector account attributed to this till. Creates an inbound instant transfer with collectionTillId. Not a Coelsa credit.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [externalReference, description, amount]
+              properties:
+                externalReference: { type: string, minLength: 2, maxLength: 100 }
+                description: { type: string, minLength: 2, maxLength: 180 }
+                amount:
+                  oneOf:
+                    - { type: string, pattern: '^\d+(?:\.\d+)?$' }
+                    - { type: number, exclusiveMinimum: 0, maximum: 10000000 }
+                currency: { type: string, enum: [ARS] }
+      responses:
+        '201': { description: Till credited }
+        '200': { description: Idempotent replay }
+        '400': { description: Invalid payload }
+        '403': { description: Missing payments:write scope or finance.write permission }
+        '404': { description: Collection till not found }
+        '409': { description: Till disabled or reference conflict }
+        '422': { description: Risk decline }
   /api/v1/echeqs:
     get:
       operationId: listEcheqs
@@ -3683,7 +3802,7 @@ components:
         createdAt: { type: string, format: date-time }
     InstantTransfer:
       type: object
-      required: [id, scheme, direction, sourceAccountId, sourceAccountReference, destinationAccountId, destinationAccountReference, counterpartyKind, counterpartyLast4, counterpartyHolderName, counterpartyTaxLast4, amountMinor, amount, currency, description, externalReference, status, rail, transactionId, reversalTransactionId, qrPayload, expiresAt, createdAt, updatedAt]
+      required: [id, scheme, direction, sourceAccountId, sourceAccountReference, destinationAccountId, destinationAccountReference, counterpartyKind, counterpartyLast4, counterpartyHolderName, counterpartyTaxLast4, amountMinor, amount, currency, description, externalReference, status, rail, transactionId, reversalTransactionId, qrPayload, expiresAt, collectionTillId, createdAt, updatedAt]
       additionalProperties: false
       properties:
         id: { type: string, format: uuid }
@@ -3708,6 +3827,7 @@ components:
         reversalTransactionId: { type: [string, 'null'], format: uuid }
         qrPayload: { type: [string, 'null'] }
         expiresAt: { type: [string, 'null'], format: date-time }
+        collectionTillId: { type: [string, 'null'], format: uuid }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
     PaymentQr:
@@ -3794,6 +3914,24 @@ components:
         payerAccountReference: { type: [string, 'null'] }
         transactionId: { type: [string, 'null'], format: uuid }
         reversalTransactionId: { type: [string, 'null'], format: uuid }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    CollectionTill:
+      type: object
+      required: [id, accountId, accountReference, customerName, name, externalReference, cvu, alias, aliasChangedAt, paymentQrId, status, createdAt, updatedAt]
+      additionalProperties: false
+      properties:
+        id: { type: string, format: uuid }
+        accountId: { type: string, format: uuid }
+        accountReference: { type: string }
+        customerName: { type: string }
+        name: { type: string }
+        externalReference: { type: string }
+        cvu: { type: string }
+        alias: { type: [string, 'null'] }
+        aliasChangedAt: { type: [string, 'null'], format: date-time }
+        paymentQrId: { type: [string, 'null'], format: uuid }
+        status: { type: string, enum: [active, disabled] }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
     Echeq:

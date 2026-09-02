@@ -108,7 +108,7 @@ El sandbox ya impone:
 - book transfers account-to-account con dos legs atómicos, holds, maker/checker, reversas compensatorias y statements paginados;
 - wallets por customer con programas tenant, bolsillos mapeados a cuentas de producto, freeze/close e movimientos internos via book transfers;
 - pagos instantáneos sandbox con CVU/alias (asignar o cambiar sobre un CVU existente, un cambio real cada 24 h; eliminar el CVU no toca cuenta ni saldo), confirmación de titular, crédito interno o cash-out, débito interno, QR Cimbra dinámico, estático y de deuda con orden de venta y returns compensatorios;
-- cobranzas sandbox con links de cobro, eco cerrado, inbound ledger y refunds compensatorios;
+- cobranzas sandbox con links de cobro, puntos de recaudación con CVU propio, eco cerrado, inbound ledger y refunds compensatorios;
 - ECHEQ sandbox con emisión, aceptación, endoso, depósito interno, NSF y devolución previa, sin Coelsa ni CMC7;
 - catálogo persistido de rieles oficiales (`official_rail_connections`) y registro vacío de adaptadores: el ledger no abre SQL durante una llamada de red; despachar Coelsa/banco/esquema responde `rail_not_wired` o `rail_adapter_missing` hasta homologar;
 

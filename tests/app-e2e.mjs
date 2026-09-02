@@ -119,11 +119,13 @@ async function cleanup() {
       await transaction`DELETE FROM payout_batches WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM payout_beneficiaries WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM qr_sale_orders WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM qr_debts WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM instant_transfers WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM collection_tills WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM payment_qrs WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM payment_links WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM echeq_endorsements WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM echeqs WHERE organization_id = ${organizationId}`;
-      await transaction`DELETE FROM instant_transfers WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM rail_instruments WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM wallet_lifecycle_events WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM wallet_pockets WHERE organization_id = ${organizationId}`;
@@ -955,6 +957,94 @@ try {
   }), 201);
   assert.equal(cancelled.link.status, 'cancelled');
   assert.ok((await json(await request('/api/v1/payment-links?limit=10'), 200)).data.some((item) => item.id === linkCreated.link.id));
+
+  const tillStatic = await json(await request('/api/v1/payment-qrs', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-till-static-${runId}` },
+    body: JSON.stringify({ accountId: destinationAccount.id, description: 'QR till QA', kind: 'static' }),
+  }), 201);
+  const tillPayload = {
+    accountId: destinationAccount.id, externalReference: `TILL-${runId}`, name: 'Mostrador Sur',
+    paymentQrId: tillStatic.qr.id,
+  };
+  const tillCreated = await json(await request('/api/v1/collection-tills', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-till-${runId}` },
+    body: JSON.stringify(tillPayload),
+  }), 201);
+  assert.equal(tillCreated.till.status, 'active');
+  assert.equal(tillCreated.till.paymentQrId, tillStatic.qr.id);
+  assert.match(tillCreated.till.cvu, /^0009999/);
+  assert.notEqual(tillCreated.till.cvu, destinationCvuValue);
+  const tillReplay = await json(await request('/api/v1/collection-tills', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-till-${runId}` },
+    body: JSON.stringify(tillPayload),
+  }), 200);
+  assert.equal(tillReplay.replayed, true); assert.equal(tillReplay.till.id, tillCreated.till.id);
+  const retrievedTill = await json(await request(`/api/v1/collection-tills/${tillCreated.till.id}`), 200);
+  assert.equal(retrievedTill.id, tillCreated.till.id);
+  const tillDirectory = await json(await request(`/api/v1/rail-directory?q=${tillCreated.till.cvu}`), 200);
+  assert.equal(tillDirectory.found, true); assert.equal(tillDirectory.holderName, 'QA Company');
+  const tillInbound = await json(await request(`/api/v1/collection-tills/${tillCreated.till.id}/inbound`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-till-in-${runId}` },
+    body: JSON.stringify({
+      externalReference: `TILL-IN-${runId}`, description: 'Acreditación till', amount: '11.00', currency: 'ARS',
+    }),
+  }), 201);
+  assert.equal(tillInbound.transfer.direction, 'inbound');
+  assert.equal(tillInbound.transfer.collectionTillId, tillCreated.till.id);
+  assert.equal(tillInbound.transfer.destinationAccountId, destinationAccount.id);
+  const tillInboundReplay = await json(await request(`/api/v1/collection-tills/${tillCreated.till.id}/inbound`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-till-in-${runId}` },
+    body: JSON.stringify({
+      externalReference: `TILL-IN-${runId}`, description: 'Acreditación till', amount: '11.00', currency: 'ARS',
+    }),
+  }), 200);
+  assert.equal(tillInboundReplay.replayed, true);
+  const tillInternal = await json(await request('/api/v1/instant-transfers', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-till-push-${runId}` },
+    body: JSON.stringify({
+      externalReference: `TILL-PUSH-${runId}`, accountId: account.id, destination: tillCreated.till.cvu,
+      description: 'Pago a till', amount: '5.00', currency: 'ARS', confirmHolder: true, holderName: 'QA Company', taxIdLast4: '5678',
+    }),
+  }), 201);
+  assert.equal(tillInternal.transfer.direction, 'internal');
+  assert.equal(tillInternal.transfer.collectionTillId, tillCreated.till.id);
+  const tillAlias = `TILL.${runId.replaceAll('-', '').slice(0, 14)}`;
+  const tillAliased = await json(await request(`/api/v1/collection-tills/${tillCreated.till.id}/alias`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-till-alias-${runId}` },
+    body: JSON.stringify({ alias: tillAlias }),
+  }), 200);
+  assert.equal(tillAliased.till.alias, tillAlias);
+  const tillAliasReplay = await json(await request(`/api/v1/collection-tills/${tillCreated.till.id}/alias`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-till-alias-${runId}` },
+    body: JSON.stringify({ alias: tillAlias }),
+  }), 200);
+  assert.equal(tillAliasReplay.replayed, true);
+  const tillAliasDirectory = await json(await request(`/api/v1/rail-directory?q=${encodeURIComponent(tillAlias)}`), 200);
+  assert.equal(tillAliasDirectory.found, true);
+  const tillDisabled = await json(await request(`/api/v1/collection-tills/${tillCreated.till.id}`, {
+    method: 'DELETE', headers: { 'Idempotency-Key': `qa-till-off-${runId}` },
+  }), 200);
+  assert.equal(tillDisabled.till.status, 'disabled');
+  const tillDisabledReplay = await json(await request(`/api/v1/collection-tills/${tillCreated.till.id}`, {
+    method: 'DELETE', headers: { 'Idempotency-Key': `qa-till-off-${runId}` },
+  }), 200);
+  assert.equal(tillDisabledReplay.replayed, true);
+  const tillInboundOff = await json(await request(`/api/v1/collection-tills/${tillCreated.till.id}/inbound`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-till-in-off-${runId}` },
+    body: JSON.stringify({
+      externalReference: `TILL-OFF-${runId}`, description: 'Ya deshabilitado', amount: '1.00', currency: 'ARS',
+    }),
+  }), 409);
+  assert.equal(tillInboundOff.error.code, 'collection_till_disabled');
+  const tillPushOff = await json(await request('/api/v1/instant-transfers', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-till-push-off-${runId}` },
+    body: JSON.stringify({
+      externalReference: `TILL-PUSH-OFF-${runId}`, accountId: account.id, destination: tillCreated.till.cvu,
+      description: 'Pago a till muerto', amount: '1.00', currency: 'ARS', confirmHolder: true, holderName: 'QA Company', taxIdLast4: '5678',
+    }),
+  }), 404);
+  assert.equal(tillPushOff.error.code, 'unknown_sandbox_cvu');
+  assert.ok((await json(await request('/api/v1/collection-tills?limit=10'), 200)).data.some((item) => item.id === tillCreated.till.id));
 
   const beneficiaryCuit = '30000075678';
   const echeqPayload = {
@@ -2187,6 +2277,7 @@ try {
   await json(await request('/api/v1/qr-sale-orders'), 200);
   await json(await request('/api/v1/qr-debts'), 200);
   await json(await request('/api/v1/payment-links'), 200);
+  await json(await request('/api/v1/collection-tills'), 200);
   await json(await request('/api/v1/echeqs'), 200);
   await json(await request(`/api/v1/accounts/${account.id}/statement`), 200);
   await json(await request(`/api/v1/cards/${card.id}/lifecycle`), 200);
@@ -2236,6 +2327,13 @@ try {
     }),
   }), 403);
   assert.equal(viewerCollectionDenied.error.code, 'insufficient_role');
+  const viewerTillDenied = await json(await request('/api/v1/collection-tills', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-viewer-till-${runId}` },
+    body: JSON.stringify({
+      accountId: destinationAccount.id, externalReference: `TILL-VIEWER-${runId}`, name: 'Viewer',
+    }),
+  }), 403);
+  assert.equal(viewerTillDenied.error.code, 'insufficient_role');
   const viewerEcheqDenied = await json(await request('/api/v1/echeqs', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-viewer-echeq-${runId}` },
     body: JSON.stringify({
@@ -2342,7 +2440,7 @@ try {
 
   console.log(JSON.stringify({
     ok: true,
-    checks: ['auth', 'landing-session-state', 'console-session-guard', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'viewer-read-only', 'member-invitations', 'dual-control', 'maker-checker', 'transfer-approval', 'book-transfer-approval', 'approval-replay', 'approval-fail-closed', 'payout-approval', 'risk-case-approval', 'risk-hold-bypass-guard', 'reconciliation-exception-approval', 'disputes', 'partial-dispute', 'dispute-ledger-credit', 'dispute-compensation', 'dispute-approval', 'dispute-evidence', 'dispute-rbac', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'book-transfers', 'account-statements', 'book-transfer-compensation', 'book-transfer-rbac', 'wallets', 'wallet-pockets', 'wallet-lifecycle', 'wallet-rbac', 'instant-payments', 'cvu-alias', 'alias-assign', 'cvu-revoke', 'holder-confirmation', 'internal-credit', 'sandbox-outbound', 'internal-debit', 'cimbra-qr', 'qr-sale-orders', 'qr-debts', 'instant-return', 'instant-rbac', 'collections', 'payment-links', 'collection-internal', 'collection-inbound', 'collection-refund', 'collection-cancel', 'collection-card-denied', 'collection-rbac', 'echeqs', 'echeq-accept', 'echeq-deposit', 'echeq-cancel', 'echeq-return', 'echeq-nsf', 'echeq-discount-denied', 'echeq-rbac', 'payout-beneficiaries', 'protected-payout-destination', 'payout-batches', 'payout-scheduling', 'payout-result-file', 'payout-compensation', 'payout-rbac', 'payout-s2s', 'billers', 'biller-obligations', 'protected-subscriber-reference', 'bill-payments', 'mobile-topups', 'gift-cards', 'recurring-mandates', 'mandate-consent', 'biller-rbac', 'biller-s2s', 'bill-payment-compensation', 'cdd-kyb', 'cdd-evidence', 'cdd-idempotency', 'cdd-maker-checker', 'cdd-s2s-orchestration', 'cdd-session-only-decision', 'cdd-expiry', 'cdd-rbac', 'card-programs', 'card-lifecycle', 'card-controls', 'card-terminal-state', 'card-rbac', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'risk-signals-privacy', 'risk-decision-lists', 'risk-step-up', 'risk-step-up-idempotency', 'risk-step-up-rbac', 'risk-decision-slo', 'risk-confirmed-outcomes', 'risk-supervised-metrics', 'risk-outcome-revisions', 'reconciliation', 'operations-work-queue', 'operations-idempotency', 'operations-evidence', 'operations-rbac', 'csv-import', 'settlement', 'private-evidence', 'audit'],
+    checks: ['auth', 'landing-session-state', 'console-session-guard', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'viewer-read-only', 'member-invitations', 'dual-control', 'maker-checker', 'transfer-approval', 'book-transfer-approval', 'approval-replay', 'approval-fail-closed', 'payout-approval', 'risk-case-approval', 'risk-hold-bypass-guard', 'reconciliation-exception-approval', 'disputes', 'partial-dispute', 'dispute-ledger-credit', 'dispute-compensation', 'dispute-approval', 'dispute-evidence', 'dispute-rbac', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'book-transfers', 'account-statements', 'book-transfer-compensation', 'book-transfer-rbac', 'wallets', 'wallet-pockets', 'wallet-lifecycle', 'wallet-rbac', 'instant-payments', 'cvu-alias', 'alias-assign', 'cvu-revoke', 'holder-confirmation', 'internal-credit', 'sandbox-outbound', 'internal-debit', 'cimbra-qr', 'qr-sale-orders', 'qr-debts', 'instant-return', 'instant-rbac', 'collections', 'payment-links', 'collection-tills', 'collection-internal', 'collection-inbound', 'collection-refund', 'collection-cancel', 'collection-card-denied', 'collection-rbac', 'echeqs', 'echeq-accept', 'echeq-deposit', 'echeq-cancel', 'echeq-return', 'echeq-nsf', 'echeq-discount-denied', 'echeq-rbac', 'payout-beneficiaries', 'protected-payout-destination', 'payout-batches', 'payout-scheduling', 'payout-result-file', 'payout-compensation', 'payout-rbac', 'payout-s2s', 'billers', 'biller-obligations', 'protected-subscriber-reference', 'bill-payments', 'mobile-topups', 'gift-cards', 'recurring-mandates', 'mandate-consent', 'biller-rbac', 'biller-s2s', 'bill-payment-compensation', 'cdd-kyb', 'cdd-evidence', 'cdd-idempotency', 'cdd-maker-checker', 'cdd-s2s-orchestration', 'cdd-session-only-decision', 'cdd-expiry', 'cdd-rbac', 'card-programs', 'card-lifecycle', 'card-controls', 'card-terminal-state', 'card-rbac', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'risk-signals-privacy', 'risk-decision-lists', 'risk-step-up', 'risk-step-up-idempotency', 'risk-step-up-rbac', 'risk-decision-slo', 'risk-confirmed-outcomes', 'risk-supervised-metrics', 'risk-outcome-revisions', 'reconciliation', 'operations-work-queue', 'operations-idempotency', 'operations-evidence', 'operations-rbac', 'csv-import', 'settlement', 'private-evidence', 'audit'],
   }));
 } finally {
   await cleanup();

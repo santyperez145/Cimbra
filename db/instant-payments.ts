@@ -30,7 +30,7 @@ type AccountRow = {
 type InstrumentRow = {
   id: string; accountId: string; accountReference: string; customerName: string; kind: 'cvu' | 'alias';
   value: string; holderName: string; taxIdLast4: string; status: string; requestFingerprint: string;
-  valueChangedAt: string | null; createdAt: string;
+  valueChangedAt: string | null; createdAt: string; collectionTillId?: string | null;
 };
 
 type TransferRow = {
@@ -39,7 +39,7 @@ type TransferRow = {
   counterpartyHash: string; counterpartyLast4: string; counterpartyHolderName: string | null; counterpartyTaxLast4: string | null;
   amountMinor: string; currency: Currency; description: string; externalReference: string; status: string; rail: string;
   transactionId: string | null; reversalTransactionId: string | null; qrPayload: string | null; expiresAt: string | null;
-  requestFingerprint: string; createdAt: string; updatedAt: string;
+  collectionTillId: string | null; requestFingerprint: string; createdAt: string; updatedAt: string;
 };
 
 type QrRow = {
@@ -72,7 +72,8 @@ const transferSelect = `SELECT it.id, it.scheme, it.direction, it.source_account
   it.counterparty_holder_name AS "counterpartyHolderName", it.counterparty_tax_last4 AS "counterpartyTaxLast4",
   it.amount_minor::text AS "amountMinor", it.currency, it.description, it.external_reference AS "externalReference",
   it.status, it.rail, it.transaction_id AS "transactionId", it.reversal_transaction_id AS "reversalTransactionId",
-  it.qr_payload AS "qrPayload", it.expires_at AS "expiresAt", it.request_fingerprint AS "requestFingerprint",
+  it.qr_payload AS "qrPayload", it.expires_at AS "expiresAt", it.collection_till_id AS "collectionTillId",
+  it.request_fingerprint AS "requestFingerprint",
   it.created_at AS "createdAt", it.updated_at AS "updatedAt"
   FROM instant_transfers it
   LEFT JOIN accounts source ON source.id = it.source_account_id
@@ -182,8 +183,25 @@ function assertArsAccount(account: AccountRow | null): asserts account is Accoun
 }
 
 async function findInstrumentByValue(database: DatabaseClient, organizationId: string, value: string) {
-  return database.prepare(`${instrumentSelect} WHERE ri.organization_id = ? AND ri.value = ? AND ri.status = 'active' LIMIT 1`)
+  const instrument = await database.prepare(`${instrumentSelect} WHERE ri.organization_id = ? AND ri.value = ? AND ri.status = 'active' LIMIT 1`)
     .bind(organizationId, value).first<InstrumentRow>();
+  if (instrument) return { ...instrument, collectionTillId: null as string | null };
+  const till = await database.prepare(
+    `SELECT ct.id, ct.account_id AS "accountId", a.account_reference AS "accountReference",
+      c.name AS "customerName", c.tax_id_last4 AS "taxIdLast4", ct.cvu, ct.alias
+     FROM collection_tills ct JOIN accounts a ON a.id = ct.account_id JOIN customers c ON c.id = a.customer_id
+     WHERE ct.organization_id = ? AND ct.status = 'active' AND (ct.cvu = ? OR ct.alias = ?) LIMIT 1`,
+  ).bind(organizationId, value, value).first<{
+    id: string; accountId: string; accountReference: string; customerName: string; taxIdLast4: string; cvu: string; alias: string | null;
+  }>();
+  if (!till) return null;
+  const byAlias = till.alias === value;
+  return {
+    id: till.id, accountId: till.accountId, accountReference: till.accountReference, customerName: till.customerName,
+    kind: (byAlias ? 'alias' : 'cvu') as 'cvu' | 'alias', value: byAlias ? till.alias! : till.cvu,
+    holderName: till.customerName, taxIdLast4: till.taxIdLast4, status: 'active', requestFingerprint: '',
+    valueChangedAt: null, createdAt: '', collectionTillId: till.id,
+  };
 }
 
 async function retrieveTransferRow(organizationId: string, id: string, database: DatabaseClient) {
@@ -260,7 +278,10 @@ export async function issueRailInstruments(input: {
       const taken = await database.prepare(
         "SELECT id FROM rail_instruments WHERE organization_id = ? AND value = ? AND account_id <> ? LIMIT 1",
       ).bind(input.organizationId, input.instrument.alias, account.id).first<{ id: string }>();
-      if (taken) throw new InstantPaymentError('El alias ya está asignado en este tenant.', 409, 'alias_conflict');
+      const tillTaken = await database.prepare(
+        'SELECT id FROM collection_tills WHERE organization_id = ? AND alias = ? LIMIT 1',
+      ).bind(input.organizationId, input.instrument.alias).first<{ id: string }>();
+      if (taken || tillTaken) throw new InstantPaymentError('El alias ya está asignado en este tenant.', 409, 'alias_conflict');
     }
     const cvu = issueSandboxCvu(account.id);
     const createdAt = new Date().toISOString();
@@ -350,7 +371,10 @@ export async function assignRailAlias(input: {
     const taken = await database.prepare(
       "SELECT id FROM rail_instruments WHERE organization_id = ? AND value = ? AND account_id <> ? LIMIT 1",
     ).bind(input.organizationId, input.alias.alias, target.accountId).first<{ id: string }>();
-    if (taken) throw new InstantPaymentError('El alias ya está asignado en este tenant.', 422, 'alias_conflict');
+    const tillTaken = await database.prepare(
+      'SELECT id FROM collection_tills WHERE organization_id = ? AND alias = ? LIMIT 1',
+    ).bind(input.organizationId, input.alias.alias).first<{ id: string }>();
+    if (taken || tillTaken) throw new InstantPaymentError('El alias ya está asignado en este tenant.', 422, 'alias_conflict');
     const now = new Date().toISOString();
     const existingAlias = await database.prepare(`${instrumentSelect} WHERE ri.organization_id = ? AND ri.account_id = ? AND ri.kind = 'alias' LIMIT 1 FOR UPDATE OF ri`)
       .bind(input.organizationId, target.accountId).first<InstrumentRow>();
@@ -463,18 +487,20 @@ async function insertTransfer(database: DatabaseClient, input: {
   sourceAccountId: string | null; destinationAccountId: string | null; counterpartyKind: CounterpartyKind; counterpartyValue: string;
   holderName: string | null; taxIdLast4: string | null; amountMinor: bigint; description: string; externalReference: string;
   status: string; transactionId: string | null; qrPayload: string | null; expiresAt: string | null; actorId: string; createdAt: string;
+  collectionTillId?: string | null;
 }) {
   const hash = await sha256(input.counterpartyValue);
   await database.prepare(`INSERT INTO instant_transfers
     (id, organization_id, idempotency_key, request_fingerprint, scheme, direction, source_account_id, destination_account_id,
      counterparty_kind, counterparty_hash, counterparty_last4, counterparty_holder_name, counterparty_tax_last4,
      amount_minor, currency, description, external_reference, status, rail, transaction_id, reversal_transaction_id,
-     qr_payload, expires_at, created_by, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ARS', ?, ?, ?, 'cimbra_sandbox', ?, NULL, ?, ?, ?, ?, ?)`).bind(
+     qr_payload, expires_at, collection_till_id, created_by, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ARS', ?, ?, ?, 'cimbra_sandbox', ?, NULL, ?, ?, ?, ?, ?, ?)`).bind(
     input.id, input.organizationId, input.idempotencyKey, input.fingerprint, input.scheme, input.direction,
     input.sourceAccountId, input.destinationAccountId, input.counterpartyKind, hash, railLast4(input.counterpartyValue),
     input.holderName, input.taxIdLast4, input.amountMinor.toString(), input.description, input.externalReference,
-    input.status, input.transactionId, input.qrPayload, input.expiresAt, input.actorId, input.createdAt, input.createdAt,
+    input.status, input.transactionId, input.qrPayload, input.expiresAt, input.collectionTillId ?? null,
+    input.actorId, input.createdAt, input.createdAt,
   ).run();
 }
 
@@ -635,13 +661,20 @@ export async function createInstantTransfer(input: {
         counterpartyKind: destination.kind, counterpartyValue: destination.value, holderName: local.holderName,
         taxIdLast4: local.taxIdLast4, amountMinor: input.transfer.amountMinor, description: input.transfer.description,
         externalReference: input.transfer.externalReference, status: movement.status, transactionId: movement.transactionId,
-        qrPayload: null, expiresAt: null, actorId: input.actor.userId, createdAt,
+        qrPayload: null, expiresAt: null, actorId: input.actor.userId, createdAt, collectionTillId: local.collectionTillId ?? null,
       });
       await insertAudit(database, {
         organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.transfer_created',
         resourceType: 'instant_transfer', resourceId: id,
         payload: { scheme: 'credit_push', direction: 'internal', status: movement.status, amountMinor: input.transfer.amountMinor.toString() },
       });
+      if (local.collectionTillId) {
+        await insertAudit(database, {
+          organizationId: input.organizationId, actorId: input.actor.userId, action: 'collection.till_credited',
+          resourceType: 'collection_till', resourceId: local.collectionTillId,
+          payload: { transferId: id, amountMinor: input.transfer.amountMinor.toString(), direction: 'internal' },
+        });
+      }
       return { transfer: await retrieveInstantTransfer(input.organizationId, id, database), replayed: false };
     }
 

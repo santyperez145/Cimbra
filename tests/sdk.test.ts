@@ -261,6 +261,36 @@ test('el SDK cablea links de cobro, eco cerrado, inbound sandbox y devoluciones'
   ]);
 });
 
+test('el SDK cablea puntos de recaudación, alias, inbound y deshabilitación', async () => {
+  const calls: string[] = [];
+  const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async (input, init) => {
+    const url = String(input); calls.push(`${init?.method ?? 'GET'} ${url}`);
+    if (url.endsWith('/collection-tills') && init?.method === 'POST') {
+      return Response.json({ ok: true, replayed: false, till: { id: 'till_1', status: 'active', cvu: '00099990' } }, { status: 201 });
+    }
+    if (url.endsWith('/alias')) return Response.json({ ok: true, replayed: false, till: { id: 'till_1', alias: 'COMERCIO.SUR' } });
+    if (url.endsWith('/inbound')) return Response.json({ ok: true, replayed: false, till: { id: 'till_1' }, transfer: { id: 'tx_1' } }, { status: 201 });
+    if (init?.method === 'DELETE') return Response.json({ ok: true, replayed: false, till: { id: 'till_1', status: 'disabled' } });
+    return Response.json({ id: 'till_1', status: 'active' });
+  } });
+  const created = await client.collectionTills.create({
+    accountId: 'acc_1', externalReference: 'TILL-001', name: 'Mostrador Sur',
+  });
+  await client.collectionTills.retrieve(created.data.till.id);
+  await client.collectionTills.assignAlias(created.data.till.id, { alias: 'COMERCIO.SUR' });
+  await client.collectionTills.inbound(created.data.till.id, {
+    externalReference: 'INB-001', description: 'Acreditación', amount: '11.00',
+  });
+  await client.collectionTills.disable(created.data.till.id);
+  assert.deepEqual(calls, [
+    'POST https://api.test/api/v1/collection-tills',
+    'GET https://api.test/api/v1/collection-tills/till_1',
+    'PATCH https://api.test/api/v1/collection-tills/till_1/alias',
+    'POST https://api.test/api/v1/collection-tills/till_1/inbound',
+    'DELETE https://api.test/api/v1/collection-tills/till_1',
+  ]);
+});
+
 test('el SDK cablea ECHEQ sandbox, aceptación, depósito y devolución previa', async () => {
   const calls: string[] = [];
   const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async (input, init) => {

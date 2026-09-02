@@ -50,9 +50,17 @@ export function railLast4(value: string) {
   return value.slice(-4);
 }
 
-export function issueSandboxCvu(accountId: string) {
-  const seed = accountId.replace(/-/g, '').replace(/[a-f]/gi, (char) => String((char.toLowerCase().charCodeAt(0) - 87) % 10));
-  const clientId = `${seed}000000000000`.slice(0, 12);
+export function issueSandboxCvu(accountId: string, discriminator = '') {
+  const toDigits = (value: string) => value.replace(/-/g, '').replace(/[a-z]/gi, (char) => String((char.toLowerCase().charCodeAt(0) - 87) % 10)).replace(/\D/g, '');
+  const seed = toDigits(accountId);
+  const extra = toDigits(discriminator);
+  const clientId = extra
+    ? Array.from({ length: 12 }, (_, index) => {
+      const accountDigit = Number(seed[seed.length - 1 - index] ?? 0);
+      const extraDigit = Number(extra[extra.length - 1 - index] ?? 0);
+      return String((accountDigit + extraDigit * 3 + index + 1) % 10);
+    }).join('')
+    : `${seed}000000000000`.slice(0, 12);
   const block1Body = `${SANDBOX_CVU_PREFIX}${SANDBOX_PSP_CODE}`;
   const digit1 = checkDigit(block1Body, BLOCK1_WEIGHTS);
   const block2Body = `0${clientId}`;

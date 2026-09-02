@@ -9,7 +9,7 @@ import type {
   CreateBookTransferInput, CreateRecurringPaymentMandateInput, CreateSettlementCycleInput, CreateTransferInput, CreateWebhookInput,
   CreatePayoutBatchInput, CreatePayoutBeneficiaryInput, CreateWalletInput, CreateWalletPocketTransferInput, CreateWalletProgramInput,
   AssignRailAliasInput, CreateDebitRequestInput, CreateInstantTransferInput, CreatePaymentQrInput, CreateQrDebtInput, CreateQrSaleOrderInput, IssueRailInstrumentInput, PayPaymentQrInput,
-  CreatePaymentLinkInput, PayPaymentLinkInput, PaymentLink,
+  CreatePaymentLinkInput, PayPaymentLinkInput, PaymentLink, CollectionTill, CreateCollectionTillInput, CreditCollectionTillInput,
   CreateEcheqInput, AcceptEcheqInput, EndorseEcheqInput, DepositEcheqInput, Echeq,
   InstantTransfer, PaymentQr, QrDebt, QrSaleOrder, RailDirectoryPreview, RailInstrument,
   PayoutBatch, PayoutBeneficiary,
@@ -371,6 +371,24 @@ export class Cimbra {
     refund: (id: string, options?: RequestOptions) =>
       this.post<{ ok: true; link: PaymentLink; reversal: Transaction; replayed: boolean }>(
         `/api/v1/payment-links/${encodeURIComponent(id)}/refund`, undefined, options, true),
+  };
+
+  readonly collectionTills = {
+    list: (options?: ListOptions) => this.request<Page<CollectionTill>>('GET', listPath('/api/v1/collection-tills', options), undefined, options),
+    listAll: (options?: ListOptions) => this.iterate((page) => this.collectionTills.list({ ...options, cursor: page })),
+    retrieve: (id: string, options?: RequestOptions) =>
+      this.request<CollectionTill>('GET', `/api/v1/collection-tills/${encodeURIComponent(id)}`, undefined, options),
+    create: (input: CreateCollectionTillInput, options?: RequestOptions) =>
+      this.post<{ ok: true; till: CollectionTill; replayed: boolean }>('/api/v1/collection-tills', input, options, true),
+    assignAlias: (id: string, input: AssignRailAliasInput, options?: RequestOptions) =>
+      this.patch<{ ok: true; till: CollectionTill; replayed: boolean }>(
+        `/api/v1/collection-tills/${encodeURIComponent(id)}/alias`, input, options),
+    disable: (id: string, options?: RequestOptions) =>
+      this.del<{ ok: true; till: CollectionTill; replayed: boolean }>(
+        `/api/v1/collection-tills/${encodeURIComponent(id)}`, options),
+    inbound: (id: string, input: CreditCollectionTillInput, options?: RequestOptions) =>
+      this.post<{ ok: true; till: CollectionTill; transfer: InstantTransfer; replayed: boolean }>(
+        `/api/v1/collection-tills/${encodeURIComponent(id)}/inbound`, input, options, true),
   };
 
   readonly echeqs = {

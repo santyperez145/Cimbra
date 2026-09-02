@@ -29,6 +29,11 @@ const errorResponses = [
 const changelog = [
   {
     date: '01 SEP 2026',
+    title: 'Punto de recaudación Cimbra con CVU propio',
+    detail: 'POST /api/v1/collection-tills emite un CVU sandbox atribuido al till, no un segundo CVU de la cuenta cobradora. PATCH asigna alias de tenant, POST /inbound acredita el ledger y DELETE deshabilita el CVU. La transferencia interna al CVU queda con collectionTillId. No es caja BIND ni crédito Coelsa.',
+  },
+  {
+    date: '01 SEP 2026',
     title: 'QR de deuda Cimbra',
     detail: 'POST /api/v1/qr-debts crea una deuda con monto cerrado y un solo pago. Payload cimbra:qr:debt:v1. Exige CVU sandbox activo. DELETE la elimina y el QR no se vuelve a pagar. No es deuda BIND, EMVCo ni PCT Coelsa.',
   },
@@ -394,7 +399,17 @@ const debt = await cimbra.qrDebts.create({
   description: 'Cuota única',
   amount: '2500.00',
 });`;
-  const collectionsExample = `const link = await cimbra.paymentLinks.create({
+  const collectionsExample = `const till = await cimbra.collectionTills.create({
+  accountId: '<merchant_account_uuid>',
+  externalReference: 'TILL-001',
+  name: 'Mostrador Sur',
+});
+await cimbra.collectionTills.inbound(till.data.till.id, {
+  externalReference: 'INB-001',
+  description: 'Transferencia recibida',
+  amount: '1500.00',
+});
+const link = await cimbra.paymentLinks.create({
   accountId: '<merchant_account_uuid>',
   externalReference: 'FAC-001',
   description: 'Honorarios agosto',
@@ -606,13 +621,13 @@ await cimbra.paymentLinks.pay(link.data.link.id, {
       </section>
 
       <section id="collections" className="docs-section">
-        <p className="docs-kicker">ARGENTINA · COBRANZAS</p><h2>Un link de cobro, sin fingir adquirencia de red.</h2>
-        <p className="docs-section-lede">El comercio emite un link contra una cuenta ARS argentina. El pagador liquida desde otra cuenta Cimbra del tenant o un inbound sandbox acredita el ledger. La devolución usa postings compensatorios.</p>
+        <p className="docs-kicker">ARGENTINA · COBRANZAS</p><h2>Un link de cobro y un punto de recaudación, sin fingir adquirencia de red.</h2>
+        <p className="docs-section-lede">El comercio emite un link contra una cuenta ARS argentina o un punto de recaudación con CVU sandbox propio. El pagador liquida desde otra cuenta Cimbra del tenant; un inbound sandbox acredita el ledger. La devolución del link usa postings compensatorios.</p>
         <div className="webhook-contract-grid">
           <article><strong>Link</strong><p>Monto cerrado, vencimiento y payload <code>cimbra:link:v1</code>. Owner/Admin/Operator crean; Viewer sólo consulta.</p></article>
-          <article><strong>Medios</strong><p><code>internal</code> mueve saldo entre cuentas del tenant. <code>sandbox_inbound</code> es un cash-in a settlement. Tarjeta, POS y QR interoperable responden <code>422</code>.</p></article>
+          <article><strong>Punto de recaudación</strong><p><code>collection_tills</code> emite un CVU <code>000+9999</code> del till. Transferencias internas e inbound quedan con <code>collectionTillId</code>. No es caja BIND.</p></article>
           <article><strong>Scopes</strong><p><code>payments:read/write</code> protege S2S. El cobro entra al motor de riesgo y puede quedar en hold.</p></article>
-          <article><strong>Límite real</strong><p>No hay checkout hospedado PCI, marcas, sucursales ni liquidación a un adquirente. BIND y el resto siguen como benchmarks, no conectores.</p></article>
+          <article><strong>Límite real</strong><p>No hay checkout hospedado PCI, marcas, sucursales ni liquidación a un adquirente. El CVU del till no viaja por Coelsa. BIND y el resto siguen como benchmarks, no conectores.</p></article>
         </div>
         <CodeBlock language="TYPESCRIPT · SDK REAL" value={collectionsExample} />
       </section>

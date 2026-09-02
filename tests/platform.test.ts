@@ -26,7 +26,7 @@ import { parseBookTransferInput, statementPeriod } from '../app/lib/platform/boo
 import { normalizeWalletInput, normalizeWalletProgramInput, normalizeWalletTransition, parseWalletPocketTransferInput } from '../app/lib/platform/wallets-input.ts';
 import { classifyRailValue, isSandboxCvu, isWellFormedCbu, issueSandboxCvu, normalizeAlias } from '../app/lib/platform/cbu.ts';
 import { aliasChangeBlocked, ALIAS_CHANGE_WINDOW_MS, normalizeAssignAliasInput, normalizeDebitRequestInput, normalizeInstantTransferInput, normalizeIssueInstrumentInput, normalizePaymentQrInput, normalizeQrDebtInput, normalizeQrSaleOrderInput } from '../app/lib/platform/instant-payments-input.ts';
-import { normalizePaymentLinkInput, normalizePaymentLinkPayInput } from '../app/lib/platform/collections-input.ts';
+import { normalizeCollectionTillInboundInput, normalizeCollectionTillInput, normalizePaymentLinkInput, normalizePaymentLinkPayInput } from '../app/lib/platform/collections-input.ts';
 import { normalizeCuit } from '../app/lib/platform/cuit.ts';
 import { normalizeEcheqAcceptInput, normalizeEcheqDepositInput, normalizeEcheqEndorseInput, normalizeEcheqInput } from '../app/lib/platform/echeqs-input.ts';
 import { isLocalPostgres, postgresClientOptions, resolvePostgresUrl } from '../db/postgres-connection.mjs';
@@ -334,8 +334,12 @@ test('wallets validan programas, pockets disponibles y transiciones terminales',
 test('pagos instantáneos validan CBU/CVU, alias, titular y límites de riel sandbox', () => {
   const accountId = '00000000-0000-4000-8000-000000000010';
   const cvu = issueSandboxCvu(accountId);
+  const tillCvu = issueSandboxCvu(accountId, '00000000-0000-4000-8000-000000000099');
   assert.equal(isWellFormedCbu(cvu), true);
   assert.equal(isSandboxCvu(cvu), true);
+  assert.equal(isSandboxCvu(tillCvu), true);
+  assert.notEqual(tillCvu, cvu);
+  assert.notEqual(issueSandboxCvu(accountId, 'till-b'), tillCvu);
   assert.equal(isSandboxCvu('0110023500000000012342'), false);
   assert.equal(isWellFormedCbu('0110023500000000012342'), true);
   assert.deepEqual(classifyRailValue(cvu), { kind: 'cvu', value: cvu });
@@ -412,6 +416,16 @@ test('cobranzas validan links de cobro, medios sandbox y rechazan adquirencia de
   assert.equal(normalizePaymentLinkPayInput({ method: 'internal' }), null);
   assert.deepEqual(normalizePaymentLinkPayInput({ method: 'card' }), { unsupportedMethod: 'card' });
   assert.deepEqual(normalizePaymentLinkPayInput({ method: 'sandbox_inbound' }), { method: 'sandbox_inbound', payerAccountId: null });
+  const till = normalizeCollectionTillInput({
+    accountId, externalReference: 'TILL-001', name: ' Mostrador Sur ', alias: 'comercio.sur',
+  });
+  assert.ok(till); assert.equal(till.name, 'Mostrador Sur'); assert.equal(till.alias, 'COMERCIO.SUR');
+  assert.equal(normalizeCollectionTillInput({ accountId, externalReference: 'T', name: 'X' }), null);
+  const inbound = normalizeCollectionTillInboundInput({
+    externalReference: 'INB-001', description: ' Acreditación ', amount: '11.50', currency: 'ars',
+  });
+  assert.ok(inbound); assert.equal(inbound.amountMinor, 1150n);
+  assert.equal(normalizeCollectionTillInboundInput({ externalReference: 'INB-002', description: 'X', amount: '0' }), null);
 });
 
 test('ECHEQ valida CUIT, ciclo sandbox y rechaza descuento o cámara', () => {

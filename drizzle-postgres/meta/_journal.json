@@ -281,6 +281,13 @@
       "when": 1788308951203,
       "tag": "0039_sad_cerise",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1788310451087,
+      "tag": "0040_handy_warstar",
+      "breakpoints": true
     }
   ]
 }
