@@ -5,7 +5,7 @@
 - marca y narrativa comercial orientada a compradores, con capacidades y límites verificables;
 - sitio responsive, sesión contextual y captación persistente;
 - portal developer conectado al OpenAPI real, con las 168 operaciones, parámetros, respuestas, búsqueda, quickstart ejecutable, límites del entorno sandbox y changelog;
-- `GET /api/v1/live-readiness` y `/api/health` exponen sandbox vs production (BIND/Pismo/Pomelo), etapas Pomelo Integración → Homologación → Go Live y productos del catálogo público; `liveReady=false` porque no hay hostname de producción ni producto homologado;
+- `GET /api/v1/live-readiness` y `/api/health` exponen sandbox vs production, etapas Pomelo Integración → Homologación → Go Live, productos del catálogo público, rieles oficiales (BCRA, Coelsa, banco patrocinante, PCI) y el camino PSPCP; `liveReady=false` porque no hay hostname, inscripción, riel live ni adaptador;
 - identidad y consola multi-tenant básica;
 - registro e inicio de sesión propio, sesiones revocables y OAuth Google/Apple;
 - sandbox persistente para customers, accounts, statements, book transfers, cards y transfers;
@@ -52,6 +52,7 @@
 ## Gate 2 — piloto con fondos controlados
 
 - licencia aplicable o sponsor bancario/PSP y contratos de acceso al riel firmados;
+- inscripción en el Registro de PSP del BCRA (y billeteras interoperables si corresponde) con evidencia en `official_rail_connections`;
 - KYC/KYB, AML, sanciones y monitoreo con responsables definidos;
 - ledger productivo autoritativo e independiente de bancos, cámaras y redes;
 - conciliación de tres vías: Cimbra, banco/cámara y settlement;

@@ -102,6 +102,12 @@ Cimbra implementa el dominio propio sobre el financial core: emite CVU sandbox c
 
 La disponibilidad `sandbox` no habilita dinero real. Transferencias 3.0, DEBIN, alias Coelsa y QR interoperable exigen membresía, certificación o sponsor local directo. BIND, Dock, tapi, Pismo, Pomelo y Wibond siguen siendo benchmarks, no conectores.
 
+## Camino de aprobación fintech y cableado oficial (01/09/2026)
+
+El [Registro de PSP del BCRA](https://www.bcra.gob.ar/inscripcion-registro-proveedores-servicios-de-pago/) y el [registro de billeteras digitales interoperables](https://www.bcra.gob.ar/inscripcion-registro-billeteras-digitales-interoperables/) son gates públicos: sociedad argentina, certificado SEFyC/RPSP, banco patrocinante para PSPCP, safeguarding de fondos de clientes y, para QR, certificación del administrador del esquema. [Coelsa](https://www.coelsa.com.ar/) es la cámara de directorio, T3.0, DEBIN, ECHEQ y PCT. Ninguno de esos roles lo cumple un competidor.
+
+Cimbra deja el puerto preparado y fail-closed. `official_rail_connections` persiste `unwired | contracted | certified | live` sin secretos. Cada producto del catálogo declara los rieles que necesita. `liveReady` exige hostname de producción, producto en Go Live, esos rieles en `live` y un adaptador Cimbra registrado en `OFFICIAL_RAIL_ADAPTERS`. El registro está vacío: `dispatchOfficialRail` responde `rail_not_wired` o `rail_adapter_missing`. El adaptador futuro vive fuera del ledger y no abre una transacción SQL durante la llamada de red. BIND, Dock, tapi, Pismo, Pomelo y Wibond no aparecen como contraparte.
+
 ## Benchmark aplicado — cobranzas Argentina (01/09/2026)
 
 [BIND PSP Cobro](https://psp.bind.com.ar/developers/cobro) publica botón de pago, links asociados a una deuda, recaudación por transferencia/CVU, QR y POS. El patrón competitivo verificable es intención de cobro + medios + acreditación + devolución; una adquirencia de red no se infiere de un link sandbox.

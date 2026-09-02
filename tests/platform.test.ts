@@ -6,6 +6,7 @@ import { isPrivateAddress, normalizeWebhookUrl } from '../app/lib/platform/webho
 import { versionedApi } from '../app/lib/platform/versioned-api.ts';
 import { CAPABILITY_AVAILABILITY, PLATFORM_CAPABILITIES, PLATFORM_SUMMARY } from '../app/lib/platform/capabilities.ts';
 import { COMPETITOR_REFERENCES, evaluateLiveReadiness, PLATFORM_PRODUCTS, requireLiveApiKeysEnabled, requireSandboxLedgerOrCertifiedRail } from '../app/lib/platform/live-readiness.ts';
+import { dispatchOfficialRail, OFFICIAL_RAIL_ADAPTERS, OFFICIAL_RAIL_CONNECTIONS, requiredRailIdsForProduct } from '../app/lib/platform/official-rails.ts';
 import { PlatformRailError } from '../app/lib/platform/operating-mode.ts';
 import { matchReconciliationEntries } from '../app/lib/platform/reconciliation.ts';
 import { systemAmountRisk } from '../app/lib/platform/risk-engine.ts';
@@ -150,15 +151,56 @@ test('live permanece fail-closed y el catálogo cita productos públicos de BIND
     process.env.CIMBRA_PRODUCTION_HOSTNAME = 'https://api.example-cimbra.test';
     const stillClosed = evaluateLiveReadiness();
     assert.equal(stillClosed.liveReady, false);
-    const ready = evaluateLiveReadiness([{ id: 'transfers', status: 'go_live' }]);
-    assert.equal(ready.liveReady, true);
-    assert.equal(ready.effectiveMode, 'live');
+    const withProduct = evaluateLiveReadiness([{ id: 'transfers', status: 'go_live' }]);
+    assert.equal(withProduct.liveReady, false);
+    assert.equal(withProduct.blockReason, 'official_rails_not_live');
+    const withRails = evaluateLiveReadiness(
+      [{ id: 'transfers', status: 'go_live' }],
+      requiredRailIdsForProduct('transfers').map((id) => ({ id, status: 'live' as const })),
+    );
+    assert.equal(withRails.liveReady, false);
+    assert.equal(withRails.blockReason, 'official_rail_adapter_missing');
+    assert.equal(withRails.effectiveMode, 'sandbox');
+    assert.equal(current.fintechPath.intendedFigure, 'PSPCP');
+    assert.equal(current.fintechPath.metCount, 0);
+    assert.equal(current.rails.every((rail) => rail.status === 'unwired' && rail.adapterRegistered === false), true);
   } finally {
     if (previous === undefined) delete process.env.CIMBRA_OPERATING_MODE;
     else process.env.CIMBRA_OPERATING_MODE = previous;
     if (previousHost === undefined) delete process.env.CIMBRA_PRODUCTION_HOSTNAME;
     else process.env.CIMBRA_PRODUCTION_HOSTNAME = previousHost;
   }
+});
+
+test('los rieles oficiales son contrapartes reguladas y el adaptador falla cerrado', () => {
+  const competitors = /bind|dock|tapi|pismo|pomelo|wibond/i;
+  assert.ok(OFFICIAL_RAIL_CONNECTIONS.length >= 10);
+  assert.equal(new Set(OFFICIAL_RAIL_CONNECTIONS.map((rail) => rail.id)).size, OFFICIAL_RAIL_CONNECTIONS.length);
+  assert.deepEqual(Object.keys(OFFICIAL_RAIL_ADAPTERS), []);
+  for (const rail of OFFICIAL_RAIL_CONNECTIONS) {
+    assert.equal(competitors.test(rail.counterparty), false, rail.id);
+    assert.equal(competitors.test(rail.officialUrl), false, rail.id);
+    assert.match(rail.officialUrl, /^https:\/\//);
+    assert.ok(rail.wiringContract.length > 20);
+    for (const productId of rail.productIds) {
+      assert.ok(PLATFORM_PRODUCTS.some((product) => product.id === productId), `${rail.id} → ${productId}`);
+    }
+  }
+  for (const product of PLATFORM_PRODUCTS) {
+    assert.ok(requiredRailIdsForProduct(product.id).length > 0, product.id);
+  }
+  const qr = evaluateLiveReadiness().products.find((product) => product.id === 'qr_interoperable');
+  assert.match(qr?.sandboxCoverage ?? '', /cimbra:qr:static:v1/);
+  assert.match(qr?.sandboxCoverage ?? '', /orden de venta/);
+  assert.match(qr?.missingForProduction ?? '', /PCT Coelsa/);
+  assert.throws(
+    () => dispatchOfficialRail('coelsa_transfers', [{ id: 'coelsa_transfers', status: 'unwired' }]),
+    (error: unknown) => error instanceof PlatformRailError && error.code === 'rail_not_wired',
+  );
+  assert.throws(
+    () => dispatchOfficialRail('coelsa_transfers', [{ id: 'coelsa_transfers', status: 'live' }]),
+    (error: unknown) => error instanceof PlatformRailError && error.code === 'rail_adapter_missing',
+  );
 });
 
 test('la jerarquía RBAC protege owner, admins y emails de invitación', () => {

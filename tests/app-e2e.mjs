@@ -268,6 +268,13 @@ try {
   const ownerMember = accessState.data.members.find((member) => member.userId === accessState.current.userId);
   assert.equal(ownerMember.role, 'owner');
   assert.equal(ownerMember.mfaEnabled, true);
+  const liveReadiness = await json(await request('/api/v1/live-readiness'), 200);
+  assert.equal(liveReadiness.data.liveReady, false);
+  assert.equal(liveReadiness.data.fintechPath.intendedFigure, 'PSPCP');
+  assert.equal(liveReadiness.data.fintechPath.metCount, 0);
+  assert.ok(liveReadiness.data.rails.length >= 10);
+  assert.equal(liveReadiness.data.rails.every((rail) => rail.status === 'unwired' && rail.adapterRegistered === false), true);
+  assert.equal(liveReadiness.data.rails.some((rail) => /bind|dock|tapi|pismo|pomelo|wibond/i.test(rail.counterparty)), false);
   const invited = await json(await request('/api/platform/access', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email: `operator-${runId}@example.test`, role: 'operator' }),

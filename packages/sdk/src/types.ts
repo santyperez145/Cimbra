@@ -155,9 +155,23 @@ export type LiveReadiness = {
     id: string; name: string; country: 'AR' | 'LATAM'; benchmark: string; documentationUrl: string;
     network: string; sandboxCoverage: string; missingForProduction: string;
     status: 'integracion' | 'homologacion' | 'go_live';
+    requiredRailIds: string[]; missingOfficialRails: string[]; adapterReady: boolean;
   }>;
+  rails: Array<{
+    id: string; name: string; country: 'AR' | 'LATAM';
+    kind: 'corporate' | 'regulatory_registry' | 'safeguarding' | 'directory' | 'instant_credit' | 'instant_debit' | 'echeq_clearing' | 'cvu_assignment' | 'qr_pct' | 'card_issuing' | 'bill_payments';
+    counterpartyKind: 'clearing_house' | 'bank' | 'card_scheme' | 'official_registry' | 'regulated_sponsor' | 'corporate';
+    counterparty: string; officialUrl: string; summary: string; wiringContract: string;
+    productIds: string[]; status: 'unwired' | 'contracted' | 'certified' | 'live'; adapterRegistered: boolean;
+  }>;
+  fintechPath: {
+    jurisdiction: 'AR'; intendedFigure: 'PSPCP'; summary: string;
+    officialSources: Array<{ name: string; url: string; surface: string }>;
+    gates: Array<{ id: string; connectionId: string | null; name: string; summary: string; status: 'unwired' | 'contracted' | 'certified' | 'live'; met: boolean }>;
+    metCount: number; gateCount: number;
+  };
   references: Array<{ benchmark: string; url: string; surface: string }>;
-  summary: { integracion: number; homologacion: number; goLive: number };
+  summary: { integracion: number; homologacion: number; goLive: number; officialRailsLive: number; officialRailsTotal: number };
 };
 export type RiskRule = {
   id: string; name: string; kind: 'amount_threshold' | 'velocity_count' | 'counterparty_match';

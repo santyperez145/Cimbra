@@ -349,7 +349,7 @@ test('el SDK consulta el readiness live fail-closed', async () => {
   let requestUrl = '';
   const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async (input) => {
     requestUrl = String(input);
-    return Response.json({ data: { requestedMode: 'sandbox', effectiveMode: 'sandbox', liveReady: false, liveBlocked: false, blockReason: 'production_hostname_not_provisioned', goLive: { benchmark: 'Pomelo', documentationUrl: 'https://docs.pomelo.la/docs/get-started/home', current: 'integracion', stages: [] }, environments: [], products: [], references: [], summary: { integracion: 0, homologacion: 0, goLive: 0 } }, meta: { owner: 'Cimbra', competitorDependency: false, networkBoundary: 'direct_regulated_rails_only', graduation: 'integracion_homologacion_go_live' } });
+    return Response.json({ data: { requestedMode: 'sandbox', effectiveMode: 'sandbox', liveReady: false, liveBlocked: false, blockReason: 'production_hostname_not_provisioned', goLive: { benchmark: 'Pomelo', documentationUrl: 'https://docs.pomelo.la/docs/get-started/home', current: 'integracion', stages: [] }, environments: [], products: [], rails: [], fintechPath: { jurisdiction: 'AR', intendedFigure: 'PSPCP', summary: '', officialSources: [], gates: [], metCount: 0, gateCount: 0 }, references: [], summary: { integracion: 0, homologacion: 0, goLive: 0, officialRailsLive: 0, officialRailsTotal: 0 } }, meta: { owner: 'Cimbra', competitorDependency: false, networkBoundary: 'direct_regulated_rails_only', graduation: 'integracion_homologacion_go_live' } });
   } });
   const result = await client.liveReadiness.retrieve();
   assert.equal(requestUrl, 'https://api.test/api/v1/live-readiness');

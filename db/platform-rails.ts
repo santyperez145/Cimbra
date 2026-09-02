@@ -1,4 +1,5 @@
 import { evaluateLiveReadiness, GO_LIVE_STAGES, type ProductStatus } from '@/app/lib/platform/live-readiness';
+import { isRailConnectionStatus, type RailConnectionStatus } from '@/app/lib/platform/official-rails';
 import { PlatformRailError } from '@/app/lib/platform/operating-mode';
 import { getDatabase } from './runtime';
 
@@ -11,8 +12,13 @@ export async function listProductStatusOverrides() {
   return rows.results.filter((row): row is { id: string; status: ProductStatus } => isProductStatus(row.status));
 }
 
+export async function listOfficialRailOverrides() {
+  const rows = await getDatabase().prepare('SELECT id, status FROM official_rail_connections').all<{ id: string; status: string }>();
+  return rows.results.filter((row): row is { id: string; status: RailConnectionStatus } => isRailConnectionStatus(row.status));
+}
+
 export async function platformLiveReadiness() {
-  return evaluateLiveReadiness(await listProductStatusOverrides());
+  return evaluateLiveReadiness(await listProductStatusOverrides(), await listOfficialRailOverrides());
 }
 
 type StatusErrorConstructor = new (message: string, status?: number, code?: string) => Error;
@@ -21,6 +27,13 @@ export async function assertSandboxLedgerOrCertifiedRail(productId: string, Erro
   const readiness = await platformLiveReadiness();
   if (readiness.effectiveMode === 'sandbox') return;
   const product = readiness.products.find((item) => item.id === productId);
-  if (product?.status === 'go_live') return;
-  throw new ErrorType('Este producto no completó homologación ni Go Live.', 422, 'product_not_homologated');
+  if (product?.status !== 'go_live') {
+    throw new ErrorType('Este producto no completó homologación ni Go Live.', 422, 'product_not_homologated');
+  }
+  if (product.missingOfficialRails.length > 0) {
+    throw new ErrorType('Este producto no tiene cableados los rieles oficiales (banco, cámara, esquema o sponsor).', 422, 'rail_not_wired');
+  }
+  if (!product.adapterReady) {
+    throw new ErrorType('No hay adaptador registrado para los rieles oficiales de este producto.', 422, 'rail_adapter_missing');
+  }
 }

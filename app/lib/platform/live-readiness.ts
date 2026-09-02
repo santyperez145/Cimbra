@@ -1,6 +1,10 @@
 import {
   OPERATING_MODES, PlatformRailError, effectiveOperatingMode, requestedOperatingMode, type OperatingMode,
 } from './operating-mode.ts';
+import {
+  evaluateFintechPath, materializeOfficialRails, missingLiveRailsForProduct, productOfficialAdaptersReady,
+  productReadyForLiveMoney, requiredRailIdsForProduct, type RailConnectionStatus,
+} from './official-rails.ts';
 
 /** Pomelo: Integración → Homologación → Go Live. https://docs.pomelo.la/docs/get-started/home */
 export const GO_LIVE_STAGES = ['integracion', 'homologacion', 'go_live'] as const;
@@ -29,11 +33,14 @@ export type PlatformProduct = {
   sandboxCoverage: string;
   missingForProduction: string;
   status: ProductStatus;
+  requiredRailIds: string[];
+  missingOfficialRails: string[];
+  adapterReady: boolean;
 };
 
 type StatusErrorConstructor = new (message: string, status?: number, code?: string) => Error;
 
-export const PLATFORM_PRODUCTS: readonly Omit<PlatformProduct, 'status'>[] = [
+export const PLATFORM_PRODUCTS: readonly Omit<PlatformProduct, 'status' | 'requiredRailIds' | 'missingOfficialRails' | 'adapterReady'>[] = [
   {
     id: 'account_lookup', name: 'Consulta de titular CBU, CVU y Alias', country: 'AR',
     benchmark: 'BIND APIBANK — Datos de una cuenta por Alias, CBU, CVU',
@@ -79,8 +86,8 @@ export const PLATFORM_PRODUCTS: readonly Omit<PlatformProduct, 'status'>[] = [
     benchmark: 'BIND PSP — Pagar QR (PCT en Coelsa), QR estático de caja y QR de deuda',
     documentationUrl: 'https://psp.bind.com.ar/developers/apis/pagar-qr',
     network: 'QR interoperable / Coelsa',
-    sandboxCoverage: 'Payload cimbra:qr:v1, cobro cerrado en el tenant. No es PCT ni lectura por otras billeteras.',
-    missingForProduction: 'Instrucción PCT, QR estático asociado a caja y QR dinámico de deuda con acreditación de red.',
+    sandboxCoverage: 'QR dinámico cimbra:qr:v1, QR estático cimbra:qr:static:v1 y orden de venta Cimbra. Cobro cerrado en el tenant. No es PCT ni lectura por otras billeteras.',
+    missingForProduction: 'Instrucción PCT Coelsa, certificación del administrador del esquema de transferencias inmediatas y registro de billetera interoperable si Cimbra inicia pagos. El QR estático y la orden de venta Cimbra no sustituyen el riel.',
   },
   {
     id: 'collections', name: 'Cobro (deuda, link y recaudación)', country: 'AR',
@@ -151,19 +158,49 @@ export function platformEnvironments() {
   ];
 }
 
-export function materializeProducts(overrides: ReadonlyArray<{ id: string; status: ProductStatus }> = []): PlatformProduct[] {
+export function materializeProducts(
+  overrides: ReadonlyArray<{ id: string; status: ProductStatus }> = [],
+  rails: ReadonlyArray<{ id: string; status: RailConnectionStatus }> = [],
+): PlatformProduct[] {
   const byId = new Map(overrides.map((row) => [row.id, row]));
-  return PLATFORM_PRODUCTS.map((product) => ({
-    ...product,
-    status: byId.get(product.id)?.status ?? 'integracion',
-  }));
+  return PLATFORM_PRODUCTS.map((product) => {
+    const status = byId.get(product.id)?.status ?? 'integracion';
+    const requiredRailIds = requiredRailIdsForProduct(product.id);
+    return {
+      ...product,
+      status,
+      requiredRailIds,
+      missingOfficialRails: missingLiveRailsForProduct(product.id, rails),
+      adapterReady: productOfficialAdaptersReady(product.id),
+    };
+  });
 }
 
-export function evaluateLiveReadiness(overrides: ReadonlyArray<{ id: string; status: ProductStatus }> = []) {
+function liveBlockReason(input: {
+  liveReady: boolean;
+  hostnameProvisioned: boolean;
+  products: PlatformProduct[];
+}) {
+  if (input.liveReady) return null;
+  if (!input.hostnameProvisioned) return 'production_hostname_not_provisioned';
+  const goLiveProducts = input.products.filter((product) => product.status === 'go_live');
+  if (goLiveProducts.length === 0) return 'homologacion_pendiente';
+  if (goLiveProducts.some((product) => product.missingOfficialRails.length > 0)) return 'official_rails_not_live';
+  return 'official_rail_adapter_missing';
+}
+
+export function evaluateLiveReadiness(
+  overrides: ReadonlyArray<{ id: string; status: ProductStatus }> = [],
+  railOverrides: ReadonlyArray<{ id: string; status: RailConnectionStatus }> = [],
+) {
   const environments = platformEnvironments();
-  const products = materializeProducts(overrides);
+  const rails = materializeOfficialRails(railOverrides);
+  const products = materializeProducts(overrides, rails);
   const production = environments.find((item) => item.id === 'production');
-  const liveReady = production?.status === 'provisioned' && products.some((product) => product.status === 'go_live');
+  const hostnameProvisioned = production?.status === 'provisioned';
+  const liveReady = Boolean(hostnameProvisioned) && products.some((product) => (
+    productReadyForLiveMoney(product.id, product.status, rails)
+  ));
   const requestedMode = requestedOperatingMode();
   const effectiveMode = effectiveOperatingMode(liveReady);
   return {
@@ -171,16 +208,20 @@ export function evaluateLiveReadiness(overrides: ReadonlyArray<{ id: string; sta
     effectiveMode,
     liveReady,
     liveBlocked: requestedMode === 'live' && !liveReady,
-    blockReason: liveReady ? null : (production?.hostname ? 'homologacion_pendiente' : 'production_hostname_not_provisioned'),
+    blockReason: liveBlockReason({ liveReady, hostnameProvisioned: Boolean(hostnameProvisioned), products }),
     modes: OPERATING_MODES,
     goLive: GO_LIVE_PROCESS,
     environments,
     products,
+    rails,
+    fintechPath: evaluateFintechPath(rails, Boolean(hostnameProvisioned)),
     references: COMPETITOR_REFERENCES,
     summary: {
       integracion: products.filter((product) => product.status === 'integracion').length,
       homologacion: products.filter((product) => product.status === 'homologacion').length,
       goLive: products.filter((product) => product.status === 'go_live').length,
+      officialRailsLive: rails.filter((rail) => rail.status === 'live').length,
+      officialRailsTotal: rails.length,
     },
   };
 }
@@ -195,12 +236,19 @@ export function requireSandboxLedgerOrCertifiedRail(productId: string, ErrorType
   const readiness = evaluateLiveReadiness();
   if (readiness.effectiveMode === 'sandbox') return;
   const product = readiness.products.find((item) => item.id === productId);
-  if (product?.status === 'go_live') return;
-  throw new ErrorType('Este producto no completó homologación ni go-live.', 422, 'product_not_homologated');
+  if (product?.status !== 'go_live') {
+    throw new ErrorType('Este producto no completó homologación ni go-live.', 422, 'product_not_homologated');
+  }
+  if (product.missingOfficialRails.length > 0) {
+    throw new ErrorType('Este producto no tiene cableados los rieles oficiales (banco, cámara, esquema o sponsor).', 422, 'rail_not_wired');
+  }
+  if (!product.adapterReady) {
+    throw new ErrorType('No hay adaptador registrado para los rieles oficiales de este producto.', 422, 'rail_adapter_missing');
+  }
 }
 
 export function requireLiveApiKeysEnabled() {
   if (!evaluateLiveReadiness().liveReady) {
-    throw new PlatformRailError('No hay hostname de producción ni producto en go-live. Pismo y BIND entregan ese ambiente en el onboarding comercial.', 403, 'live_environment_disabled');
+    throw new PlatformRailError('Live sigue fail-closed: falta hostname de producción, homologación, rieles oficiales en live o adaptador de cámara/banco/esquema.', 403, 'live_environment_disabled');
   }
 }

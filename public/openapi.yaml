@@ -1757,8 +1757,8 @@ paths:
   /api/v1/live-readiness:
     get:
       operationId: getLiveReadiness
-      summary: Read sandbox vs production hosts, Pomelo go-live stages and catalog products taken from BIND, Pomelo and tapi
-      description: liveReady is true only when a production hostname is provisioned and at least one product is in go_live. CIMBRA_OPERATING_MODE=live does not move funds without that. Products homologate independently, as BIND APIBANK and BIND PSP publish separate APIs.
+      summary: Read sandbox vs production hosts, Pomelo go-live stages, catalog products, official rail connections and the AR PSPCP fintech path
+      description: liveReady is true only when a production hostname is provisioned, at least one product is in go_live, every required official rail of that product is live, and a Cimbra adapter is registered. CIMBRA_OPERATING_MODE=live does not move funds without that. Products homologate independently. Rails are BCRA, Coelsa, sponsor banks or schemes — never BIND, Dock, tapi, Pismo, Pomelo or Wibond.
       security: [{ session: [] }, { bearerApiKey: [] }]
       responses:
         '200':
@@ -4031,7 +4031,7 @@ components:
         regulatoryBoundary: { type: string }
     LiveReadiness:
       type: object
-      required: [requestedMode, effectiveMode, liveReady, liveBlocked, blockReason, goLive, environments, products, references, summary]
+      required: [requestedMode, effectiveMode, liveReady, liveBlocked, blockReason, goLive, environments, products, rails, fintechPath, references, summary]
       properties:
         requestedMode: { type: string, enum: [sandbox, live] }
         effectiveMode: { type: string, enum: [sandbox, live] }
@@ -4070,7 +4070,7 @@ components:
           type: array
           items:
             type: object
-            required: [id, name, country, benchmark, documentationUrl, network, sandboxCoverage, missingForProduction, status]
+            required: [id, name, country, benchmark, documentationUrl, network, sandboxCoverage, missingForProduction, status, requiredRailIds, missingOfficialRails, adapterReady]
             properties:
               id: { type: string }
               name: { type: string }
@@ -4081,6 +4081,57 @@ components:
               sandboxCoverage: { type: string }
               missingForProduction: { type: string }
               status: { type: string, enum: [integracion, homologacion, go_live] }
+              requiredRailIds: { type: array, items: { type: string } }
+              missingOfficialRails: { type: array, items: { type: string } }
+              adapterReady: { type: boolean }
+        rails:
+          type: array
+          items:
+            type: object
+            required: [id, name, country, kind, counterpartyKind, counterparty, officialUrl, summary, wiringContract, productIds, status, adapterRegistered]
+            properties:
+              id: { type: string }
+              name: { type: string }
+              country: { type: string, enum: [AR, LATAM] }
+              kind: { type: string, enum: [corporate, regulatory_registry, safeguarding, directory, instant_credit, instant_debit, echeq_clearing, cvu_assignment, qr_pct, card_issuing, bill_payments] }
+              counterpartyKind: { type: string, enum: [clearing_house, bank, card_scheme, official_registry, regulated_sponsor, corporate] }
+              counterparty: { type: string }
+              officialUrl: { type: string, format: uri }
+              summary: { type: string }
+              wiringContract: { type: string }
+              productIds: { type: array, items: { type: string } }
+              status: { type: string, enum: [unwired, contracted, certified, live] }
+              adapterRegistered: { type: boolean }
+        fintechPath:
+          type: object
+          required: [jurisdiction, intendedFigure, summary, officialSources, gates, metCount, gateCount]
+          properties:
+            jurisdiction: { type: string, const: AR }
+            intendedFigure: { type: string, const: PSPCP }
+            summary: { type: string }
+            officialSources:
+              type: array
+              items:
+                type: object
+                required: [name, url, surface]
+                properties:
+                  name: { type: string }
+                  url: { type: string, format: uri }
+                  surface: { type: string }
+            gates:
+              type: array
+              items:
+                type: object
+                required: [id, connectionId, name, summary, status, met]
+                properties:
+                  id: { type: string }
+                  connectionId: { type: ['string', 'null'] }
+                  name: { type: string }
+                  summary: { type: string }
+                  status: { type: string, enum: [unwired, contracted, certified, live] }
+                  met: { type: boolean }
+            metCount: { type: integer }
+            gateCount: { type: integer }
         references:
           type: array
           items:
@@ -4092,11 +4143,13 @@ components:
               surface: { type: string }
         summary:
           type: object
-          required: [integracion, homologacion, goLive]
+          required: [integracion, homologacion, goLive, officialRailsLive, officialRailsTotal]
           properties:
             integracion: { type: integer }
             homologacion: { type: integer }
             goLive: { type: integer }
+            officialRailsLive: { type: integer }
+            officialRailsTotal: { type: integer }
   securitySchemes:
     session:
       type: apiKey

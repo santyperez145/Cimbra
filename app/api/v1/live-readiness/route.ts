@@ -17,6 +17,8 @@ async function getLiveReadiness(request: Request) {
         goLive: readiness.goLive,
         environments: readiness.environments,
         products: readiness.products,
+        rails: readiness.rails,
+        fintechPath: readiness.fintechPath,
         references: readiness.references,
         summary: readiness.summary,
       },

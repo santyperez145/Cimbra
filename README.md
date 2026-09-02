@@ -4,7 +4,7 @@ Cimbra es una plataforma de infraestructura financiera modular para Latinoaméri
 
 ## Estado del producto
 
-La aplicación es un MVP lanzable para venta, discovery e integración. El contrato API es el de producción; el host activo es sandbox, como BIND APIBANK, sandbox.pismolabs.io y sandbox.api.pomelo.la. Live se habilita cuando `GET /api/v1/live-readiness` marque `liveReady`: hostname de producción provisionado y al menos un producto del catálogo público en Go Live. BIND, Dock, tapi, Pismo, Pomelo y Wibond no son conectores.
+La aplicación es un MVP lanzable para venta, discovery e integración. El contrato API es el de producción; el host activo es sandbox, como BIND APIBANK, sandbox.pismolabs.io y sandbox.api.pomelo.la. Live se habilita cuando `GET /api/v1/live-readiness` marque `liveReady`: hostname de producción, producto en Go Live, rieles oficiales (BCRA/Coelsa/sponsor/esquema) en live y adaptador Cimbra registrado. BIND, Dock, tapi, Pismo, Pomelo y Wibond no son conectores.
 
 Superficies disponibles:
 
@@ -14,7 +14,7 @@ Superficies disponibles:
 - `/forgot-password`, `/reset-password` y `/verify-email` — ciclo de vida de cuenta con tokens opacos, expiración, uso único y respuestas anti-enumeración.
 - `/console` — consola protegida y consciente del rol; owner/admin administran miembros e invitaciones, operator ejecuta, viewer trabaja en modo lectura y Operaciones unifica ownership, SLA y expedientes de riesgo/conciliación.
 - `/api/health` — readiness sin caché para esquema PostgreSQL, secretos críticos y modo operativo (`environment`, `liveReady`), sin exponer valores secretos.
-- `/api/v1/*` — API pública versionada. Incluye `GET /api/v1/live-readiness` (entornos BIND/Pismo/Pomelo y productos del catálogo público) además de customers, KYC/KYB, accounts, statements, wallets, book transfers, pagos instantáneos AR, cobranzas, cards, transfers, payments, payouts, billers, riesgo, conciliación, operaciones, settlement, aprobaciones, holds, ledger, events, compliance y webhooks.
+- `/api/v1/*` — API pública versionada. Incluye `GET /api/v1/live-readiness` (entornos, productos, rieles oficiales BCRA/Coelsa/sponsor y camino PSPCP) además de customers, KYC/KYB, accounts, statements, wallets, book transfers, pagos instantáneos AR, cobranzas, cards, transfers, payments, payouts, billers, riesgo, conciliación, operaciones, settlement, aprobaciones, holds, ledger, events, compliance y webhooks.
 - `/api/sandbox/*` — alias de compatibilidad deprecado; las integraciones nuevas deben usar v1.
 - `/api/platform/api-keys` — claves Bearer con scopes, vencimiento, rate limit, rotación y revocación inmediata.
 - `/api/platform/access` — miembros, invitaciones verificadas, jerarquía de roles, revocación y trazabilidad del tenant.

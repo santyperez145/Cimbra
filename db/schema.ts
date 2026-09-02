@@ -1249,6 +1249,17 @@ export const platformRails = pgTable('platform_rails', {
   check('platform_rails_status', sql`${table.status} IN ('integracion', 'homologacion', 'go_live')`),
 ]);
 
+export const officialRailConnections = pgTable('official_rail_connections', {
+  id: text('id').primaryKey(),
+  status: text('status').notNull().default('unwired'),
+  evidenceNote: text('evidence_note').notNull().default(''),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  index('idx_official_rail_connections_status').on(table.status),
+  check('official_rail_connections_status', sql`${table.status} IN ('unwired', 'contracted', 'certified', 'live')`),
+]);
+
 export const echeqEndorsements = pgTable('echeq_endorsements', {
   id: text('id').primaryKey(),
   organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),

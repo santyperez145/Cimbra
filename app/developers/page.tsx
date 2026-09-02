@@ -39,6 +39,11 @@ const changelog = [
   },
   {
     date: '01 SEP 2026',
+    title: 'Rieles oficiales y camino PSPCP fail-closed',
+    detail: 'GET /api/v1/live-readiness publica el catálogo de contrapartes BCRA/Coelsa/sponsor/PCI, el checklist PSPCP argentino y exige riel live más adaptador Cimbra para liveReady. El sandbox no despacha cámara. Marcar un producto Go Live no mueve fondos.',
+  },
+  {
+    date: '01 SEP 2026',
     title: 'Eliminar CVU sandbox sin tocar la cuenta',
     detail: 'DELETE /api/v1/rail-instruments/{id} deja el CVU y su alias inoperables. La cuenta ARS y el saldo permanecen. Un POST posterior de emisión reactiva el mismo CVU sandbox. No es una baja en Coelsa.',
   },
@@ -446,7 +451,7 @@ await cimbra.paymentLinks.pay(link.data.link.id, {
           <article><strong>{API_SCOPES.length}</strong><span>Scopes S2S canónicos</span></article>
           <article><strong>{WEBHOOK_EVENT_TYPES.length}</strong><span>Tipos de evento emitidos</span></article>
         </div>
-        <div className="docs-callout"><i>i</i><div><strong>Entorno sandbox, contrato de producción</strong><p>Customers, KYC/KYB, cuentas, wallets, book transfers, estados de cuenta, tarjetas, beneficiarios, lotes de payouts, servicios, obligaciones, recargas, mandatos, movimientos, ledger, riesgo, conciliación, disputas, operaciones, aprobaciones y webhooks se persisten sobre el núcleo real. El host activo es sandbox, como sandbox.bind.com.ar, sandbox.pismolabs.io y sandbox.api.pomelo.la. Live exige un hostname de producción (Pismo lo entrega en el onboarding; BIND no lo publica; Pomelo usa api.pomelo.la después de homologar) y al menos un producto del catálogo en Go Live.</p></div></div>
+        <div className="docs-callout"><i>i</i><div><strong>Entorno sandbox, contrato de producción</strong><p>Customers, KYC/KYB, cuentas, wallets, book transfers, estados de cuenta, tarjetas, beneficiarios, lotes de payouts, servicios, obligaciones, recargas, mandatos, movimientos, ledger, riesgo, conciliación, disputas, operaciones, aprobaciones y webhooks se persisten sobre el núcleo real. El host activo es sandbox, como sandbox.bind.com.ar, sandbox.pismolabs.io y sandbox.api.pomelo.la. Live exige hostname de producción, producto en Go Live, rieles oficiales BCRA/Coelsa/sponsor en live y un adaptador Cimbra registrado.</p></div></div>
       </section>
 
       <section id="environments" className="docs-section">

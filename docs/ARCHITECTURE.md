@@ -9,7 +9,7 @@
 5. PII, secretos, fondos y telemetría viven en límites de seguridad separados.
 6. Sandbox y live tienen credenciales, datos, rieles y señales visuales distintas. El contrato API es el mismo; live es un flip de entorno fail-closed.
 
-El modo operativo efectivo se publica en `Cimbra-Environment` y en `/api/health`. `CIMBRA_OPERATING_MODE=live` no autoriza fondos: `evaluateLiveReadiness` exige evidencia y al menos un riel directo certificado (banco, cámara, esquema o sponsor). Sin eso el entorno efectivo permanece `sandbox` y no se emiten claves `cim_sk_live_`.
+El modo operativo efectivo se publica en `Cimbra-Environment` y en `/api/health`. `CIMBRA_OPERATING_MODE=live` no autoriza fondos: `evaluateLiveReadiness` exige hostname de producción, al menos un producto en Go Live, cada riel oficial requerido en `live` y un adaptador Cimbra registrado (BCRA, Coelsa, banco patrocinante o esquema). Sin eso el entorno efectivo permanece `sandbox` y no se emiten claves `cim_sk_live_`.
 
 ## Arquitectura del MVP alojado
 
@@ -110,6 +110,7 @@ El sandbox ya impone:
 - pagos instantáneos sandbox con CVU/alias (asignar o cambiar sobre un CVU existente, un cambio real cada 24 h; eliminar el CVU no toca cuenta ni saldo), confirmación de titular, crédito interno o cash-out, débito interno, QR Cimbra dinámico y estático con orden de venta y returns compensatorios;
 - cobranzas sandbox con links de cobro, eco cerrado, inbound ledger y refunds compensatorios;
 - ECHEQ sandbox con emisión, aceptación, endoso, depósito interno, NSF y devolución previa, sin Coelsa ni CMC7;
+- catálogo persistido de rieles oficiales (`official_rail_connections`) y registro vacío de adaptadores: el ledger no abre SQL durante una llamada de red; despachar Coelsa/banco/esquema responde `rail_not_wired` o `rail_adapter_missing` hasta homologar;
 
 Antes de dinero real todavía se requieren secuencia estable para extractos, conciliación independiente contra Cimbra, banco/cámara y settlement, cierres, snapshots, operación multi-región y controles regulatorios.
 
