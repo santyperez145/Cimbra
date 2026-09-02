@@ -7,7 +7,7 @@ import {
 import { aliasChangeBlocked } from '@/app/lib/platform/instant-payments-input';
 import type {
   CounterpartyKind, NormalizedAssignAliasInput, NormalizedDebitRequestInput, NormalizedDebitResponse, NormalizedInstantTransferInput,
-  NormalizedIssueInstrumentInput, NormalizedPaymentQrInput, NormalizedQrPayInput, RailScheme,
+  NormalizedIssueInstrumentInput, NormalizedPaymentQrInput, NormalizedQrPayInput, NormalizedQrSaleOrderInput, RailScheme,
 } from '@/app/lib/platform/instant-payments-input';
 import { assertSandboxLedgerOrCertifiedRail } from './platform-rails';
 import type { ProtectedRiskSignals } from '@/app/lib/platform/risk-signals';
@@ -48,6 +48,12 @@ type QrRow = {
   paidTransferId: string | null; requestFingerprint: string; createdAt: string; updatedAt: string;
 };
 
+type SaleOrderRow = {
+  id: string; paymentQrId: string; qrPayload: string; accountId: string; accountReference: string;
+  amountMinor: string; currency: Currency; description: string; externalReference: string; status: string;
+  expiresAt: string; paidTransferId: string | null; requestFingerprint: string; createdAt: string; updatedAt: string;
+};
+
 const instrumentSelect = `SELECT ri.id, ri.account_id AS "accountId", a.account_reference AS "accountReference",
   c.name AS "customerName", ri.kind, ri.value, ri.holder_name AS "holderName", ri.tax_id_last4 AS "taxIdLast4",
   ri.status, ri.request_fingerprint AS "requestFingerprint", ri.value_changed_at AS "valueChangedAt", ri.created_at AS "createdAt"
@@ -72,6 +78,15 @@ const qrSelect = `SELECT q.id, q.account_id AS "accountId", a.account_reference 
   q.created_at AS "createdAt", q.updated_at AS "updatedAt"
   FROM payment_qrs q JOIN accounts a ON a.id = q.account_id`;
 
+const saleOrderSelect = `SELECT so.id, so.payment_qr_id AS "paymentQrId", q.payload AS "qrPayload",
+  q.account_id AS "accountId", a.account_reference AS "accountReference", so.amount_minor::text AS "amountMinor",
+  so.currency, so.description, so.external_reference AS "externalReference", so.status, so.expires_at AS "expiresAt",
+  so.paid_transfer_id AS "paidTransferId", so.request_fingerprint AS "requestFingerprint",
+  so.created_at AS "createdAt", so.updated_at AS "updatedAt"
+  FROM qr_sale_orders so
+  JOIN payment_qrs q ON q.id = so.payment_qr_id
+  JOIN accounts a ON a.id = q.account_id`;
+
 function serializeInstrument(row: InstrumentRow) {
   const { requestFingerprint: _fingerprint, valueChangedAt: _changed, ...publicRow } = row;
   void _fingerprint; void _changed;
@@ -90,6 +105,24 @@ function serializeQr(row: QrRow) {
     ...publicRow,
     amount: row.amountMinor === null ? null : minorToMajorNumber(BigInt(row.amountMinor), row.currency),
   };
+}
+
+function serializeSaleOrder(row: SaleOrderRow) {
+  const { requestFingerprint: _fingerprint, ...publicRow } = row; void _fingerprint;
+  return { ...publicRow, amount: minorToMajorNumber(BigInt(row.amountMinor), row.currency) };
+}
+
+async function expireStaleSaleOrders(database: DatabaseClient, organizationId: string, paymentQrId?: string) {
+  const now = new Date().toISOString();
+  if (paymentQrId) {
+    await database.prepare(
+      "UPDATE qr_sale_orders SET status = 'expired', updated_at = ? WHERE organization_id = ? AND payment_qr_id = ? AND status = 'pending' AND expires_at <= ?",
+    ).bind(now, organizationId, paymentQrId, now).run();
+    return;
+  }
+  await database.prepare(
+    "UPDATE qr_sale_orders SET status = 'expired', updated_at = ? WHERE organization_id = ? AND status = 'pending' AND expires_at <= ?",
+  ).bind(now, organizationId, now).run();
 }
 
 async function loadAccount(database: DatabaseClient, organizationId: string, accountId: string, lock = false) {
@@ -839,9 +872,20 @@ export async function payPaymentQr(input: {
         .bind(new Date().toISOString(), qr.id).run();
       throw new InstantPaymentError('El QR expiró.', 409, 'qr_expired');
     }
-    const amountMinor = qr.amountMinor ? BigInt(qr.amountMinor) : input.payment.amountMinor;
+    await expireStaleSaleOrders(database, input.organizationId, qr.id);
+    const saleOrder = qr.kind === 'static'
+      ? await database.prepare(
+        `${saleOrderSelect} WHERE so.organization_id = ? AND so.payment_qr_id = ? AND so.status = 'pending' LIMIT 1 FOR UPDATE OF so`,
+      ).bind(input.organizationId, qr.id).first<SaleOrderRow>()
+      : null;
+    const amountMinor = saleOrder
+      ? BigInt(saleOrder.amountMinor)
+      : qr.amountMinor ? BigInt(qr.amountMinor) : input.payment.amountMinor;
     if (!amountMinor) throw new InstantPaymentError('El QR de monto abierto requiere un importe.', 400, 'qr_amount_required');
-    if (qr.amountMinor && input.payment.amountMinor && input.payment.amountMinor !== amountMinor) {
+    if (saleOrder && input.payment.amountMinor && input.payment.amountMinor !== amountMinor) {
+      throw new InstantPaymentError('El importe no coincide con la orden de venta.', 422, 'sale_order_amount_mismatch');
+    }
+    if (!saleOrder && qr.amountMinor && input.payment.amountMinor && input.payment.amountMinor !== amountMinor) {
       throw new InstantPaymentError('El importe no coincide con el QR.', 422, 'qr_amount_mismatch');
     }
     if (input.payment.sourceAccountId === qr.accountId) {
@@ -856,7 +900,7 @@ export async function payPaymentQr(input: {
     assertArsAccount(source); assertArsAccount(destination);
     const movement = await postInternalMovement(database, {
       organizationId: input.organizationId, actor: input.actor, operationKey: `instant:${input.idempotencyKey}`,
-      source, destination, amountMinor, description: qr.description, counterparty: `qr:${destination.accountReference}`,
+      source, destination, amountMinor, description: saleOrder?.description ?? qr.description, counterparty: `qr:${destination.accountReference}`,
       signals: input.signals,
     });
     if ('declined' in movement) return { declined: movement.declined, replayed: movement.replayed };
@@ -866,13 +910,22 @@ export async function payPaymentQr(input: {
       id, organizationId: input.organizationId, idempotencyKey: input.idempotencyKey, fingerprint, scheme: 'qr_collect',
       direction: 'internal', sourceAccountId: source.id, destinationAccountId: destination.id, counterpartyKind: 'alias',
       counterpartyValue: qr.payload.replace(/[^A-Z0-9]/gi, '').slice(0, 20).padEnd(6, 'X'), holderName: destination.customerName,
-      taxIdLast4: destination.taxIdLast4, amountMinor, description: qr.description, externalReference: input.payment.externalReference,
+      taxIdLast4: destination.taxIdLast4, amountMinor, description: saleOrder?.description ?? qr.description, externalReference: input.payment.externalReference,
       status: movement.status, transactionId: movement.transactionId, qrPayload: qr.payload, expiresAt: null,
       actorId: input.actor.userId, createdAt,
     });
     if (movement.status === 'settled' && qr.kind === 'dynamic') {
       await database.prepare("UPDATE payment_qrs SET status = 'paid', paid_transfer_id = ?, updated_at = ? WHERE id = ?")
         .bind(id, createdAt, qr.id).run();
+    }
+    if (movement.status === 'settled' && saleOrder) {
+      await database.prepare("UPDATE qr_sale_orders SET status = 'paid', paid_transfer_id = ?, updated_at = ? WHERE id = ?")
+        .bind(id, createdAt, saleOrder.id).run();
+      await insertAudit(database, {
+        organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.sale_order_paid',
+        resourceType: 'qr_sale_order', resourceId: saleOrder.id,
+        payload: { transferId: id, paymentQrId: qr.id, amountMinor: amountMinor.toString() },
+      });
     }
     await insertAudit(database, {
       organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.qr_paid',
@@ -908,11 +961,136 @@ export async function cancelPaymentQr(input: {
     await database.prepare(
       "UPDATE payment_qrs SET status = 'cancelled', cancel_idempotency_key = ?, updated_at = ? WHERE id = ?",
     ).bind(input.idempotencyKey, now, qr.id).run();
+    await database.prepare(
+      "UPDATE qr_sale_orders SET status = 'cancelled', updated_at = ? WHERE organization_id = ? AND payment_qr_id = ? AND status = 'pending'",
+    ).bind(now, input.organizationId, qr.id).run();
     await insertAudit(database, {
       organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.qr_cancelled',
       resourceType: 'payment_qr', resourceId: qr.id,
       payload: { kind: qr.kind, idempotencyKey: input.idempotencyKey },
     });
     return { qr: serializeQr({ ...qr, status: 'cancelled', updatedAt: now }), replayed: false };
+  });
+}
+
+export async function listQrSaleOrders(input: { organizationId: string; limit: number; cursor?: { createdAt: string; id: string } }) {
+  await expireStaleSaleOrders(getDatabaseClient(), input.organizationId);
+  const clause = input.cursor ? 'AND (so.created_at, so.id) < (?, ?)' : '';
+  const statement = getDatabaseClient().prepare(
+    `${saleOrderSelect} WHERE so.organization_id = ? ${clause} ORDER BY so.created_at DESC, so.id DESC LIMIT ?`,
+  );
+  const rows = input.cursor
+    ? await statement.bind(input.organizationId, input.cursor.createdAt, input.cursor.id, input.limit + 1).all<SaleOrderRow>()
+    : await statement.bind(input.organizationId, input.limit + 1).all<SaleOrderRow>();
+  return rows.results.map(serializeSaleOrder);
+}
+
+export async function retrieveQrSaleOrder(organizationId: string, id: string) {
+  await expireStaleSaleOrders(getDatabaseClient(), organizationId);
+  const row = await getDatabaseClient().prepare(`${saleOrderSelect} WHERE so.organization_id = ? AND so.id = ? LIMIT 1`)
+    .bind(organizationId, id).first<SaleOrderRow>();
+  return row ? serializeSaleOrder(row) : null;
+}
+
+export async function createQrSaleOrder(input: {
+  organizationId: string; actor: AuthUser; idempotencyKey: string; order: NormalizedQrSaleOrderInput;
+}) {
+  await assertSandboxLedgerOrCertifiedRail('qr_interoperable', InstantPaymentError);
+  const fingerprint = await sha256(JSON.stringify({
+    paymentQrId: input.order.paymentQrId, amountMinor: input.order.amountMinor.toString(),
+    description: input.order.description, externalReference: input.order.externalReference,
+    expiresInMinutes: input.order.expiresInMinutes,
+  }));
+  return getDatabaseClient().transaction(async (database) => {
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:qr-sale-order:${input.idempotencyKey}`).first();
+    const existing = await database.prepare(`${saleOrderSelect} WHERE so.organization_id = ? AND so.idempotency_key = ? LIMIT 1`)
+      .bind(input.organizationId, input.idempotencyKey).first<SaleOrderRow>();
+    if (existing) {
+      if (existing.requestFingerprint !== fingerprint) {
+        throw new InstantPaymentError('La Idempotency-Key ya fue usada con otra orden de venta.', 409, 'idempotency_mismatch');
+      }
+      return { order: serializeSaleOrder(existing), replayed: true };
+    }
+    const qr = await database.prepare(`${qrSelect} WHERE q.organization_id = ? AND q.id = ? LIMIT 1 FOR UPDATE OF q`)
+      .bind(input.organizationId, input.order.paymentQrId).first<QrRow>();
+    if (!qr) throw new InstantPaymentError('QR no encontrado.', 404, 'payment_qr_not_found');
+    if (qr.kind !== 'static') {
+      throw new InstantPaymentError('La orden de venta sólo aplica a un QR estático activo.', 422, 'sale_order_requires_static_qr');
+    }
+    if (qr.status !== 'active') throw new InstantPaymentError('El QR ya no está activo.', 409, 'qr_not_active');
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:qr-sale-order-qr:${qr.id}`).first();
+    await expireStaleSaleOrders(database, input.organizationId, qr.id);
+    const referenceOwner = await database.prepare(
+      'SELECT id FROM qr_sale_orders WHERE organization_id = ? AND external_reference = ? LIMIT 1',
+    ).bind(input.organizationId, input.order.externalReference).first<{ id: string }>();
+    if (referenceOwner) {
+      throw new InstantPaymentError('La referencia externa ya pertenece a otra orden de venta.', 409, 'external_reference_conflict');
+    }
+    const pending = await database.prepare(
+      `${saleOrderSelect} WHERE so.organization_id = ? AND so.payment_qr_id = ? AND so.status = 'pending' LIMIT 1 FOR UPDATE OF so`,
+    ).bind(input.organizationId, qr.id).first<SaleOrderRow>();
+    const now = new Date().toISOString();
+    if (pending) {
+      await database.prepare("UPDATE qr_sale_orders SET status = 'superseded', updated_at = ? WHERE id = ?")
+        .bind(now, pending.id).run();
+      await insertAudit(database, {
+        organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.sale_order_superseded',
+        resourceType: 'qr_sale_order', resourceId: pending.id,
+        payload: { paymentQrId: qr.id, replacedByExternalReference: input.order.externalReference },
+      });
+    }
+    const id = crypto.randomUUID();
+    const expiresAt = new Date(Date.now() + input.order.expiresInMinutes * 60_000).toISOString();
+    await database.prepare(`INSERT INTO qr_sale_orders
+      (id, organization_id, idempotency_key, request_fingerprint, payment_qr_id, amount_minor, currency, description,
+       external_reference, status, expires_at, paid_transfer_id, created_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'ARS', ?, ?, 'pending', ?, NULL, ?, ?, ?)`)
+      .bind(id, input.organizationId, input.idempotencyKey, fingerprint, qr.id, input.order.amountMinor.toString(),
+        input.order.description, input.order.externalReference, expiresAt, input.actor.userId, now, now).run();
+    await insertAudit(database, {
+      organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.sale_order_created',
+      resourceType: 'qr_sale_order', resourceId: id,
+      payload: { paymentQrId: qr.id, amountMinor: input.order.amountMinor.toString(), expiresAt, supersededId: pending?.id ?? null },
+    });
+    const created = await database.prepare(`${saleOrderSelect} WHERE so.organization_id = ? AND so.id = ? LIMIT 1`)
+      .bind(input.organizationId, id).first<SaleOrderRow>();
+    return { order: serializeSaleOrder(created!), replayed: false };
+  });
+}
+
+export async function cancelQrSaleOrder(input: {
+  organizationId: string; actor: AuthUser; orderId: string; idempotencyKey: string;
+}) {
+  await assertSandboxLedgerOrCertifiedRail('qr_interoperable', InstantPaymentError);
+  return getDatabaseClient().transaction(async (database) => {
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:qr-sale-order-cancel:${input.idempotencyKey}`).first();
+    const replay = await database.prepare(`${saleOrderSelect} WHERE so.organization_id = ? AND so.cancel_idempotency_key = ? LIMIT 1`)
+      .bind(input.organizationId, input.idempotencyKey).first<SaleOrderRow>();
+    if (replay) {
+      if (replay.id !== input.orderId) {
+        throw new InstantPaymentError('La Idempotency-Key ya fue usada con otra orden de venta.', 409, 'idempotency_mismatch');
+      }
+      return { order: serializeSaleOrder(replay), replayed: true };
+    }
+    await expireStaleSaleOrders(database, input.organizationId);
+    const order = await database.prepare(`${saleOrderSelect} WHERE so.organization_id = ? AND so.id = ? LIMIT 1 FOR UPDATE OF so`)
+      .bind(input.organizationId, input.orderId).first<SaleOrderRow>();
+    if (!order) throw new InstantPaymentError('Orden de venta no encontrada.', 404, 'sale_order_not_found');
+    if (order.status !== 'pending') {
+      throw new InstantPaymentError('Sólo se puede eliminar una orden de venta pendiente.', 409, 'sale_order_not_pending');
+    }
+    const now = new Date().toISOString();
+    await database.prepare(
+      "UPDATE qr_sale_orders SET status = 'cancelled', cancel_idempotency_key = ?, updated_at = ? WHERE id = ?",
+    ).bind(input.idempotencyKey, now, order.id).run();
+    await insertAudit(database, {
+      organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.sale_order_cancelled',
+      resourceType: 'qr_sale_order', resourceId: order.id,
+      payload: { paymentQrId: order.paymentQrId, idempotencyKey: input.idempotencyKey },
+    });
+    return { order: serializeSaleOrder({ ...order, status: 'cancelled', updatedAt: now }), replayed: false };
   });
 }

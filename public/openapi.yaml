@@ -990,7 +990,7 @@ paths:
         '403': { description: Missing transfers:write scope or finance.write permission }
         '404': { description: QR not found }
         '409': { description: QR inactive or expired }
-        '422': { description: Amount mismatch, insufficient funds or risk decline }
+        '422': { description: Amount mismatch, sale order mismatch, insufficient funds or risk decline }
   /api/v1/payment-qrs/{id}/cancel:
     post:
       operationId: cancelPaymentQr
@@ -1006,6 +1006,72 @@ paths:
         '403': { description: Missing transfers:write scope or finance.write permission }
         '404': { description: QR not found }
         '409': { description: QR is not active }
+  /api/v1/qr-sale-orders:
+    get:
+      operationId: listQrSaleOrders
+      summary: List Cimbra sale orders overlaid on static QRs
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200': { description: Sale order page }
+        '403': { description: Missing transfers:read scope or console role }
+    post:
+      operationId: createQrSaleOrder
+      summary: Overlay a closed amount on an active Cimbra static QR
+      description: One pending sale order per static QR. Creating another supersedes the pending one. Not a BIND caja, EMVCo or Transferencias 3.0 order.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [paymentQrId, externalReference, description, amount]
+              properties:
+                paymentQrId: { type: string, format: uuid }
+                externalReference: { type: string, minLength: 2, maxLength: 100 }
+                description: { type: string, minLength: 2, maxLength: 180 }
+                amount:
+                  oneOf:
+                    - { type: string, pattern: '^\d+(?:\.\d+)?$' }
+                    - { type: number, exclusiveMinimum: 0, maximum: 10000000 }
+                currency: { type: string, enum: [ARS] }
+                expiresInMinutes: { type: integer, minimum: 1, maximum: 1440, default: 10 }
+      responses:
+        '201': { description: Sale order created }
+        '200': { description: Idempotent replay }
+        '400': { description: Invalid payload }
+        '403': { description: Missing transfers:write scope or finance.write permission }
+        '404': { description: QR not found }
+        '409': { description: QR inactive or external reference conflict }
+        '422': { description: Sale order requires an active static QR }
+  /api/v1/qr-sale-orders/{id}:
+    get:
+      operationId: retrieveQrSaleOrder
+      summary: Retrieve a Cimbra sale order by id
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses:
+        '200': { description: Sale order }
+        '403': { description: Missing transfers:read scope or console role }
+        '404': { description: Sale order not found }
+    delete:
+      operationId: cancelQrSaleOrder
+      summary: Delete a pending Cimbra sale order and return the static QR to open amount
+      description: Does not reverse settled payments. Not a Coelsa or competitor caja command.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200': { description: Sale order cancelled or idempotent replay }
+        '403': { description: Missing transfers:write scope or finance.write permission }
+        '404': { description: Sale order not found }
+        '409': { description: Sale order is not pending }
   /api/v1/payment-links:
     get:
       operationId: listPaymentLinks
@@ -3595,6 +3661,26 @@ components:
         kind: { type: string, enum: [dynamic, static] }
         status: { type: string, enum: [active, paid, expired, cancelled] }
         expiresAt: { type: [string, 'null'], format: date-time }
+        paidTransferId: { type: [string, 'null'], format: uuid }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    QrSaleOrder:
+      type: object
+      required: [id, paymentQrId, qrPayload, accountId, accountReference, amountMinor, amount, currency, description, externalReference, status, expiresAt, paidTransferId, createdAt, updatedAt]
+      additionalProperties: false
+      properties:
+        id: { type: string, format: uuid }
+        paymentQrId: { type: string, format: uuid }
+        qrPayload: { type: string }
+        accountId: { type: string, format: uuid }
+        accountReference: { type: string }
+        amountMinor: { type: string }
+        amount: { type: number }
+        currency: { type: string, enum: [ARS] }
+        description: { type: string }
+        externalReference: { type: string }
+        status: { type: string, enum: [pending, paid, expired, cancelled, superseded] }
+        expiresAt: { type: string, format: date-time }
         paidTransferId: { type: [string, 'null'], format: uuid }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }

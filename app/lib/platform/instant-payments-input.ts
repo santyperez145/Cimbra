@@ -142,6 +142,23 @@ export function normalizeQrPayInput(value: unknown) {
   return { sourceAccountId, externalReference, amountMinor };
 }
 
+export function normalizeQrSaleOrderInput(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const body = value as Record<string, unknown>;
+  if (!hasOnlyKeys(body, ['paymentQrId', 'externalReference', 'description', 'amount', 'currency', 'expiresInMinutes'])) return null;
+  const paymentQrId = typeof body.paymentQrId === 'string' ? body.paymentQrId : '';
+  const externalReference = collapsed(body.externalReference, 2, 100);
+  const description = collapsed(body.description, 2, 180);
+  const currency = body.currency === undefined || body.currency === null || body.currency === '' ? 'ARS' : normalizeCurrency(body.currency);
+  const expiresInMinutes = body.expiresInMinutes === undefined ? 10 : Number(body.expiresInMinutes);
+  if (!uuid.test(paymentQrId) || !externalReference || !description || currency !== 'ARS'
+    || !Number.isInteger(expiresInMinutes) || expiresInMinutes < 1 || expiresInMinutes > 1440) return null;
+  let amountMinor: bigint;
+  try { amountMinor = majorToMinor(body.amount, currency); } catch { return null; }
+  if (amountMinor <= 0n || amountMinor > majorToMinor('10000000', currency)) return null;
+  return { paymentQrId, externalReference, description, amountMinor, currency: currency as Currency, expiresInMinutes };
+}
+
 export type NormalizedIssueInstrumentInput = NonNullable<ReturnType<typeof normalizeIssueInstrumentInput>>;
 export type NormalizedAssignAliasInput = NonNullable<ReturnType<typeof normalizeAssignAliasInput>>;
 export type NormalizedInstantTransferInput = NonNullable<ReturnType<typeof normalizeInstantTransferInput>>;
@@ -149,4 +166,5 @@ export type NormalizedDebitRequestInput = NonNullable<ReturnType<typeof normaliz
 export type NormalizedDebitResponse = NonNullable<ReturnType<typeof normalizeDebitResponse>>;
 export type NormalizedPaymentQrInput = NonNullable<ReturnType<typeof normalizePaymentQrInput>>;
 export type NormalizedQrPayInput = NonNullable<ReturnType<typeof normalizeQrPayInput>>;
+export type NormalizedQrSaleOrderInput = NonNullable<ReturnType<typeof normalizeQrSaleOrderInput>>;
 

@@ -50,7 +50,7 @@ test('el OpenAPI público usa el sandbox real y operaciones identificables', () 
   assert.equal(spec.info.version, '2026-09-01');
   assert.deepEqual(spec.servers, [{ url: 'https://cimbra-rose.vercel.app', description: 'Current environment is sandbox (BIND APIBANK, Pismo sandbox.pismolabs.io, Pomelo sandbox.api.pomelo.la). Production hostname is not provisioned.' }]);
   const operations = contractOperations();
-  assert.equal(operations.length, 164);
+  assert.equal(operations.length, 168);
   const ids = operations.map(({ operation }) => operation.operationId);
   assert.equal(ids.every(Boolean), true);
   assert.equal(new Set(ids).size, ids.length);
@@ -141,6 +141,9 @@ test('OpenAPI publica book transfers y statements como contratos completos', () 
   assert.equal(spec.paths['/api/v1/debit-requests/{id}/respond'].post.operationId, 'respondDebitRequest');
   assert.equal(spec.paths['/api/v1/payment-qrs/{id}/pay'].post.operationId, 'payPaymentQr');
   assert.equal(spec.paths['/api/v1/payment-qrs/{id}/cancel'].post.operationId, 'cancelPaymentQr');
+  assert.equal(spec.paths['/api/v1/qr-sale-orders'].post.operationId, 'createQrSaleOrder');
+  assert.equal(spec.paths['/api/v1/qr-sale-orders/{id}'].get.operationId, 'retrieveQrSaleOrder');
+  assert.equal(spec.paths['/api/v1/qr-sale-orders/{id}'].delete.operationId, 'cancelQrSaleOrder');
   assert.equal(spec.paths['/api/v1/payment-links'].post.operationId, 'createPaymentLink');
   assert.equal(spec.paths['/api/v1/payment-links/{id}'].get.operationId, 'retrievePaymentLink');
   assert.equal(spec.paths['/api/v1/payment-links/{id}/pay'].post.operationId, 'payPaymentLink');

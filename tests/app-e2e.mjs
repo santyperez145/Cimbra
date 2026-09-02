@@ -118,6 +118,7 @@ async function cleanup() {
       await transaction`DELETE FROM payout_items WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM payout_batches WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM payout_beneficiaries WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM qr_sale_orders WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM payment_qrs WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM payment_links WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM echeq_endorsements WHERE organization_id = ${organizationId}`;
@@ -690,6 +691,73 @@ try {
     body: JSON.stringify({ sourceAccountId: destinationAccount.id, externalReference: `QR-ST-2-${runId}`, amount: '4.00' }),
   }), 201);
   assert.equal(staticPayTwo.transfer.status, 'settled');
+  const saleOnDynamic = await json(await request('/api/v1/qr-sale-orders', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-ov-dyn-${runId}` },
+    body: JSON.stringify({
+      paymentQrId: qrCreated.qr.id, externalReference: `OV-DYN-${runId}`, description: 'No aplica', amount: '5.00', currency: 'ARS',
+    }),
+  }), 422);
+  assert.equal(saleOnDynamic.error.code, 'sale_order_requires_static_qr');
+  const saleKey = `qa-ov-${runId}`;
+  const salePayload = {
+    paymentQrId: staticQr.qr.id, externalReference: `OV-${runId}`, description: 'Mostrador cerrado', amount: '7.00', currency: 'ARS',
+  };
+  const saleCreated = await json(await request('/api/v1/qr-sale-orders', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': saleKey },
+    body: JSON.stringify(salePayload),
+  }), 201);
+  assert.equal(saleCreated.order.status, 'pending');
+  assert.equal(saleCreated.order.amount, 7);
+  const saleReplay = await json(await request('/api/v1/qr-sale-orders', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': saleKey },
+    body: JSON.stringify(salePayload),
+  }), 200);
+  assert.equal(saleReplay.replayed, true);
+  const retrievedSale = await json(await request(`/api/v1/qr-sale-orders/${saleCreated.order.id}`), 200);
+  assert.equal(retrievedSale.id, saleCreated.order.id);
+  const saleMismatch = await json(await request(`/api/v1/payment-qrs/${staticQr.qr.id}/pay`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-ov-mismatch-${runId}` },
+    body: JSON.stringify({ sourceAccountId: destinationAccount.id, externalReference: `QR-OV-MIS-${runId}`, amount: '9.00' }),
+  }), 422);
+  assert.equal(saleMismatch.error.code, 'sale_order_amount_mismatch');
+  const salePaid = await json(await request(`/api/v1/payment-qrs/${staticQr.qr.id}/pay`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-ov-pay-${runId}` },
+    body: JSON.stringify({ sourceAccountId: destinationAccount.id, externalReference: `QR-OV-${runId}` }),
+  }), 201);
+  assert.equal(salePaid.transfer.status, 'settled');
+  assert.equal(salePaid.transfer.amount, 7);
+  const paidSale = await json(await request(`/api/v1/qr-sale-orders/${saleCreated.order.id}`), 200);
+  assert.equal(paidSale.status, 'paid');
+  const listedAfterSale = await json(await request('/api/v1/payment-qrs?limit=50'), 200);
+  assert.equal(listedAfterSale.data.find((item) => item.id === staticQr.qr.id).status, 'active');
+  const saleFirst = await json(await request('/api/v1/qr-sale-orders', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-ov-a-${runId}` },
+    body: JSON.stringify({
+      paymentQrId: staticQr.qr.id, externalReference: `OV-A-${runId}`, description: 'Primera', amount: '2.00', currency: 'ARS',
+    }),
+  }), 201);
+  const saleSecond = await json(await request('/api/v1/qr-sale-orders', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-ov-b-${runId}` },
+    body: JSON.stringify({
+      paymentQrId: staticQr.qr.id, externalReference: `OV-B-${runId}`, description: 'Segunda', amount: '3.00', currency: 'ARS',
+    }),
+  }), 201);
+  assert.equal(saleSecond.order.status, 'pending');
+  assert.equal((await json(await request(`/api/v1/qr-sale-orders/${saleFirst.order.id}`), 200)).status, 'superseded');
+  const saleCancelKey = `qa-ov-del-${runId}`;
+  const saleCancelled = await json(await request(`/api/v1/qr-sale-orders/${saleSecond.order.id}`, {
+    method: 'DELETE', headers: { 'Idempotency-Key': saleCancelKey },
+  }), 200);
+  assert.equal(saleCancelled.order.status, 'cancelled');
+  const saleCancelledReplay = await json(await request(`/api/v1/qr-sale-orders/${saleSecond.order.id}`, {
+    method: 'DELETE', headers: { 'Idempotency-Key': saleCancelKey },
+  }), 200);
+  assert.equal(saleCancelledReplay.replayed, true);
+  const openAfterCancel = await json(await request(`/api/v1/payment-qrs/${staticQr.qr.id}/pay`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-ov-open-${runId}` },
+    body: JSON.stringify({ sourceAccountId: destinationAccount.id, externalReference: `QR-OV-OPEN-${runId}`, amount: '1.50' }),
+  }), 201);
+  assert.equal(openAfterCancel.transfer.amount, 1.5);
   const duplicateStatic = await json(await request('/api/v1/payment-qrs', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-qr-static-dup-${runId}` },
     body: JSON.stringify({ accountId: account.id, description: 'Caja duplicada', kind: 'static' }),
@@ -2037,6 +2105,7 @@ try {
   await json(await request('/api/v1/instant-transfers'), 200);
   await json(await request('/api/v1/debit-requests'), 200);
   await json(await request('/api/v1/payment-qrs'), 200);
+  await json(await request('/api/v1/qr-sale-orders'), 200);
   await json(await request('/api/v1/payment-links'), 200);
   await json(await request('/api/v1/echeqs'), 200);
   await json(await request(`/api/v1/accounts/${account.id}/statement`), 200);
@@ -2065,6 +2134,13 @@ try {
     }),
   }), 403);
   assert.equal(viewerInstantDenied.error.code, 'insufficient_role');
+  const viewerSaleOrderDenied = await json(await request('/api/v1/qr-sale-orders', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-viewer-ov-${runId}` },
+    body: JSON.stringify({
+      paymentQrId: staticAgain.qr.id, externalReference: `OV-VIEWER-${runId}`, description: 'Viewer', amount: '1.00', currency: 'ARS',
+    }),
+  }), 403);
+  assert.equal(viewerSaleOrderDenied.error.code, 'insufficient_role');
   const viewerCollectionDenied = await json(await request('/api/v1/payment-links', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-viewer-link-${runId}` },
     body: JSON.stringify({
@@ -2179,7 +2255,7 @@ try {
 
   console.log(JSON.stringify({
     ok: true,
-    checks: ['auth', 'landing-session-state', 'console-session-guard', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'viewer-read-only', 'member-invitations', 'dual-control', 'maker-checker', 'transfer-approval', 'book-transfer-approval', 'approval-replay', 'approval-fail-closed', 'payout-approval', 'risk-case-approval', 'risk-hold-bypass-guard', 'reconciliation-exception-approval', 'disputes', 'partial-dispute', 'dispute-ledger-credit', 'dispute-compensation', 'dispute-approval', 'dispute-evidence', 'dispute-rbac', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'book-transfers', 'account-statements', 'book-transfer-compensation', 'book-transfer-rbac', 'wallets', 'wallet-pockets', 'wallet-lifecycle', 'wallet-rbac', 'instant-payments', 'cvu-alias', 'alias-assign', 'cvu-revoke', 'holder-confirmation', 'internal-credit', 'sandbox-outbound', 'internal-debit', 'cimbra-qr', 'instant-return', 'instant-rbac', 'collections', 'payment-links', 'collection-internal', 'collection-inbound', 'collection-refund', 'collection-cancel', 'collection-card-denied', 'collection-rbac', 'echeqs', 'echeq-accept', 'echeq-deposit', 'echeq-cancel', 'echeq-return', 'echeq-nsf', 'echeq-discount-denied', 'echeq-rbac', 'payout-beneficiaries', 'protected-payout-destination', 'payout-batches', 'payout-scheduling', 'payout-result-file', 'payout-compensation', 'payout-rbac', 'payout-s2s', 'billers', 'biller-obligations', 'protected-subscriber-reference', 'bill-payments', 'mobile-topups', 'gift-cards', 'recurring-mandates', 'mandate-consent', 'biller-rbac', 'biller-s2s', 'bill-payment-compensation', 'cdd-kyb', 'cdd-evidence', 'cdd-idempotency', 'cdd-maker-checker', 'cdd-s2s-orchestration', 'cdd-session-only-decision', 'cdd-expiry', 'cdd-rbac', 'card-programs', 'card-lifecycle', 'card-controls', 'card-terminal-state', 'card-rbac', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'risk-signals-privacy', 'risk-decision-lists', 'risk-step-up', 'risk-step-up-idempotency', 'risk-step-up-rbac', 'risk-decision-slo', 'risk-confirmed-outcomes', 'risk-supervised-metrics', 'risk-outcome-revisions', 'reconciliation', 'operations-work-queue', 'operations-idempotency', 'operations-evidence', 'operations-rbac', 'csv-import', 'settlement', 'private-evidence', 'audit'],
+    checks: ['auth', 'landing-session-state', 'console-session-guard', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'viewer-read-only', 'member-invitations', 'dual-control', 'maker-checker', 'transfer-approval', 'book-transfer-approval', 'approval-replay', 'approval-fail-closed', 'payout-approval', 'risk-case-approval', 'risk-hold-bypass-guard', 'reconciliation-exception-approval', 'disputes', 'partial-dispute', 'dispute-ledger-credit', 'dispute-compensation', 'dispute-approval', 'dispute-evidence', 'dispute-rbac', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'book-transfers', 'account-statements', 'book-transfer-compensation', 'book-transfer-rbac', 'wallets', 'wallet-pockets', 'wallet-lifecycle', 'wallet-rbac', 'instant-payments', 'cvu-alias', 'alias-assign', 'cvu-revoke', 'holder-confirmation', 'internal-credit', 'sandbox-outbound', 'internal-debit', 'cimbra-qr', 'qr-sale-orders', 'instant-return', 'instant-rbac', 'collections', 'payment-links', 'collection-internal', 'collection-inbound', 'collection-refund', 'collection-cancel', 'collection-card-denied', 'collection-rbac', 'echeqs', 'echeq-accept', 'echeq-deposit', 'echeq-cancel', 'echeq-return', 'echeq-nsf', 'echeq-discount-denied', 'echeq-rbac', 'payout-beneficiaries', 'protected-payout-destination', 'payout-batches', 'payout-scheduling', 'payout-result-file', 'payout-compensation', 'payout-rbac', 'payout-s2s', 'billers', 'biller-obligations', 'protected-subscriber-reference', 'bill-payments', 'mobile-topups', 'gift-cards', 'recurring-mandates', 'mandate-consent', 'biller-rbac', 'biller-s2s', 'bill-payment-compensation', 'cdd-kyb', 'cdd-evidence', 'cdd-idempotency', 'cdd-maker-checker', 'cdd-s2s-orchestration', 'cdd-session-only-decision', 'cdd-expiry', 'cdd-rbac', 'card-programs', 'card-lifecycle', 'card-controls', 'card-terminal-state', 'card-rbac', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'risk-signals-privacy', 'risk-decision-lists', 'risk-step-up', 'risk-step-up-idempotency', 'risk-step-up-rbac', 'risk-decision-slo', 'risk-confirmed-outcomes', 'risk-supervised-metrics', 'risk-outcome-revisions', 'reconciliation', 'operations-work-queue', 'operations-idempotency', 'operations-evidence', 'operations-rbac', 'csv-import', 'settlement', 'private-evidence', 'audit'],
   }));
 } finally {
   await cleanup();

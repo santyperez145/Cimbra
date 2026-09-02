@@ -183,6 +183,10 @@ test('el SDK cablea CVU, directorio, crédito inmediato, débito interno y QR', 
     if (url.endsWith('/debit-requests')) return Response.json({ ok: true, replayed: false, debit: { id: 'db_1' } }, { status: 201 });
     if (url.endsWith('/respond')) return Response.json({ ok: true, replayed: false, debit: { id: 'db_1', status: 'settled' } }, { status: 201 });
     if (url.endsWith('/payment-qrs')) return Response.json({ ok: true, replayed: false, qr: { id: 'qr_1' } }, { status: 201 });
+    if (url.endsWith('/qr-sale-orders')) return Response.json({ ok: true, replayed: false, order: { id: 'so_1' } }, { status: 201 });
+    if (url.endsWith('/qr-sale-orders/so_1') && init?.method === 'DELETE') {
+      return Response.json({ ok: true, replayed: false, order: { id: 'so_1', status: 'cancelled' } });
+    }
     if (url.endsWith('/cancel')) return Response.json({ ok: true, replayed: false, qr: { id: 'qr_1', status: 'cancelled' } }, { status: 201 });
     return Response.json({ ok: true, replayed: false, transfer: { id: 'ip_2' } }, { status: 201 });
   } });
@@ -201,6 +205,10 @@ test('el SDK cablea CVU, directorio, crédito inmediato, débito interno y QR', 
   await client.debitRequests.respond(debit.data.debit.id, { decision: 'accept' });
   const qr = await client.paymentQrs.create({ accountId: 'acc_1', description: 'Mostrador', amount: '8.00' });
   await client.paymentQrs.pay(qr.data.qr.id, { sourceAccountId: 'acc_2', externalReference: 'QR-001' });
+  const saleOrder = await client.qrSaleOrders.create({
+    paymentQrId: qr.data.qr.id, externalReference: 'OV-001', description: 'Mostrador', amount: '12.00',
+  });
+  await client.qrSaleOrders.cancel(saleOrder.data.order.id);
   await client.paymentQrs.cancel(qr.data.qr.id);
   assert.deepEqual(calls, [
     'POST https://api.test/api/v1/rail-instruments',
@@ -212,6 +220,8 @@ test('el SDK cablea CVU, directorio, crédito inmediato, débito interno y QR', 
     'POST https://api.test/api/v1/debit-requests/db_1/respond',
     'POST https://api.test/api/v1/payment-qrs',
     'POST https://api.test/api/v1/payment-qrs/qr_1/pay',
+    'POST https://api.test/api/v1/qr-sale-orders',
+    'DELETE https://api.test/api/v1/qr-sale-orders/so_1',
     'POST https://api.test/api/v1/payment-qrs/qr_1/cancel',
   ]);
 });

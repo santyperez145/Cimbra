@@ -289,6 +289,12 @@ export type PaymentQr = {
   status: 'active' | 'paid' | 'expired' | 'cancelled';
   expiresAt: string | null; paidTransferId: string | null; createdAt: string; updatedAt: string;
 };
+export type QrSaleOrder = {
+  id: string; paymentQrId: string; qrPayload: string; accountId: string; accountReference: string;
+  amountMinor: string; amount: number; currency: 'ARS'; description: string; externalReference: string;
+  status: 'pending' | 'paid' | 'expired' | 'cancelled' | 'superseded';
+  expiresAt: string; paidTransferId: string | null; createdAt: string; updatedAt: string;
+};
 export type CollectionMethod = 'internal' | 'sandbox_inbound';
 export type PaymentLink = {
   id: string; accountId: string; accountReference: string; customerName: string;
@@ -433,6 +439,9 @@ export type CreatePaymentQrInput = {
   accountId: string; description: string; kind?: 'dynamic' | 'static'; amount?: string; currency?: 'ARS'; expiresInMinutes?: number;
 };
 export type PayPaymentQrInput = { sourceAccountId: string; externalReference: string; amount?: string; signals?: RiskSignalsInput };
+export type CreateQrSaleOrderInput = {
+  paymentQrId: string; externalReference: string; description: string; amount: string; currency?: 'ARS'; expiresInMinutes?: number;
+};
 export type CreatePaymentLinkInput = {
   accountId: string; externalReference: string; description: string; amount: string; currency: 'ARS';
   expiresInMinutes?: number; methods?: CollectionMethod[];

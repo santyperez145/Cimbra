@@ -1148,6 +1148,29 @@ export const paymentQrs = pgTable('payment_qrs', {
   check('payment_qrs_expires_shape', sql`(${table.kind} = 'static' AND ${table.expiresAt} IS NULL) OR (${table.kind} = 'dynamic' AND ${table.expiresAt} IS NOT NULL)`),
 ]);
 
+export const qrSaleOrders = pgTable('qr_sale_orders', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  idempotencyKey: text('idempotency_key').notNull(), requestFingerprint: text('request_fingerprint').notNull(),
+  paymentQrId: text('payment_qr_id').notNull().references(() => paymentQrs.id, { onDelete: 'restrict' }),
+  amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(), currency: text('currency').notNull(),
+  description: text('description').notNull(), externalReference: text('external_reference').notNull(),
+  status: text('status').notNull().default('pending'), expiresAt: text('expires_at').notNull(),
+  paidTransferId: text('paid_transfer_id').references(() => instantTransfers.id, { onDelete: 'restrict' }),
+  cancelIdempotencyKey: text('cancel_idempotency_key'),
+  createdBy: text('created_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
+  createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_qr_sale_orders_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  uniqueIndex('idx_qr_sale_orders_org_reference').on(table.organizationId, table.externalReference),
+  uniqueIndex('idx_qr_sale_orders_qr_pending').on(table.paymentQrId).where(sql`${table.status} = 'pending'`),
+  uniqueIndex('idx_qr_sale_orders_org_cancel_idempotency').on(table.organizationId, table.cancelIdempotencyKey).where(sql`${table.cancelIdempotencyKey} IS NOT NULL`),
+  index('idx_qr_sale_orders_org_created').on(table.organizationId, table.createdAt),
+  check('qr_sale_orders_currency', sql`${table.currency} = 'ARS'`),
+  check('qr_sale_orders_status', sql`${table.status} IN ('pending', 'paid', 'expired', 'cancelled', 'superseded')`),
+  check('qr_sale_orders_amount_positive', sql`${table.amountMinor} > 0`),
+]);
+
 export const paymentLinks = pgTable('payment_links', {
   id: text('id').primaryKey(),
   organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),

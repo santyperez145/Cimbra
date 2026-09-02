@@ -24,7 +24,7 @@ import { normalizePayoutBatchInput, normalizePayoutBeneficiaryInput, normalizePa
 import { parseBookTransferInput, statementPeriod } from '../app/lib/platform/book-transfers-input.ts';
 import { normalizeWalletInput, normalizeWalletProgramInput, normalizeWalletTransition, parseWalletPocketTransferInput } from '../app/lib/platform/wallets-input.ts';
 import { classifyRailValue, isSandboxCvu, isWellFormedCbu, issueSandboxCvu, normalizeAlias } from '../app/lib/platform/cbu.ts';
-import { aliasChangeBlocked, ALIAS_CHANGE_WINDOW_MS, normalizeAssignAliasInput, normalizeDebitRequestInput, normalizeInstantTransferInput, normalizeIssueInstrumentInput, normalizePaymentQrInput } from '../app/lib/platform/instant-payments-input.ts';
+import { aliasChangeBlocked, ALIAS_CHANGE_WINDOW_MS, normalizeAssignAliasInput, normalizeDebitRequestInput, normalizeInstantTransferInput, normalizeIssueInstrumentInput, normalizePaymentQrInput, normalizeQrSaleOrderInput } from '../app/lib/platform/instant-payments-input.ts';
 import { normalizePaymentLinkInput, normalizePaymentLinkPayInput } from '../app/lib/platform/collections-input.ts';
 import { normalizeCuit } from '../app/lib/platform/cuit.ts';
 import { normalizeEcheqAcceptInput, normalizeEcheqDepositInput, normalizeEcheqEndorseInput, normalizeEcheqInput } from '../app/lib/platform/echeqs-input.ts';
@@ -326,6 +326,13 @@ test('pagos instantáneos validan CBU/CVU, alias, titular y límites de riel san
   assert.ok(staticQr); assert.equal(staticQr.kind, 'static'); assert.equal(staticQr.expiresInMinutes, null); assert.equal(staticQr.amountMinor, null);
   assert.equal(normalizePaymentQrInput({ accountId, description: 'Caja', kind: 'static', amount: '10.00' }), null);
   assert.equal(normalizePaymentQrInput({ accountId, description: 'Caja', kind: 'static', expiresInMinutes: 60 }), null);
+  const saleOrder = normalizeQrSaleOrderInput({
+    paymentQrId: accountId, externalReference: 'OV-001', description: 'Mostrador', amount: '15.50', currency: 'ARS',
+  });
+  assert.ok(saleOrder); assert.equal(saleOrder.amountMinor, 1550n); assert.equal(saleOrder.expiresInMinutes, 10);
+  assert.equal(normalizeQrSaleOrderInput({
+    paymentQrId: accountId, externalReference: 'OV-002', description: 'Mostrador', amount: '15.50', expiresInMinutes: 0,
+  }), null);
 });
 
 test('cobranzas validan links de cobro, medios sandbox y rechazan adquirencia de red', () => {

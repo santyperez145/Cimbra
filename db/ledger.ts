@@ -835,8 +835,13 @@ export async function resolveHold(input: {
         .bind(transferStatus, now, pendingInstant.id).run();
       if (transferStatus === 'settled') {
         await transaction.prepare(`UPDATE payment_qrs SET status = 'paid', paid_transfer_id = ?, updated_at = ?
-          WHERE organization_id = ? AND status = 'active' AND payload = (SELECT qr_payload FROM instant_transfers WHERE id = ?)`)
+          WHERE organization_id = ? AND kind = 'dynamic' AND status = 'active' AND payload = (SELECT qr_payload FROM instant_transfers WHERE id = ?)`)
           .bind(pendingInstant.id, now, input.organizationId, pendingInstant.id).run();
+        await transaction.prepare(`UPDATE qr_sale_orders SET status = 'paid', paid_transfer_id = ?, updated_at = ?
+          WHERE organization_id = ? AND status = 'pending' AND payment_qr_id = (
+            SELECT id FROM payment_qrs WHERE organization_id = ? AND payload = (SELECT qr_payload FROM instant_transfers WHERE id = ?)
+          )`)
+          .bind(pendingInstant.id, now, input.organizationId, input.organizationId, pendingInstant.id).run();
       }
       await insertAudit(transaction, {
         organizationId: input.organizationId, actorId: input.actor.userId, action: `instant.transfer_${transferStatus}`,

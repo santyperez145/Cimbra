@@ -8,10 +8,10 @@ import type {
   CreateRiskStepUpChallengeInput,
   CreateBookTransferInput, CreateRecurringPaymentMandateInput, CreateSettlementCycleInput, CreateTransferInput, CreateWebhookInput,
   CreatePayoutBatchInput, CreatePayoutBeneficiaryInput, CreateWalletInput, CreateWalletPocketTransferInput, CreateWalletProgramInput,
-  AssignRailAliasInput, CreateDebitRequestInput, CreateInstantTransferInput, CreatePaymentQrInput, IssueRailInstrumentInput, PayPaymentQrInput,
+  AssignRailAliasInput, CreateDebitRequestInput, CreateInstantTransferInput, CreatePaymentQrInput, CreateQrSaleOrderInput, IssueRailInstrumentInput, PayPaymentQrInput,
   CreatePaymentLinkInput, PayPaymentLinkInput, PaymentLink,
   CreateEcheqInput, AcceptEcheqInput, EndorseEcheqInput, DepositEcheqInput, Echeq,
-  InstantTransfer, PaymentQr, RailDirectoryPreview, RailInstrument,
+  InstantTransfer, PaymentQr, QrSaleOrder, RailDirectoryPreview, RailInstrument,
   PayoutBatch, PayoutBeneficiary,
   Customer, DueDiligenceCase, DueDiligenceCheck, DueDiligenceParty, DueDiligenceState,
   Dispute, DisputeEventName, DisputeTimelineEvent, DisputeTransitionResult, Hold, HoldResolution, LedgerBalance, LedgerJournal, ListOptions, Page, PlatformCapability, LiveReadiness,
@@ -329,6 +329,18 @@ export class Cimbra {
     cancel: (id: string, options?: RequestOptions) =>
       this.post<{ ok: true; qr: PaymentQr; replayed: boolean }>(
         `/api/v1/payment-qrs/${encodeURIComponent(id)}/cancel`, undefined, options, true),
+  };
+
+  readonly qrSaleOrders = {
+    list: (options?: ListOptions) => this.request<Page<QrSaleOrder>>('GET', listPath('/api/v1/qr-sale-orders', options), undefined, options),
+    listAll: (options?: ListOptions) => this.iterate((page) => this.qrSaleOrders.list({ ...options, cursor: page })),
+    retrieve: (id: string, options?: RequestOptions) =>
+      this.request<QrSaleOrder>('GET', `/api/v1/qr-sale-orders/${encodeURIComponent(id)}`, undefined, options),
+    create: (input: CreateQrSaleOrderInput, options?: RequestOptions) =>
+      this.post<{ ok: true; order: QrSaleOrder; replayed: boolean }>('/api/v1/qr-sale-orders', input, options, true),
+    cancel: (id: string, options?: RequestOptions) =>
+      this.del<{ ok: true; order: QrSaleOrder; replayed: boolean }>(
+        `/api/v1/qr-sale-orders/${encodeURIComponent(id)}`, options),
   };
 
   readonly paymentLinks = {

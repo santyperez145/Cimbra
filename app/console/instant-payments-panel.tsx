@@ -19,6 +19,10 @@ type PaymentQr = {
   id: string; accountReference: string; amount: number | null; currency: string; description: string;
   payload: string; kind: 'dynamic' | 'static'; status: string; expiresAt: string | null; createdAt: string;
 };
+type QrSaleOrder = {
+  id: string; paymentQrId: string; qrPayload: string; accountReference: string; amount: number;
+  description: string; externalReference: string; status: string; expiresAt: string;
+};
 type DirectoryPreview = {
   found: boolean; kind: string; last4: string; holderName: string | null; taxIdLast4: string | null; rail: string;
 };
@@ -26,7 +30,7 @@ type DirectoryPreview = {
 const STATUS_LABELS: Record<string, string> = {
   pending: 'Pendiente', accepted: 'Aceptada', rejected: 'Rechazada', settled: 'Liquidada',
   returned: 'Devuelta', expired: 'Expirada', cancelled: 'Cancelada', active: 'Activo', paid: 'Pagado',
-  revoked: 'Eliminado',
+  revoked: 'Eliminado', superseded: 'Reemplazada',
 };
 
 function apiError(value: unknown, fallback: string) {
@@ -46,6 +50,7 @@ export default function InstantPaymentsPanel({ role, accounts }: { role: Organiz
   const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [debits, setDebits] = useState<Transfer[]>([]);
   const [qrs, setQrs] = useState<PaymentQr[]>([]);
+  const [saleOrders, setSaleOrders] = useState<QrSaleOrder[]>([]);
   const [preview, setPreview] = useState<DirectoryPreview | null>(null);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState('');
@@ -54,24 +59,28 @@ export default function InstantPaymentsPanel({ role, accounts }: { role: Organiz
   const arsAccounts = accounts.filter((account) => account.currency === 'ARS' && account.status === 'active');
 
   const load = useCallback(async () => {
-    const [instrumentResponse, transferResponse, debitResponse, qrResponse] = await Promise.all([
+    const [instrumentResponse, transferResponse, debitResponse, qrResponse, saleOrderResponse] = await Promise.all([
       authenticatedFetch('/api/v1/rail-instruments?limit=100', { cache: 'no-store' }),
       authenticatedFetch('/api/v1/instant-transfers?limit=50', { cache: 'no-store' }),
       authenticatedFetch('/api/v1/debit-requests?limit=50', { cache: 'no-store' }),
       authenticatedFetch('/api/v1/payment-qrs?limit=50', { cache: 'no-store' }),
+      authenticatedFetch('/api/v1/qr-sale-orders?limit=50', { cache: 'no-store' }),
     ]);
     const instrumentResult = await instrumentResponse.json() as { data?: Instrument[] };
     const transferResult = await transferResponse.json() as { data?: Transfer[] };
     const debitResult = await debitResponse.json() as { data?: Transfer[] };
     const qrResult = await qrResponse.json() as { data?: PaymentQr[] };
+    const saleOrderResult = await saleOrderResponse.json() as { data?: QrSaleOrder[] };
     if (!instrumentResponse.ok) throw new Error(apiError(instrumentResult, 'No pudimos cargar los instrumentos.'));
     if (!transferResponse.ok) throw new Error(apiError(transferResult, 'No pudimos cargar las transferencias.'));
     if (!debitResponse.ok) throw new Error(apiError(debitResult, 'No pudimos cargar las solicitudes de débito.'));
     if (!qrResponse.ok) throw new Error(apiError(qrResult, 'No pudimos cargar los QR.'));
+    if (!saleOrderResponse.ok) throw new Error(apiError(saleOrderResult, 'No pudimos cargar las órdenes de venta.'));
     setInstruments(instrumentResult.data ?? []);
     setTransfers(transferResult.data ?? []);
     setDebits(debitResult.data ?? []);
     setQrs(qrResult.data ?? []);
+    setSaleOrders(saleOrderResult.data ?? []);
   }, []);
 
   useEffect(() => {
@@ -227,6 +236,34 @@ export default function InstantPaymentsPanel({ role, accounts }: { role: Organiz
     setBusy(false);
   }
 
+  async function createSaleOrder(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); const formElement = event.currentTarget; const form = new FormData(formElement);
+    setBusy(true); setFeedback('');
+    const response = await authenticatedFetch('/api/v1/qr-sale-orders', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
+      body: JSON.stringify({
+        paymentQrId: form.get('paymentQrId'), externalReference: form.get('externalReference'),
+        description: form.get('description'), amount: form.get('amount'), currency: 'ARS',
+      }),
+    });
+    const result = await response.json() as unknown;
+    setFeedback(response.ok ? 'Orden de venta Cimbra creada. El QR estático cobra ese monto hasta que expire, se pague o se elimine.' : apiError(result, 'No pudimos crear la orden de venta.'));
+    if (response.ok) { formElement.reset(); await load(); }
+    setBusy(false);
+  }
+
+  async function cancelSaleOrder(id: string) {
+    if (!window.confirm('El QR estático vuelve a monto abierto. Los pagos ya liquidados no se revierten. ¿Continuar?')) return;
+    setBusy(true); setFeedback('');
+    const response = await authenticatedFetch(`/api/v1/qr-sale-orders/${id}`, {
+      method: 'DELETE', headers: { 'Idempotency-Key': crypto.randomUUID() },
+    });
+    const result = await response.json() as unknown;
+    setFeedback(response.ok ? 'Orden de venta eliminada.' : apiError(result, 'No pudimos eliminar la orden de venta.'));
+    if (response.ok) await load();
+    setBusy(false);
+  }
+
   async function returnTransfer(id: string) {
     if (!window.confirm('La devolución crea postings compensatorios. ¿Continuar?')) return;
     setBusy(true); setFeedback('');
@@ -247,6 +284,7 @@ export default function InstantPaymentsPanel({ role, accounts }: { role: Organiz
       <article><strong>{transfers.length}</strong><span>transferencias</span></article>
       <article><strong>{debits.filter((item) => item.status === 'pending').length}</strong><span>débitos pendientes</span></article>
       <article><strong>{qrs.filter((item) => item.status === 'active').length}</strong><span>QR activos</span></article>
+      <article><strong>{saleOrders.filter((item) => item.status === 'pending').length}</strong><span>órdenes pendientes</span></article>
     </div>
     <p className="role-boundary-copy">Cimbra emite CVU con prefijo 000 y código PSP 9999, no asignado por Coelsa. El alias se asigna o cambia sobre un CVU existente y vive en el tenant; un cambio real queda bloqueado 24 horas. Un CBU externo se referencia para cash-out a settlement; no se emite CBU porque Cimbra no es banco.</p>
 
@@ -320,8 +358,19 @@ export default function InstantPaymentsPanel({ role, accounts }: { role: Organiz
         <label>QR<select name="qrId" required>{qrs.filter((item) => item.status === 'active').map((item) => <option key={item.id} value={item.id}>{item.kind === 'static' ? 'Estático' : 'Dinámico'} · {item.payload} · {item.amount === null ? 'abierto' : money(item.amount)}</option>)}</select></label>
         <label>Cuenta pagadora<select name="sourceAccountId" required defaultValue=""><option value="" disabled>Seleccionar</option>{arsAccounts.map((account) => <option key={account.id} value={account.id}>{account.accountReference}</option>)}</select></label>
         <label>Referencia<input name="externalReference" required minLength={2} maxLength={100} /></label>
-        <label>Monto si es abierto<input name="amount" type="number" min="0.01" step="0.01" /></label>
+        <label>Monto si es abierto o no hay orden<input name="amount" type="number" min="0.01" step="0.01" /></label>
         <button className="app-primary" disabled={busy}>Pagar QR</button>
+      </form>
+    </article>}
+
+    {canOperate && qrs.some((item) => item.status === 'active' && item.kind === 'static') && <article className="integration-card">
+      <div className="card-head"><div><h2>Orden de venta</h2><p>Monto cerrado sobre un QR estático. Una pendiente por QR</p></div></div>
+      <form className="book-statement-body" onSubmit={createSaleOrder}>
+        <label>QR estático<select name="paymentQrId" required defaultValue=""><option value="" disabled>Seleccionar</option>{qrs.filter((item) => item.status === 'active' && item.kind === 'static').map((item) => <option key={item.id} value={item.id}>{item.payload}</option>)}</select></label>
+        <label>Referencia<input name="externalReference" required minLength={2} maxLength={100} /></label>
+        <label>Concepto<input name="description" required minLength={2} maxLength={180} /></label>
+        <label>Monto ARS<input name="amount" type="number" min="0.01" step="0.01" required /></label>
+        <button className="app-primary" disabled={busy}>{busy ? 'Creando…' : 'Crear orden'}</button>
       </form>
     </article>}
 
@@ -341,6 +390,12 @@ export default function InstantPaymentsPanel({ role, accounts }: { role: Organiz
       <div className="card-head"><div><h2>QR Cimbra</h2><p>Dinámico un pago · estático reutilizable</p></div></div>
       {qrs.length === 0 ? <div className="table-empty">Sin QR emitidos.</div>
         : qrs.map((item) => <div key={item.id}><span className="movement"><i>▣</i><b>{item.kind === 'static' ? 'Estático' : 'Dinámico'} · {item.payload}<small>{item.accountReference} · {item.amount === null ? 'monto abierto' : money(item.amount, item.currency)} · {STATUS_LABELS[item.status] ?? item.status}</small></b></span>{canOperate && item.status === 'active' && <button type="button" className="danger-link" disabled={busy} onClick={() => cancelQr(item.id)}>Cancelar QR</button>}</div>)}
+    </article>
+
+    <article className="module-list">
+      <div className="card-head"><div><h2>Órdenes de venta</h2><p>Overlay de monto sobre QR estático</p></div></div>
+      {saleOrders.length === 0 ? <div className="table-empty">Sin órdenes de venta.</div>
+        : saleOrders.map((item) => <div key={item.id}><span className="movement"><i>▣</i><b>{item.externalReference}<small>{item.qrPayload} · {item.description} · {STATUS_LABELS[item.status] ?? item.status}</small></b></span><strong>{money(item.amount)}</strong>{canOperate && item.status === 'pending' && <button type="button" className="danger-link" disabled={busy} onClick={() => cancelSaleOrder(item.id)}>Eliminar orden</button>}</div>)}
     </article>
 
     <article className="module-list">
