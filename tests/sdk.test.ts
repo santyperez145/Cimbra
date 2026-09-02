@@ -270,6 +270,7 @@ test('el SDK cablea puntos de recaudación, alias, inbound y deshabilitación', 
     }
     if (url.endsWith('/alias')) return Response.json({ ok: true, replayed: false, till: { id: 'till_1', alias: 'COMERCIO.SUR' } });
     if (url.endsWith('/inbound')) return Response.json({ ok: true, replayed: false, till: { id: 'till_1' }, transfer: { id: 'tx_1' } }, { status: 201 });
+    if (url.endsWith('/static-qr')) return Response.json({ ok: true, replayed: false, till: { id: 'till_1', paymentQrId: 'qr_1' } }, { status: 201 });
     if (init?.method === 'DELETE') return Response.json({ ok: true, replayed: false, till: { id: 'till_1', status: 'disabled' } });
     return Response.json({ id: 'till_1', status: 'active' });
   } });
@@ -281,12 +282,14 @@ test('el SDK cablea puntos de recaudación, alias, inbound y deshabilitación', 
   await client.collectionTills.inbound(created.data.till.id, {
     externalReference: 'INB-001', description: 'Acreditación', amount: '11.00',
   });
+  await client.collectionTills.issueStaticQr(created.data.till.id);
   await client.collectionTills.disable(created.data.till.id);
   assert.deepEqual(calls, [
     'POST https://api.test/api/v1/collection-tills',
     'GET https://api.test/api/v1/collection-tills/till_1',
     'PATCH https://api.test/api/v1/collection-tills/till_1/alias',
     'POST https://api.test/api/v1/collection-tills/till_1/inbound',
+    'POST https://api.test/api/v1/collection-tills/till_1/static-qr',
     'DELETE https://api.test/api/v1/collection-tills/till_1',
   ]);
 });

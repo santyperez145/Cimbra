@@ -389,6 +389,9 @@ export class Cimbra {
     inbound: (id: string, input: CreditCollectionTillInput, options?: RequestOptions) =>
       this.post<{ ok: true; till: CollectionTill; transfer: InstantTransfer; replayed: boolean }>(
         `/api/v1/collection-tills/${encodeURIComponent(id)}/inbound`, input, options, true),
+    issueStaticQr: (id: string, options?: RequestOptions) =>
+      this.post<{ ok: true; till: CollectionTill; replayed: boolean }>(
+        `/api/v1/collection-tills/${encodeURIComponent(id)}/static-qr`, {}, options, true),
   };
 
   readonly echeqs = {

@@ -307,6 +307,8 @@ const till = await cimbra.collectionTills.create({
   accountId: '00000000-0000-4000-8000-000000000001',
   externalReference: 'TILL-001',
   name: 'Mostrador Sur',
+  issueStaticQr: true,
+  closedAmountOnly: true,
 });
 await cimbra.collectionTills.inbound(till.data.till.id, {
   externalReference: 'INB-001',
@@ -315,7 +317,7 @@ await cimbra.collectionTills.inbound(till.data.till.id, {
 });
 ```
 
-El CVU del till es sandbox (`000`+`9999`) y no viaja por Coelsa. No es una caja BIND.
+El CVU del till es sandbox (`000`+`9999`) y no viaja por Coelsa. El QR estático del till (`owner=till`) no es interoperable. No es una caja BIND.
 
 ## ECHEQ sandbox (Argentina)
 

@@ -1294,7 +1294,7 @@ paths:
     post:
       operationId: createCollectionTill
       summary: Create a collection till with its own sandbox CVU
-      description: Own Cimbra contract. Issues a sandbox CVU (000+9999) attributed to this till, not a second CVU of the collector account. Optional static QR of the same account. Optional alias. Not a BIND caja, Coelsa CVU or POS.
+      description: Own Cimbra contract. Issues a sandbox CVU (000+9999) attributed to this till, not a second CVU of the collector account. Optional static QR of the same account, or issueStaticQr to mint a till-owned cimbra:qr:static:v1 that does not consume the account's one static QR. closedAmountOnly requires a pending sale order to pay that QR. presence is present or not_present attribution, not POS. Optional alias. Not a BIND caja, Coelsa CVU, EMVCo QR or POS.
       security: [{ session: [] }, { bearerApiKey: [] }]
       parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody:
@@ -1311,13 +1311,16 @@ paths:
                 name: { type: string, minLength: 2, maxLength: 80 }
                 paymentQrId: { type: [string, 'null'], format: uuid }
                 alias: { type: [string, 'null'], minLength: 6, maxLength: 20 }
+                issueStaticQr: { type: boolean }
+                closedAmountOnly: { type: boolean }
+                presence: { type: string, enum: [present, not_present] }
       responses:
         '201': { description: Collection till created }
         '200': { description: Idempotent replay }
         '400': { description: Invalid payload }
         '403': { description: Missing payments:write scope or finance.write permission }
         '409': { description: Duplicate reference, alias or static QR }
-        '422': { description: Static QR is not an active static QR of the same account }
+        '422': { description: Static QR is not an active account-owned static QR of the same account }
   /api/v1/collection-tills/{id}:
     get:
       operationId: retrieveCollectionTill
@@ -1366,6 +1369,30 @@ paths:
         '404': { description: Collection till not found }
         '409': { description: Till disabled or idempotency mismatch }
         '422': { description: Alias taken in tenant or more than one change in 24 hours }
+  /api/v1/collection-tills/{id}/static-qr:
+    post:
+      operationId: issueCollectionTillStaticQr
+      summary: Issue the till-owned static QR of a collection till
+      description: Own Cimbra contract. Mints one cimbra:qr:static:v1 owned by this till. The payload never changes. Paying it attributes the transfer to collectionTillId. If closedAmountOnly is true, a pending sale order is required. Not interoperable, EMVCo, PCT or a BIND caja QR.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties: {}
+      responses:
+        '201': { description: Till static QR issued }
+        '200': { description: Idempotent replay }
+        '400': { description: Extra keys rejected }
+        '403': { description: Missing payments:write scope or finance.write permission }
+        '404': { description: Collection till not found }
+        '409': { description: Till disabled or QR already issued }
   /api/v1/collection-tills/{id}/inbound:
     post:
       operationId: creditCollectionTill
@@ -3859,7 +3886,7 @@ components:
         updatedAt: { type: string, format: date-time }
     PaymentQr:
       type: object
-      required: [id, accountId, accountReference, amountMinor, amount, currency, description, payload, kind, status, expiresAt, paidTransferId, createdAt, updatedAt]
+      required: [id, accountId, accountReference, amountMinor, amount, currency, description, payload, kind, owner, collectionTillId, status, expiresAt, paidTransferId, createdAt, updatedAt]
       additionalProperties: false
       properties:
         id: { type: string, format: uuid }
@@ -3871,6 +3898,8 @@ components:
         description: { type: string }
         payload: { type: string }
         kind: { type: string, enum: [dynamic, static, debt] }
+        owner: { type: string, enum: [account, till] }
+        collectionTillId: { type: [string, 'null'], format: uuid }
         status: { type: string, enum: [active, paid, expired, cancelled] }
         expiresAt: { type: [string, 'null'], format: date-time }
         paidTransferId: { type: [string, 'null'], format: uuid }
@@ -4019,7 +4048,7 @@ components:
         createdAt: { type: string, format: date-time }
     CollectionTill:
       type: object
-      required: [id, accountId, accountReference, customerName, name, externalReference, cvu, alias, aliasChangedAt, paymentQrId, status, createdAt, updatedAt]
+      required: [id, accountId, accountReference, customerName, name, externalReference, cvu, alias, aliasChangedAt, paymentQrId, qrPayload, presence, closedAmountOnly, status, createdAt, updatedAt]
       additionalProperties: false
       properties:
         id: { type: string, format: uuid }
@@ -4032,6 +4061,9 @@ components:
         alias: { type: [string, 'null'] }
         aliasChangedAt: { type: [string, 'null'], format: date-time }
         paymentQrId: { type: [string, 'null'], format: uuid }
+        qrPayload: { type: [string, 'null'] }
+        presence: { type: string, enum: [present, not_present] }
+        closedAmountOnly: { type: boolean }
         status: { type: string, enum: [active, disabled] }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }

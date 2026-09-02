@@ -86,7 +86,7 @@ export const PLATFORM_PRODUCTS: readonly Omit<PlatformProduct, 'status' | 'requi
     benchmark: 'BIND PSP — Pagar QR (PCT en Coelsa), QR estático de caja y QR de deuda',
     documentationUrl: 'https://psp.bind.com.ar/developers/apis/pagar-qr',
     network: 'QR interoperable / Coelsa',
-    sandboxCoverage: 'QR dinámico cimbra:qr:v1, QR estático cimbra:qr:static:v1, orden de venta Cimbra y QR de deuda cimbra:qr:debt:v1. Cobro cerrado en el tenant. No es PCT ni lectura por otras billeteras.',
+    sandboxCoverage: 'QR dinámico cimbra:qr:v1, QR estático de cuenta cimbra:qr:static:v1, QR estático del till (uno por punto, owner till), orden de venta Cimbra y QR de deuda cimbra:qr:debt:v1. Cobro cerrado en el tenant. No es PCT ni lectura por otras billeteras.',
     missingForProduction: 'Instrucción PCT Coelsa, certificación del administrador del esquema de transferencias inmediatas y registro de billetera interoperable si Cimbra inicia pagos. El QR estático, la orden de venta y el QR de deuda Cimbra no sustituyen el riel.',
   },
   {
@@ -94,7 +94,7 @@ export const PLATFORM_PRODUCTS: readonly Omit<PlatformProduct, 'status' | 'requi
     benchmark: 'BIND PSP Cobro — deuda, QR, transferencia/CVU y cuenta recaudadora',
     documentationUrl: 'https://psp.bind.com.ar/developers/cobro',
     network: 'Transferencias 3.0 / DEBIN / QR interoperable',
-    sandboxCoverage: 'Links cimbra:link:v1 asociados a una deuda QR (cimbra_qr) o a un till (cimbra_cvu), ítems de checkout informativos, créditos embebidos en GET, créditos parciales y overpay sólo por CVU, devolución total o parcial con postings compensatorios, checkout público /pay/{id} sin PCI, puntos de recaudación collection_tills con CVU sandbox propio, eco cerrado e inbound de ledger. Tarjeta, POS, checkout PCI y QR de red responden 422.',
+    sandboxCoverage: 'Links cimbra:link:v1 asociados a una deuda QR (cimbra_qr) o a un till (cimbra_cvu), ítems de checkout informativos, créditos embebidos en GET, créditos parciales y overpay sólo por CVU, devolución total o parcial con postings compensatorios, checkout público /pay/{id} sin PCI, puntos de recaudación collection_tills con CVU sandbox propio, QR estático del till (monto abierto o sólo orden de venta), eco cerrado e inbound de ledger. Tarjeta, POS, checkout PCI y QR de red responden 422.',
     missingForProduction: 'Botón de pago, POS y liquidación a cuenta recaudadora homologada. El CVU del till no viaja por Coelsa.',
   },
   {

@@ -1023,6 +1023,67 @@ try {
   assert.equal(tillAliasReplay.replayed, true);
   const tillAliasDirectory = await json(await request(`/api/v1/rail-directory?q=${encodeURIComponent(tillAlias)}`), 200);
   assert.equal(tillAliasDirectory.found, true);
+  const alreadyIssued = await json(await request(`/api/v1/collection-tills/${tillCreated.till.id}/static-qr`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-till-qr-dup-${runId}` },
+    body: JSON.stringify({}),
+  }), 409);
+  assert.equal(alreadyIssued.error.code, 'till_qr_already_issued');
+  const tillQrPayload = {
+    accountId: destinationAccount.id, externalReference: `TILL-QR-${runId}`, name: 'Caja QR',
+    issueStaticQr: true, closedAmountOnly: true, presence: 'present',
+  };
+  const tillWithQr = await json(await request('/api/v1/collection-tills', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-till-qr-${runId}` },
+    body: JSON.stringify(tillQrPayload),
+  }), 201);
+  assert.equal(tillWithQr.till.closedAmountOnly, true);
+  assert.equal(tillWithQr.till.presence, 'present');
+  assert.ok(tillWithQr.till.paymentQrId);
+  assert.match(tillWithQr.till.qrPayload, /^cimbra:qr:static:v1:/);
+  const tillWithQrReplay = await json(await request('/api/v1/collection-tills', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-till-qr-${runId}` },
+    body: JSON.stringify(tillQrPayload),
+  }), 200);
+  assert.equal(tillWithQrReplay.replayed, true);
+  const openAmountDenied = await json(await request(`/api/v1/payment-qrs/${tillWithQr.till.paymentQrId}/pay`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-till-qr-open-${runId}` },
+    body: JSON.stringify({ sourceAccountId: account.id, externalReference: `TILL-QR-OPEN-${runId}`, amount: '4.00' }),
+  }), 409);
+  assert.equal(openAmountDenied.error.code, 'sale_order_required');
+  const tillSale = await json(await request('/api/v1/qr-sale-orders', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-till-ov-${runId}` },
+    body: JSON.stringify({
+      paymentQrId: tillWithQr.till.paymentQrId, externalReference: `OV-TILL-${runId}`,
+      description: 'Ticket till', amount: '4.00', currency: 'ARS',
+    }),
+  }), 201);
+  assert.equal(tillSale.order.status, 'pending');
+  const tillQrPaid = await json(await request(`/api/v1/payment-qrs/${tillWithQr.till.paymentQrId}/pay`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-till-qr-pay-${runId}` },
+    body: JSON.stringify({ sourceAccountId: account.id, externalReference: `TILL-QR-PAY-${runId}`, amount: '4.00' }),
+  }), 201);
+  assert.equal(tillQrPaid.transfer.collectionTillId, tillWithQr.till.id);
+  const cancelTillQr = await json(await request(`/api/v1/payment-qrs/${tillWithQr.till.paymentQrId}/cancel`, {
+    method: 'POST', headers: { 'Idempotency-Key': `qa-till-qr-cancel-${runId}` },
+  }), 409);
+  assert.equal(cancelTillQr.error.code, 'till_qr_immutable');
+  const tillBare = await json(await request('/api/v1/collection-tills', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-till-bare-${runId}` },
+    body: JSON.stringify({
+      accountId: destinationAccount.id, externalReference: `TILL-BARE-${runId}`, name: 'Caja sin QR',
+    }),
+  }), 201);
+  const issuedLater = await json(await request(`/api/v1/collection-tills/${tillBare.till.id}/static-qr`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-till-issue-${runId}` },
+    body: JSON.stringify({}),
+  }), 201);
+  assert.ok(issuedLater.till.paymentQrId);
+  assert.match(issuedLater.till.qrPayload, /^cimbra:qr:static:v1:/);
+  const issuedLaterReplay = await json(await request(`/api/v1/collection-tills/${tillBare.till.id}/static-qr`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-till-issue-${runId}` },
+    body: JSON.stringify({}),
+  }), 200);
+  assert.equal(issuedLaterReplay.replayed, true);
   const tillDisabled = await json(await request(`/api/v1/collection-tills/${tillCreated.till.id}`, {
     method: 'DELETE', headers: { 'Idempotency-Key': `qa-till-off-${runId}` },
   }), 200);

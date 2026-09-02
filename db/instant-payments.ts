@@ -44,7 +44,8 @@ type TransferRow = {
 
 type QrRow = {
   id: string; accountId: string; accountReference: string; amountMinor: string | null; currency: Currency;
-  description: string; payload: string; kind: 'dynamic' | 'static' | 'debt'; status: string; expiresAt: string | null;
+  description: string; payload: string; kind: 'dynamic' | 'static' | 'debt'; owner: 'account' | 'till';
+  collectionTillId: string | null; status: string; expiresAt: string | null;
   paidTransferId: string | null; requestFingerprint: string; createdAt: string; updatedAt: string;
 };
 
@@ -80,10 +81,12 @@ const transferSelect = `SELECT it.id, it.scheme, it.direction, it.source_account
   LEFT JOIN accounts dest ON dest.id = it.destination_account_id`;
 
 const qrSelect = `SELECT q.id, q.account_id AS "accountId", a.account_reference AS "accountReference",
-  q.amount_minor::text AS "amountMinor", q.currency, q.description, q.payload, q.kind, q.status, q.expires_at AS "expiresAt",
+  q.amount_minor::text AS "amountMinor", q.currency, q.description, q.payload, q.kind, q.owner,
+  ct.id AS "collectionTillId", q.status, q.expires_at AS "expiresAt",
   q.paid_transfer_id AS "paidTransferId", q.request_fingerprint AS "requestFingerprint",
   q.created_at AS "createdAt", q.updated_at AS "updatedAt"
-  FROM payment_qrs q JOIN accounts a ON a.id = q.account_id`;
+  FROM payment_qrs q JOIN accounts a ON a.id = q.account_id
+  LEFT JOIN collection_tills ct ON ct.payment_qr_id = q.id`;
 
 const saleOrderSelect = `SELECT so.id, so.payment_qr_id AS "paymentQrId", q.payload AS "qrPayload",
   q.account_id AS "accountId", a.account_reference AS "accountReference", so.amount_minor::text AS "amountMinor",
@@ -883,7 +886,7 @@ export async function createPaymentQr(input: {
         throw new InstantPaymentError('El QR estático exige un CVU sandbox activo en la cuenta cobradora.', 422, 'cvu_required');
       }
       const activeStatic = await database.prepare(
-        "SELECT id FROM payment_qrs WHERE organization_id = ? AND account_id = ? AND kind = 'static' AND status = 'active' LIMIT 1",
+        "SELECT id FROM payment_qrs WHERE organization_id = ? AND account_id = ? AND kind = 'static' AND status = 'active' AND owner = 'account' LIMIT 1",
       ).bind(input.organizationId, account.id).first<{ id: string }>();
       if (activeStatic) {
         throw new InstantPaymentError('La cuenta ya tiene un QR estático activo. Cancelalo antes de emitir otro.', 409, 'static_qr_already_active');
@@ -897,8 +900,8 @@ export async function createPaymentQr(input: {
     const payload = input.qr.kind === 'static' ? `cimbra:qr:static:v1:${id}` : `cimbra:qr:v1:${id}`;
     await database.prepare(`INSERT INTO payment_qrs
       (id, organization_id, idempotency_key, request_fingerprint, account_id, amount_minor, currency, description, payload,
-       kind, status, expires_at, paid_transfer_id, created_by, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'ARS', ?, ?, ?, 'active', ?, NULL, ?, ?, ?)`)
+       kind, owner, status, expires_at, paid_transfer_id, created_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'ARS', ?, ?, ?, 'account', 'active', ?, NULL, ?, ?, ?)`)
       .bind(id, input.organizationId, input.idempotencyKey, fingerprint, account.id,
         input.qr.amountMinor?.toString() ?? null, input.qr.description, payload, input.qr.kind, expiresAt,
         input.actor.userId, createdAt, createdAt).run();
@@ -964,11 +967,21 @@ export async function payPaymentQr(input: {
     }
     await expireStaleSaleOrders(database, input.organizationId, qr.id);
     await expireStaleDebts(database, input.organizationId, qr.id);
+    const till = await database.prepare(
+      `SELECT id, status, closed_amount_only AS "closedAmountOnly" FROM collection_tills
+       WHERE organization_id = ? AND payment_qr_id = ? LIMIT 1 FOR UPDATE`,
+    ).bind(input.organizationId, qr.id).first<{ id: string; status: string; closedAmountOnly: number | string }>();
+    if (till && till.status !== 'active') {
+      throw new InstantPaymentError('El punto de recaudación asociado al QR no está activo.', 409, 'collection_till_disabled');
+    }
     const saleOrder = qr.kind === 'static'
       ? await database.prepare(
         `${saleOrderSelect} WHERE so.organization_id = ? AND so.payment_qr_id = ? AND so.status = 'pending' LIMIT 1 FOR UPDATE OF so`,
       ).bind(input.organizationId, qr.id).first<SaleOrderRow>()
       : null;
+    if (till && Number(till.closedAmountOnly) === 1 && !saleOrder) {
+      throw new InstantPaymentError('Este punto sólo admite cobro con una orden de venta pendiente.', 409, 'sale_order_required');
+    }
     const debt = qr.kind === 'debt'
       ? await database.prepare(
         `${debtSelect} WHERE d.organization_id = ? AND d.payment_qr_id = ? AND d.status = 'open' LIMIT 1 FOR UPDATE OF d`,
@@ -1011,7 +1024,7 @@ export async function payPaymentQr(input: {
       counterpartyValue: qr.payload.replace(/[^A-Z0-9]/gi, '').slice(0, 20).padEnd(6, 'X'), holderName: destination.customerName,
       taxIdLast4: destination.taxIdLast4, amountMinor, description: saleOrder?.description ?? qr.description, externalReference: input.payment.externalReference,
       status: movement.status, transactionId: movement.transactionId, qrPayload: qr.payload, expiresAt: null,
-      actorId: input.actor.userId, createdAt,
+      actorId: input.actor.userId, createdAt, collectionTillId: till?.id ?? null,
     });
     if (movement.status === 'settled' && (qr.kind === 'dynamic' || qr.kind === 'debt')) {
       await database.prepare("UPDATE payment_qrs SET status = 'paid', paid_transfer_id = ?, updated_at = ? WHERE id = ?")
@@ -1051,8 +1064,15 @@ export async function payPaymentQr(input: {
     await insertAudit(database, {
       organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.qr_paid',
       resourceType: 'payment_qr', resourceId: qr.id,
-      payload: { transferId: id, status: movement.status, amountMinor: amountMinor.toString(), kind: qr.kind },
+      payload: { transferId: id, status: movement.status, amountMinor: amountMinor.toString(), kind: qr.kind, collectionTillId: till?.id ?? null },
     });
+    if (till && movement.status === 'settled') {
+      await insertAudit(database, {
+        organizationId: input.organizationId, actorId: input.actor.userId, action: 'collection.till_credited',
+        resourceType: 'collection_till', resourceId: till.id,
+        payload: { transferId: id, amountMinor: amountMinor.toString(), direction: 'qr_collect' },
+      });
+    }
     return { transfer: await retrieveInstantTransfer(input.organizationId, id, database), replayed: false };
   });
 }
@@ -1075,6 +1095,9 @@ export async function cancelPaymentQr(input: {
     const qr = await database.prepare(`${qrSelect} WHERE q.organization_id = ? AND q.id = ? LIMIT 1 FOR UPDATE OF q`)
       .bind(input.organizationId, input.qrId).first<QrRow>();
     if (!qr) throw new InstantPaymentError('QR no encontrado.', 404, 'payment_qr_not_found');
+    if (qr.owner === 'till') {
+      throw new InstantPaymentError('El QR estático de un punto de recaudación no se cancela. Deshabilitá el punto.', 409, 'till_qr_immutable');
+    }
     if (qr.status !== 'active') {
       throw new InstantPaymentError('Sólo se puede cancelar un QR activo.', 409, 'qr_not_active');
     }
@@ -1290,8 +1313,8 @@ export async function createQrDebt(input: {
     const payload = `cimbra:qr:debt:v1:${qrId}`;
     await database.prepare(`INSERT INTO payment_qrs
       (id, organization_id, idempotency_key, request_fingerprint, account_id, amount_minor, currency, description, payload,
-       kind, status, expires_at, paid_transfer_id, created_by, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'ARS', ?, ?, 'debt', 'active', ?, NULL, ?, ?, ?)`)
+       kind, owner, status, expires_at, paid_transfer_id, created_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'ARS', ?, ?, 'debt', 'account', 'active', ?, NULL, ?, ?, ?)`)
       .bind(qrId, input.organizationId, `debt:${input.idempotencyKey}`, fingerprint, account.id,
         input.debt.amountMinor.toString(), input.debt.description, payload, expiresAt, input.actor.userId, now, now).run();
     await database.prepare(`INSERT INTO qr_debts

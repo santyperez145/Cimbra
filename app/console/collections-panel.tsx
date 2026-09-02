@@ -18,9 +18,10 @@ type PaymentLink = {
 type CollectionTill = {
   id: string; accountId: string; accountReference: string; customerName: string;
   name: string; externalReference: string; cvu: string; alias: string | null;
-  paymentQrId: string | null; status: string; createdAt: string;
+  paymentQrId: string | null; qrPayload: string | null; presence: string;
+  closedAmountOnly: boolean; status: string; createdAt: string;
 };
-type PaymentQr = { id: string; accountId: string; kind: string; status: string; description: string };
+type PaymentQr = { id: string; accountId: string; kind: string; owner?: string; status: string; description: string };
 type QrDebt = { id: string; accountId: string; status: string; description: string; externalReference: string; amount: number };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -70,7 +71,7 @@ export default function CollectionsPanel({ role, accounts }: { role: Organizatio
     setTills(tillsResult.data ?? []);
     if (qrResponse.ok) {
       const qrResult = await qrResponse.json() as { data?: PaymentQr[] };
-      setStaticQrs((qrResult.data ?? []).filter((qr) => qr.kind === 'static' && qr.status === 'active'));
+      setStaticQrs((qrResult.data ?? []).filter((qr) => qr.kind === 'static' && qr.status === 'active' && qr.owner !== 'till'));
     }
     if (debtResponse.ok) {
       const debtResult = await debtResponse.json() as { data?: QrDebt[] };
@@ -161,13 +162,16 @@ export default function CollectionsPanel({ role, accounts }: { role: Organizatio
     const data = new FormData(form);
     const paymentQrId = String(data.get('paymentQrId') ?? '');
     const alias = String(data.get('alias') ?? '').trim();
+    const issueStaticQr = data.get('issueStaticQr') === 'on';
     setBusy(true); setFeedback('');
     const response = await authenticatedFetch('/api/v1/collection-tills', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
       body: JSON.stringify({
         accountId: data.get('accountId'), externalReference: data.get('externalReference'),
-        name: data.get('name'), paymentQrId: paymentQrId || undefined, alias: alias || undefined,
+        name: data.get('name'), paymentQrId: issueStaticQr ? undefined : paymentQrId || undefined,
+        alias: alias || undefined, issueStaticQr, closedAmountOnly: data.get('closedAmountOnly') === 'on',
+        presence: String(data.get('presence') || 'not_present'),
       }),
     });
     const result = await response.json() as { error?: unknown };
@@ -284,7 +288,10 @@ export default function CollectionsPanel({ role, accounts }: { role: Organizatio
           <label>Nombre<input name="name" required minLength={2} maxLength={80} placeholder="Mostrador Sur" /></label>
           <label>Referencia<input name="externalReference" required minLength={2} maxLength={100} placeholder="TILL-001" /></label>
           <label>Alias opcional<input name="alias" minLength={6} maxLength={20} placeholder="COMERCIO.SUR" /></label>
-          <label>QR estático opcional<select name="paymentQrId" defaultValue=""><option value="">Sin asociar</option>{staticQrs.map((qr) => <option key={qr.id} value={qr.id}>{qr.description}</option>)}</select></label>
+          <label>Presencia<select name="presence" defaultValue="not_present"><option value="not_present">No presente</option><option value="present">Presente (no es POS)</option></select></label>
+          <label><input type="checkbox" name="issueStaticQr" /> Emitir QR estático del punto</label>
+          <label><input type="checkbox" name="closedAmountOnly" /> Sólo con orden de venta</label>
+          <label>O asociar QR de cuenta<select name="paymentQrId" defaultValue=""><option value="">Sin asociar</option>{staticQrs.map((qr) => <option key={qr.id} value={qr.id}>{qr.description}</option>)}</select></label>
           <button className="app-primary" disabled={busy || arsAccounts.length === 0}>{busy ? 'Creando…' : 'Crear punto'}</button>
         </form>
       </article>
@@ -313,10 +320,11 @@ export default function CollectionsPanel({ role, accounts }: { role: Organizatio
         <div className="movement">
           <strong>{till.name}</strong>
           <span>{till.accountReference} · {till.customerName}</span>
-          <small>{till.cvu}{till.alias ? ` · ${till.alias}` : ''} · {till.externalReference}</small>
+          <small>{till.cvu}{till.alias ? ` · ${till.alias}` : ''} · {till.externalReference}{till.qrPayload ? ` · ${till.qrPayload}` : ''}{till.closedAmountOnly ? ' · sólo orden de venta' : ''}{till.presence === 'present' ? ' · presente' : ''}</small>
         </div>
         <strong>{till.cvu.slice(-4)}</strong>
         <span>{STATUS_LABELS[till.status] ?? till.status}</span>
+        {canOperate && till.status === 'active' && !till.paymentQrId && <button type="button" className="danger-link" disabled={busy} onClick={() => void mutate(`/api/v1/collection-tills/${till.id}/static-qr`, 'No pudimos emitir el QR del punto.')}>Emitir QR</button>}
         {canOperate && till.status === 'active' && <button type="button" className="danger-link" disabled={busy} onClick={() => void mutate(`/api/v1/collection-tills/${till.id}`, 'No pudimos deshabilitar el punto.', 'DELETE')}>Deshabilitar</button>}
       </div>)}
     </article>

@@ -151,10 +151,20 @@ export type NormalizedPaymentLinkInput = Exclude<ReturnType<typeof normalizePaym
 export type NormalizedPaymentLinkPayInput = Exclude<ReturnType<typeof normalizePaymentLinkPayInput>, null | { unsupportedMethod: UnsupportedCollectionMethod }>;
 export type NormalizedPaymentLinkRefundInput = Exclude<ReturnType<typeof normalizePaymentLinkRefundInput>, null>;
 
+export const TILL_PRESENCE = ['present', 'not_present'] as const;
+export type TillPresence = typeof TILL_PRESENCE[number];
+
+function parseBooleanFlag(value: unknown, fallback = false) {
+  if (value === undefined || value === null) return fallback;
+  return typeof value === 'boolean' ? value : null;
+}
+
 export function normalizeCollectionTillInput(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const body = value as Record<string, unknown>;
-  if (!hasOnlyKeys(body, ['accountId', 'externalReference', 'name', 'paymentQrId', 'alias'])) return null;
+  if (!hasOnlyKeys(body, ['accountId', 'externalReference', 'name', 'paymentQrId', 'alias', 'issueStaticQr', 'closedAmountOnly', 'presence'])) {
+    return null;
+  }
   const accountId = typeof body.accountId === 'string' ? body.accountId : '';
   const externalReference = collapsed(body.externalReference, 2, 100);
   const name = collapsed(body.name, 2, 80);
@@ -162,10 +172,27 @@ export function normalizeCollectionTillInput(value: unknown) {
     ? null : typeof body.paymentQrId === 'string' ? body.paymentQrId : '';
   const alias = body.alias === undefined || body.alias === null || body.alias === ''
     ? null : normalizeAlias(body.alias);
+  const issueStaticQr = parseBooleanFlag(body.issueStaticQr);
+  const closedAmountOnly = parseBooleanFlag(body.closedAmountOnly);
+  const presence = body.presence === undefined || body.presence === null || body.presence === ''
+    ? 'not_present' : body.presence;
   if (!uuid.test(accountId) || !externalReference || !name) return null;
   if (paymentQrId && !uuid.test(paymentQrId)) return null;
   if (body.alias !== undefined && body.alias !== null && body.alias !== '' && !alias) return null;
-  return { accountId, externalReference, name, paymentQrId, alias };
+  if (issueStaticQr === null || closedAmountOnly === null) return null;
+  if (typeof presence !== 'string' || !(TILL_PRESENCE as readonly string[]).includes(presence)) return null;
+  if (issueStaticQr && paymentQrId) return null;
+  return {
+    accountId, externalReference, name, paymentQrId, alias, issueStaticQr, closedAmountOnly,
+    presence: presence as TillPresence,
+  };
+}
+
+export function normalizeCollectionTillStaticQrInput(value: unknown) {
+  if (value === undefined || value === null) return {};
+  if (typeof value !== 'object' || Array.isArray(value)) return null;
+  if (!hasOnlyKeys(value as Record<string, unknown>, [])) return null;
+  return {};
 }
 
 export function normalizeCollectionTillInboundInput(value: unknown) {

@@ -840,19 +840,22 @@ export async function refundPaymentLink(input: {
 type TillRow = {
   id: string; accountId: string; accountReference: string; customerName: string; taxIdLast4: string;
   name: string; externalReference: string; cvu: string; alias: string | null; aliasChangedAt: string | null;
-  paymentQrId: string | null; status: string; requestFingerprint: string; createdAt: string; updatedAt: string;
+  paymentQrId: string | null; qrPayload: string | null; presence: 'present' | 'not_present';
+  closedAmountOnly: number | string; status: string; requestFingerprint: string; createdAt: string; updatedAt: string;
 };
 
 const tillSelect = `SELECT ct.id, ct.account_id AS "accountId", a.account_reference AS "accountReference",
   c.name AS "customerName", c.tax_id_last4 AS "taxIdLast4", ct.name, ct.external_reference AS "externalReference",
-  ct.cvu, ct.alias, ct.alias_changed_at AS "aliasChangedAt", ct.payment_qr_id AS "paymentQrId", ct.status,
+  ct.cvu, ct.alias, ct.alias_changed_at AS "aliasChangedAt", ct.payment_qr_id AS "paymentQrId", q.payload AS "qrPayload",
+  ct.presence, ct.closed_amount_only AS "closedAmountOnly", ct.status,
   ct.request_fingerprint AS "requestFingerprint", ct.created_at AS "createdAt", ct.updated_at AS "updatedAt"
-  FROM collection_tills ct JOIN accounts a ON a.id = ct.account_id JOIN customers c ON c.id = a.customer_id`;
+  FROM collection_tills ct JOIN accounts a ON a.id = ct.account_id JOIN customers c ON c.id = a.customer_id
+  LEFT JOIN payment_qrs q ON q.id = ct.payment_qr_id`;
 
 function serializeTill(row: TillRow) {
-  const { requestFingerprint: _fingerprint, taxIdLast4: _tax, ...publicRow } = row;
+  const { requestFingerprint: _fingerprint, taxIdLast4: _tax, closedAmountOnly, ...publicRow } = row;
   void _fingerprint; void _tax;
-  return publicRow;
+  return { ...publicRow, closedAmountOnly: Number(closedAmountOnly) === 1 };
 }
 
 async function retrieveTillRow(organizationId: string, id: string, database: DatabaseClient) {
@@ -919,9 +922,10 @@ export async function createCollectionTill(input: {
     assertCollector(account);
     if (input.till.paymentQrId) {
       const qr = await database.prepare(
-        `SELECT id FROM payment_qrs WHERE organization_id = ? AND id = ? AND account_id = ? AND kind = 'static' AND status = 'active' LIMIT 1`,
+        `SELECT id FROM payment_qrs WHERE organization_id = ? AND id = ? AND account_id = ? AND kind = 'static'
+          AND status = 'active' AND owner = 'account' LIMIT 1`,
       ).bind(input.organizationId, input.till.paymentQrId, account.id).first<{ id: string }>();
-      if (!qr) throw new CollectionError('El QR estático debe estar activo y pertenecer a la misma cuenta cobradora.', 422, 'invalid_static_qr');
+      if (!qr) throw new CollectionError('El QR estático debe estar activo, ser de la cuenta cobradora y no pertenecer a otro punto.', 422, 'invalid_static_qr');
       const takenQr = await database.prepare(
         'SELECT id FROM collection_tills WHERE organization_id = ? AND payment_qr_id = ? LIMIT 1',
       ).bind(input.organizationId, input.till.paymentQrId).first<{ id: string }>();
@@ -935,16 +939,85 @@ export async function createCollectionTill(input: {
     const createdAt = new Date().toISOString();
     await database.prepare(`INSERT INTO collection_tills
       (id, organization_id, idempotency_key, request_fingerprint, account_id, payment_qr_id, name, external_reference,
-       cvu, alias, alias_changed_at, status, created_by, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'active', ?, ?, ?)`)
+       cvu, alias, alias_changed_at, status, presence, closed_amount_only, created_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'active', ?, ?, ?, ?, ?)`)
       .bind(id, input.organizationId, input.idempotencyKey, fingerprint, account.id, input.till.paymentQrId,
-        input.till.name, input.till.externalReference, cvu, input.till.alias, input.actor.userId, createdAt, createdAt).run();
+        input.till.name, input.till.externalReference, cvu, input.till.alias, input.till.presence,
+        input.till.closedAmountOnly ? 1 : 0, input.actor.userId, createdAt, createdAt).run();
+    if (input.till.issueStaticQr) {
+      await insertTillOwnedStaticQr(database, {
+        organizationId: input.organizationId, actorId: input.actor.userId, tillId: id,
+        accountId: account.id, name: input.till.name, createdAt,
+      });
+    }
     await insertAudit(database, {
       organizationId: input.organizationId, actorId: input.actor.userId, action: 'collection.till_created',
       resourceType: 'collection_till', resourceId: id,
-      payload: { accountId: account.id, cvuLast4: railLast4(cvu), paymentQrId: input.till.paymentQrId },
+      payload: {
+        accountId: account.id, cvuLast4: railLast4(cvu), paymentQrId: input.till.paymentQrId,
+        issueStaticQr: input.till.issueStaticQr, closedAmountOnly: input.till.closedAmountOnly, presence: input.till.presence,
+      },
     });
     return { till: serializeTill((await retrieveTillRow(input.organizationId, id, database))!), replayed: false };
+  });
+}
+
+async function insertTillOwnedStaticQr(database: DatabaseClient, input: {
+  organizationId: string; actorId: string; tillId: string; accountId: string; name: string; createdAt: string;
+}) {
+  const qrId = crypto.randomUUID();
+  const payload = `cimbra:qr:static:v1:${qrId}`;
+  await database.prepare(`INSERT INTO payment_qrs
+    (id, organization_id, idempotency_key, request_fingerprint, account_id, amount_minor, currency, description, payload,
+     kind, owner, status, expires_at, paid_transfer_id, created_by, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, NULL, 'ARS', ?, ?, 'static', 'till', 'active', NULL, NULL, ?, ?, ?)`)
+    .bind(qrId, input.organizationId, `till-qr:${input.tillId}`, `till-qr:${input.tillId}`, input.accountId,
+      input.name, payload, input.actorId, input.createdAt, input.createdAt).run();
+  await database.prepare('UPDATE collection_tills SET payment_qr_id = ?, updated_at = ? WHERE id = ?')
+    .bind(qrId, input.createdAt, input.tillId).run();
+  await insertAudit(database, {
+    organizationId: input.organizationId, actorId: input.actorId, action: 'instant.qr_created',
+    resourceType: 'payment_qr', resourceId: qrId,
+    payload: { accountId: input.accountId, kind: 'static', owner: 'till', collectionTillId: input.tillId },
+  });
+  await insertAudit(database, {
+    organizationId: input.organizationId, actorId: input.actorId, action: 'collection.till_qr_issued',
+    resourceType: 'collection_till', resourceId: input.tillId,
+    payload: { paymentQrId: qrId, payload },
+  });
+  return qrId;
+}
+
+export async function issueCollectionTillStaticQr(input: {
+  organizationId: string; actor: AuthUser; tillId: string; idempotencyKey: string;
+}) {
+  await assertSandboxLedgerOrCertifiedRail('collections', CollectionError);
+  return getDatabaseClient().transaction(async (database) => {
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:collection-till-qr:${input.tillId}`).first();
+    const replay = await database.prepare(`${tillSelect} WHERE ct.organization_id = ? AND ct.qr_idempotency_key = ? LIMIT 1`)
+      .bind(input.organizationId, input.idempotencyKey).first<TillRow>();
+    if (replay) {
+      if (replay.id !== input.tillId) {
+        throw new CollectionError('La Idempotency-Key ya fue usada con otro QR de recaudación.', 409, 'idempotency_mismatch');
+      }
+      return { till: serializeTill(replay), replayed: true };
+    }
+    const row = await database.prepare(`${tillSelect} WHERE ct.organization_id = ? AND ct.id = ? LIMIT 1 FOR UPDATE OF ct`)
+      .bind(input.organizationId, input.tillId).first<TillRow>();
+    if (!row) throw new CollectionError('Punto de recaudación no encontrado.', 404, 'collection_till_not_found');
+    if (row.status !== 'active') throw new CollectionError('El punto de recaudación no está activo.', 409, 'collection_till_disabled');
+    if (row.paymentQrId) {
+      throw new CollectionError('Este punto ya tiene un QR estático. El payload no cambia.', 409, 'till_qr_already_issued');
+    }
+    const now = new Date().toISOString();
+    await insertTillOwnedStaticQr(database, {
+      organizationId: input.organizationId, actorId: input.actor.userId, tillId: row.id,
+      accountId: row.accountId, name: row.name, createdAt: now,
+    });
+    await database.prepare('UPDATE collection_tills SET qr_idempotency_key = ?, updated_at = ? WHERE id = ?')
+      .bind(input.idempotencyKey, now, row.id).run();
+    return { till: serializeTill((await retrieveTillRow(input.organizationId, row.id, database))!), replayed: false };
   });
 }
 

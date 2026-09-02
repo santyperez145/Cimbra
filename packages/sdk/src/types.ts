@@ -300,6 +300,7 @@ export type InstantTransfer = {
 export type PaymentQr = {
   id: string; accountId: string; accountReference: string; amountMinor: string | null; amount: number | null;
   currency: 'ARS'; description: string; payload: string; kind: 'dynamic' | 'static' | 'debt';
+  owner: 'account' | 'till'; collectionTillId: string | null;
   status: 'active' | 'paid' | 'expired' | 'cancelled';
   expiresAt: string | null; paidTransferId: string | null; createdAt: string; updatedAt: string;
 };
@@ -344,7 +345,8 @@ export type PaymentLink = {
 export type CollectionTill = {
   id: string; accountId: string; accountReference: string; customerName: string;
   name: string; externalReference: string; cvu: string; alias: string | null; aliasChangedAt: string | null;
-  paymentQrId: string | null; status: 'active' | 'disabled'; createdAt: string; updatedAt: string;
+  paymentQrId: string | null; qrPayload: string | null; presence: 'present' | 'not_present';
+  closedAmountOnly: boolean; status: 'active' | 'disabled'; createdAt: string; updatedAt: string;
 };
 export type EcheqStatus = 'issued' | 'accepted' | 'endorsed' | 'pending' | 'deposited' | 'cancelled' | 'returned' | 'rejected' | 'expired';
 export type Echeq = {
@@ -494,6 +496,7 @@ export type CreatePaymentLinkInput = {
 };
 export type CreateCollectionTillInput = {
   accountId: string; externalReference: string; name: string; paymentQrId?: string | null; alias?: string | null;
+  issueStaticQr?: boolean; closedAmountOnly?: boolean; presence?: 'present' | 'not_present';
 };
 export type CreditCollectionTillInput = {
   externalReference: string; description: string; amount: string; currency?: 'ARS'; signals?: RiskSignalsInput;

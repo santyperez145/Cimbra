@@ -26,7 +26,7 @@ import { parseBookTransferInput, statementPeriod } from '../app/lib/platform/boo
 import { normalizeWalletInput, normalizeWalletProgramInput, normalizeWalletTransition, parseWalletPocketTransferInput } from '../app/lib/platform/wallets-input.ts';
 import { classifyRailValue, isSandboxCvu, isWellFormedCbu, issueSandboxCvu, normalizeAlias } from '../app/lib/platform/cbu.ts';
 import { aliasChangeBlocked, ALIAS_CHANGE_WINDOW_MS, normalizeAssignAliasInput, normalizeDebitRequestInput, normalizeInstantTransferInput, normalizeIssueInstrumentInput, normalizePaymentQrInput, normalizeQrDebtInput, normalizeQrSaleOrderInput } from '../app/lib/platform/instant-payments-input.ts';
-import { normalizeCollectionTillInboundInput, normalizeCollectionTillInput, normalizePaymentLinkInput, normalizePaymentLinkPayInput, normalizePaymentLinkRefundInput } from '../app/lib/platform/collections-input.ts';
+import { normalizeCollectionTillInboundInput, normalizeCollectionTillInput, normalizeCollectionTillStaticQrInput, normalizePaymentLinkInput, normalizePaymentLinkPayInput, normalizePaymentLinkRefundInput } from '../app/lib/platform/collections-input.ts';
 import { normalizeCuit } from '../app/lib/platform/cuit.ts';
 import { normalizeEcheqAcceptInput, normalizeEcheqDepositInput, normalizeEcheqEndorseInput, normalizeEcheqInput } from '../app/lib/platform/echeqs-input.ts';
 import { isLocalPostgres, postgresClientOptions, resolvePostgresUrl } from '../db/postgres-connection.mjs';
@@ -193,6 +193,7 @@ test('los rieles oficiales son contrapartes reguladas y el adaptador falla cerra
   assert.match(qr?.sandboxCoverage ?? '', /cimbra:qr:static:v1/);
   assert.match(qr?.sandboxCoverage ?? '', /orden de venta/);
   assert.match(qr?.sandboxCoverage ?? '', /cimbra:qr:debt:v1/);
+  assert.match(qr?.sandboxCoverage ?? '', /till/);
   assert.match(qr?.missingForProduction ?? '', /PCT Coelsa/);
   const collections = evaluateLiveReadiness().products.find((product) => product.id === 'collections');
   assert.match(collections?.sandboxCoverage ?? '', /cimbra_qr/);
@@ -200,6 +201,7 @@ test('los rieles oficiales son contrapartes reguladas y el adaptador falla cerra
   assert.match(collections?.sandboxCoverage ?? '', /parcial/);
   assert.match(collections?.sandboxCoverage ?? '', /devolución/);
   assert.match(collections?.sandboxCoverage ?? '', /ítems/);
+  assert.match(collections?.sandboxCoverage ?? '', /QR estático del till/);
   assert.throws(
     () => dispatchOfficialRail('coelsa_transfers', [{ id: 'coelsa_transfers', status: 'unwired' }]),
     (error: unknown) => error instanceof PlatformRailError && error.code === 'rail_not_wired',
@@ -499,7 +501,18 @@ test('cobranzas validan links de cobro, medios sandbox y rechazan adquirencia de
     accountId, externalReference: 'TILL-001', name: ' Mostrador Sur ', alias: 'comercio.sur',
   });
   assert.ok(till); assert.equal(till.name, 'Mostrador Sur'); assert.equal(till.alias, 'COMERCIO.SUR');
+  assert.equal(till.issueStaticQr, false); assert.equal(till.closedAmountOnly, false); assert.equal(till.presence, 'not_present');
+  const tillQr = normalizeCollectionTillInput({
+    accountId, externalReference: 'TILL-QR', name: 'Caja QR', issueStaticQr: true, closedAmountOnly: true, presence: 'present',
+  });
+  assert.ok(tillQr); assert.equal(tillQr.issueStaticQr, true); assert.equal(tillQr.closedAmountOnly, true); assert.equal(tillQr.presence, 'present');
+  assert.equal(normalizeCollectionTillInput({
+    accountId, externalReference: 'TILL-BAD', name: 'Caja', issueStaticQr: true, paymentQrId: accountId,
+  }), null);
+  assert.equal(normalizeCollectionTillInput({ accountId, externalReference: 'TILL-BIND', name: 'Caja', soloOrden: true }), null);
   assert.equal(normalizeCollectionTillInput({ accountId, externalReference: 'T', name: 'X' }), null);
+  assert.deepEqual(normalizeCollectionTillStaticQrInput({}), {});
+  assert.equal(normalizeCollectionTillStaticQrInput({ codigoCaja: 'B1' }), null);
   const inbound = normalizeCollectionTillInboundInput({
     externalReference: 'INB-001', description: ' Acreditación ', amount: '11.50', currency: 'ars',
   });

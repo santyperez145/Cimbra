@@ -29,6 +29,11 @@ const errorResponses = [
 const changelog = [
   {
     date: '01 SEP 2026',
+    title: 'QR estático del punto de recaudación',
+    detail: 'Un collection_till emite su propio cimbra:qr:static:v1 (issueStaticQr o POST /api/v1/collection-tills/{id}/static-qr) sin gastar el QR estático de la cuenta. closedAmountOnly exige una orden de venta pendiente. El pago imputa collectionTillId. El payload no se cancela: se deshabilita el punto. OpenAPI pasa a 179 operaciones. No es QR interoperable, EMVCo ni POS.',
+  },
+  {
+    date: '01 SEP 2026',
     title: 'Devolución parcial de un link de cobro',
     detail: 'POST /api/v1/payment-links/{id}/refund acepta amount y creditId opcionales. Vacío devuelve lo cobrado pendiente. Un parcial deja postings compensatorios sin mutar el asiento original. Un link CVU puede reabrirse si el neto queda por debajo del monto; internal, QR e inbound permanecen cerrados. GET embebe refunds y partiallyRefunded. OpenAPI sigue en 178 operaciones.',
   },
@@ -423,6 +428,14 @@ const debt = await cimbra.qrDebts.create({
   accountId: '<merchant_account_uuid>',
   externalReference: 'TILL-001',
   name: 'Mostrador Sur',
+  issueStaticQr: true,
+  closedAmountOnly: true,
+});
+await cimbra.qrSaleOrders.create({
+  paymentQrId: till.data.till.paymentQrId!,
+  externalReference: 'OV-TILL-001',
+  description: 'Ticket mostrador',
+  amount: '1500.00',
 });
 await cimbra.collectionTills.inbound(till.data.till.id, {
   externalReference: 'INB-001',
