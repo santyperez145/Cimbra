@@ -521,13 +521,22 @@ test('el SDK administra la cola operativa con rutas e idempotencia canónicas', 
 });
 
 test('el SDK importa CSV, ejecuta settlements y consulta aprobaciones', async () => {
-  const calls: Array<{ url: string; contentType: string | null; body: BodyInit | null | undefined }> = [];
+  const calls: string[] = [];
+  let importBody: BodyInit | null | undefined;
   const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async (input, init) => {
-    calls.push({ url: String(input), contentType: new Headers(init?.headers).get('content-type'), body: init?.body });
-    if (String(input).endsWith('/reconciliation/imports')) return Response.json({ ok: true, replayed: false,
-      run: { id: 'run_1', status: 'completed' }, import: { fileName: 'bank.csv', fileSha256: 'sha', rowCount: 1 } }, { status: 201 });
-    if (String(input).endsWith('/settlements')) return Response.json({ ok: true, replayed: false, cycle: { id: 'cycle_1', status: 'ready' } }, { status: 201 });
-    if (String(input).endsWith('/approvals')) return Response.json({ data: [{ id: 'approval_1', status: 'pending' }] });
+    const url = String(input);
+    calls.push(`${init?.method ?? 'GET'} ${url}`);
+    if (url.endsWith('/reconciliation/imports')) {
+      importBody = init?.body;
+      return Response.json({ ok: true, replayed: false,
+        run: { id: 'run_1', status: 'completed' }, import: { fileName: 'bank.csv', fileSha256: 'sha', rowCount: 1 } }, { status: 201 });
+    }
+    if (url.endsWith('/settlements')) return Response.json({ ok: true, replayed: false, cycle: { id: 'cycle_1', status: 'ready' } }, { status: 201 });
+    if (url.endsWith('/approvals')) return Response.json({ data: [{ id: 'approval_1', status: 'pending' }] });
+    if (url.endsWith('/approvals/approval_1')) return Response.json({ id: 'approval_1', status: 'pending' });
+    if (url.endsWith('/approve') || url.endsWith('/reject') || url.endsWith('/cancel')) {
+      return Response.json({ ok: true, approval: { id: 'approval_1', status: 'executed' } });
+    }
     return Response.json({ ok: true, replayed: false, cycle: { id: 'cycle_1', status: 'settled' } });
   } });
   await client.reconciliation.importCsv({ name: 'Banco', source: 'bank', currency: 'ARS', periodStart: '2026-08-27T00:00:00.000Z',
@@ -535,13 +544,22 @@ test('el SDK importa CSV, ejecuta settlements y consulta aprobaciones', async ()
   await client.settlements.create({ reconciliationRunId: '00000000-0000-4000-8000-000000000001', name: 'Liquidación banco' });
   await client.settlements.execute('cycle_1');
   await client.approvals.list();
-  assert.deepEqual(calls.map((call) => call.url), [
-    'https://api.test/api/v1/reconciliation/imports', 'https://api.test/api/v1/settlements', 'https://api.test/api/v1/settlements/cycle_1/execute',
-    'https://api.test/api/v1/approvals',
+  await client.approvals.retrieve('approval_1');
+  await client.approvals.approve('approval_1', 'Doble control validado.');
+  await client.approvals.reject('approval_1', 'Evidencia insuficiente.');
+  await client.approvals.cancel('approval_1', 'Solicitud duplicada.');
+  assert.deepEqual(calls, [
+    'POST https://api.test/api/v1/reconciliation/imports',
+    'POST https://api.test/api/v1/settlements',
+    'POST https://api.test/api/v1/settlements/cycle_1/execute',
+    'GET https://api.test/api/v1/approvals',
+    'GET https://api.test/api/v1/approvals/approval_1',
+    'POST https://api.test/api/v1/approvals/approval_1/approve',
+    'POST https://api.test/api/v1/approvals/approval_1/reject',
+    'POST https://api.test/api/v1/approvals/approval_1/cancel',
   ]);
-  assert.equal(calls[0].contentType, null);
-  assert.ok(calls[0].body instanceof FormData);
-  assert.equal((calls[0].body as FormData).get('name'), 'Banco');
+  assert.ok(importBody instanceof FormData);
+  assert.equal((importBody as FormData).get('name'), 'Banco');
 });
 
 test('el SDK verifica firma, timestamp, cuerpo crudo y antigüedad del webhook', async () => {

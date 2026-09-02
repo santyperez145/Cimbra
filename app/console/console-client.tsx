@@ -30,14 +30,38 @@ import InstantPaymentsPanel from './instant-payments-panel';
 import CollectionsPanel from './collections-panel';
 import CustomersPanel from './customers-panel';
 import EcheqsPanel from './echeqs-panel';
+import LedgerPanel from './ledger-panel';
+import PaymentsPanel from './payments-panel';
 
 type Role = OrganizationRole;
 const nav: Array<{ icon: string; label: string; capability?: AccessCapability }> = [
-  { icon: '▦', label: 'Vista general' }, { icon: '↔', label: 'Movimientos' }, { icon: '⇄', label: 'Payments' }, { icon: '≡', label: 'Payouts' }, { icon: '⌁', label: 'Servicios' },
-  { icon: '◍', label: 'Clientes' }, { icon: '◉', label: 'Cuentas' }, { icon: '▣', label: 'Wallets' }, { icon: '⚡', label: 'Pagos AR' }, { icon: '◎', label: 'Cobranzas' }, { icon: '▭', label: 'ECHEQ' }, { icon: '▰', label: 'Tarjetas' }, { icon: '◇', label: 'Riesgo' },
-  { icon: '◫', label: 'Disputas', capability: 'disputes.read' }, { icon: '≋', label: 'Conciliación' }, { icon: '☷', label: 'Operaciones' }, { icon: '⚖', label: 'Aprobaciones' }, { icon: '✓', label: 'Compliance' }, { icon: '⌘', label: 'Plataforma' },
-  { icon: '⌁', label: 'Developers', capability: 'credentials.manage' }, { icon: '♙', label: 'Accesos', capability: 'organization.manage' },
-  { icon: '⌂', label: 'Organización' }, { icon: '☎', label: 'Soporte' }, { icon: '☰', label: 'Auditoría' }, { icon: '⌾', label: 'Seguridad' },
+  { icon: '▦', label: 'Vista general', capability: 'console.read' },
+  { icon: '↔', label: 'Movimientos', capability: 'console.read' },
+  { icon: '⇄', label: 'Book transfers', capability: 'console.read' },
+  { icon: '⇄', label: 'Cash-in/out', capability: 'console.read' },
+  { icon: '≡', label: 'Payouts', capability: 'console.read' },
+  { icon: '⌁', label: 'Servicios', capability: 'console.read' },
+  { icon: '◍', label: 'Clientes', capability: 'console.read' },
+  { icon: '◉', label: 'Cuentas', capability: 'console.read' },
+  { icon: '▣', label: 'Ledger', capability: 'console.read' },
+  { icon: '▣', label: 'Wallets', capability: 'console.read' },
+  { icon: '⚡', label: 'Pagos AR', capability: 'console.read' },
+  { icon: '◎', label: 'Cobranzas', capability: 'console.read' },
+  { icon: '▭', label: 'ECHEQ', capability: 'console.read' },
+  { icon: '▰', label: 'Tarjetas', capability: 'console.read' },
+  { icon: '◇', label: 'Riesgo', capability: 'console.read' },
+  { icon: '◫', label: 'Disputas', capability: 'disputes.read' },
+  { icon: '≋', label: 'Conciliación', capability: 'console.read' },
+  { icon: '☷', label: 'Operaciones', capability: 'operations.read' },
+  { icon: '⚖', label: 'Aprobaciones', capability: 'approvals.read' },
+  { icon: '✓', label: 'Compliance', capability: 'console.read' },
+  { icon: '⌘', label: 'Plataforma', capability: 'console.read' },
+  { icon: '⌁', label: 'Developers', capability: 'credentials.manage' },
+  { icon: '♙', label: 'Accesos', capability: 'organization.manage' },
+  { icon: '⌂', label: 'Organización', capability: 'organization.read' },
+  { icon: '☎', label: 'Soporte', capability: 'support.read' },
+  { icon: '☰', label: 'Auditoría', capability: 'console.read' },
+  { icon: '⌾', label: 'Seguridad', capability: 'security.manage_self' },
 ];
 
 function money(value: number, currency = 'ARS') {
@@ -155,7 +179,7 @@ export default function ConsoleClient({ data, user, platformOperator = false }: 
           {active === 'Auditoría' ? <AuditPanel /> : active === 'Clientes' ? <CustomersPanel role={user.role} /> : active === 'Vista general' ? <>
           <div className="app-welcome"><div><p suppressHydrationWarning>{new Date().toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'America/Argentina/Buenos_Aires' }).toUpperCase()}</p><h1>Todo en orden, {user.displayName.split(' ')[0]}.</h1><span>Tu operación está funcionando con normalidad.</span></div><select aria-label="Período" value={overviewPeriod} onChange={(event) => setOverviewPeriod(event.target.value as '7d' | '30d')}><option value="30d">Últimos 30 días</option><option value="7d">Últimos 7 días</option></select></div>
           <div className="app-kpis">
-            <article className="kpi-balance"><div><small>SALDO DISPONIBLE · {primaryBalance?.currency ?? 'ARS'}</small><span>Calculado desde postings</span></div><strong>{money(primaryBalance?.available ?? data.balance, primaryBalance?.currency ?? 'ARS')}</strong><small className="ledger-caption">Contable {money(primaryBalance?.current ?? data.balance, primaryBalance?.currency ?? 'ARS')} · Reservado {money(primaryBalance?.held ?? 0, primaryBalance?.currency ?? 'ARS')}</small><div className="balance-actions">{canOperate && <button onClick={() => setTransferOpen(true)}>↗ Transferir</button>}<button onClick={() => setActive('Cuentas')}>◎ Ver ledger</button></div></article>
+            <article className="kpi-balance"><div><small>SALDO DISPONIBLE · {primaryBalance?.currency ?? 'ARS'}</small><span>Calculado desde postings</span></div><strong>{money(primaryBalance?.available ?? data.balance, primaryBalance?.currency ?? 'ARS')}</strong><small className="ledger-caption">Contable {money(primaryBalance?.current ?? data.balance, primaryBalance?.currency ?? 'ARS')} · Reservado {money(primaryBalance?.held ?? 0, primaryBalance?.currency ?? 'ARS')}</small><div className="balance-actions">{canOperate && <button onClick={() => setTransferOpen(true)}>↗ Transferir</button>}<button onClick={() => setActive('Ledger')}>◎ Ver ledger</button></div></article>
             <article><div className="kpi-title"><span>Volumen ARS · {overviewDays} días</span><i>↗</i></div><strong>{money(overviewSummary.processedArs)}</strong><small>{overviewSummary.transactionCount.toLocaleString('es-AR')} movimientos registrados en el período</small></article>
             <article><div className="kpi-title"><span>Tasa de aprobación · {overviewDays} días</span><i>✓</i></div><strong>{overviewSummary.approvalRate.toFixed(1)}%</strong><small>Calculada con estados persistidos</small><div className="ring" style={{'--ring': `${overviewSummary.approvalRate * 3.6}deg`} as React.CSSProperties}><span>{overviewSummary.approvalRate.toFixed(0)}%</span></div></article>
             <article><div className="kpi-title"><span>Cuentas activas</span><i>◉</i></div><strong>{data.activeAccounts.toLocaleString('es-AR')}</strong><small>Cuentas de producto persistidas para la organización</small></article>
@@ -168,7 +192,7 @@ export default function ConsoleClient({ data, user, platformOperator = false }: 
             </article>
             <aside className="risk-card"><div className="card-head"><div><h2>Control de riesgo</h2><p>Reservas persistidas del sandbox</p></div><span className="risk-live">● ACTIVO</span></div><div className="risk-score"><div><strong>{data.riskAlerts}</strong><span>reservas abiertas</span></div><div><strong>{data.journalCount}</strong><span>journals posteados</span></div></div>{data.holds.slice(0,1).map((hold)=><div className="risk-item" key={hold.id}><i className="coral-dot">!</i><span><strong>Fondos reservados</strong><small>{hold.counterparty} · {money(hold.amount,hold.currency)}</small></span><b>Revisar</b></div>)}<div className="risk-item"><i>✓</i><span><strong>Integridad del ledger</strong><small>Débitos y créditos validados en PostgreSQL</small></span><b className="normal">Activo</b></div><button className="risk-button" onClick={() => setActive('Riesgo')}>Abrir centro de riesgo →</button></aside>
           </div>
-          </> : active === 'Seguridad' ? <SecurityPanel user={user} /> : active === 'Payments' ? <BookTransfersPanel accounts={data.accounts} role={user.role} onCashMovement={() => setPaymentOpen(true)} /> : active === 'Payouts' ? <PayoutsPanel accounts={data.accounts} actorRole={user.role} /> : active === 'Servicios' ? <BillersPanel accounts={data.accounts} actorRole={user.role} /> : active === 'Disputas' ? <DisputesPanel readOnly={!roleCan(user.role, 'disputes.write')} /> : active === 'Operaciones' ? <OperationsPanel readOnly={!roleCan(user.role, 'operations.write')} /> : active === 'Aprobaciones' ? <ApprovalsPanel actorRole={user.role} mfaEnabled={user.mfaEnabled} /> : active === 'Compliance' ? <CompliancePanel actorRole={user.role} mfaEnabled={user.mfaEnabled} currentUserId={user.userId} /> : active === 'Accesos' && canManageOrganization ? <AccessPanel actorRole={user.role as Extract<Role, 'owner' | 'admin'>} /> : <SecondaryConsoleView active={active} data={data} role={user.role} busy={busy} feedback={feedback} refreshKey={ledgerEpoch} onPayment={() => setPaymentOpen(true)} onHold={resolveReview} />}
+          </> : active === 'Seguridad' ? <SecurityPanel user={user} /> : active === 'Book transfers' ? <BookTransfersPanel accounts={data.accounts} role={user.role} onCashMovement={() => setActive('Cash-in/out')} /> : active === 'Cash-in/out' ? <PaymentsPanel accounts={data.accounts} role={user.role} /> : active === 'Ledger' ? <LedgerPanel /> : active === 'Payouts' ? <PayoutsPanel accounts={data.accounts} actorRole={user.role} /> : active === 'Servicios' ? <BillersPanel accounts={data.accounts} actorRole={user.role} /> : active === 'Disputas' ? <DisputesPanel readOnly={!roleCan(user.role, 'disputes.write')} /> : active === 'Operaciones' ? <OperationsPanel readOnly={!roleCan(user.role, 'operations.write')} /> : active === 'Aprobaciones' ? <ApprovalsPanel actorRole={user.role} mfaEnabled={user.mfaEnabled} /> : active === 'Compliance' ? <CompliancePanel actorRole={user.role} mfaEnabled={user.mfaEnabled} currentUserId={user.userId} /> : active === 'Accesos' && canManageOrganization ? <AccessPanel actorRole={user.role as Extract<Role, 'owner' | 'admin'>} /> : <SecondaryConsoleView active={active} data={data} role={user.role} busy={busy} refreshKey={ledgerEpoch} onHold={resolveReview} />}
         </div>
       </section>
 
@@ -178,16 +202,13 @@ export default function ConsoleClient({ data, user, platformOperator = false }: 
   );
 }
 
-function SecondaryConsoleView({ active, data, role, busy, feedback, refreshKey, onPayment, onHold }: {
-  active: string; data: DashboardData; role: Role; busy: boolean; feedback: string; refreshKey: number;
-  onPayment: () => void;
+function SecondaryConsoleView({ active, data, role, busy, refreshKey, onHold }: {
+  active: string; data: DashboardData; role: Role; busy: boolean; refreshKey: number;
   onHold: (holdId: string, action: 'capture' | 'release') => void;
 }) {
   const canOperate = roleCan(role, 'finance.write');
 
   if (active === 'Movimientos') return <TransfersPanel role={role} refreshKey={refreshKey} />;
-
-  if (active === 'Payments') return <div className="module-view"><div className="module-view-head"><div><p>PAYMENT ORCHESTRATION</p><h1>Cash-in y cash-out</h1><span>Ingresos y payouts aplicados a cuentas concretas, listos para adaptadores regionales.</span></div>{canOperate && <button className="app-primary" onClick={onPayment}>+ Nuevo payment</button>}</div>{feedback&&<div className="form-feedback ledger-feedback">{feedback}</div>}<div className="module-metrics"><article><strong>{data.accounts.length}</strong><span>cuentas operables</span></article><article><strong>{data.transactions.filter((item)=>item.amount>0).length}</strong><span>ingresos recientes</span></article><article><strong>{data.transactions.filter((item)=>item.amount<0).length}</strong><span>egresos recientes</span></article></div><article className="module-list"><div className="card-head"><div><h2>Cuentas de producto</h2><p>Saldo derivado de postings por cuenta</p></div><b>LEDGER-BACKED</b></div>{data.accounts.length===0?<div><span className="movement"><i>◉</i><b>Sin cuentas<small>{canOperate ? 'Creá una cuenta en Cuentas para comenzar' : 'No hay cuentas disponibles para consultar'}</small></b></span><strong>Vacío</strong></div>:data.accounts.map((account)=><div key={account.id}><span className="movement"><i>◉</i><b>{account.accountReference}<small>{account.country} · {account.currency} · {account.status}</small></b></span><strong>{money(account.balance,account.currency)}</strong></div>)}</article></div>;
 
   if (active === 'Cuentas') return <AccountsPanel role={role} balances={data.balances} />;
 

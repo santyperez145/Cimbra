@@ -29,6 +29,11 @@ const errorResponses = [
 const changelog = [
   {
     date: '02 SEP 2026',
+    title: 'Consola: ledger, cash-in/out y nav por capability',
+    detail: 'Ledger y Cash-in/out operan APIs reales; Book transfers queda separado. La navegación filtra por capability. El SDK agrega approvals.approve/reject/cancel. OpenAPI permanece en 192 operaciones.',
+  },
+  {
+    date: '02 SEP 2026',
     title: 'Banco patrocinante operable en /ops',
     detail: 'official_rail_connections suma negotiating, evidencia de sponsor (razón social, CUIT, contrato, safeguarding) y due diligence PSPCP. /ops opera PATCH /api/ops/rails/{id}. BIND Banco es candidato a entidad financiera patrocinante; bindX/BIND PSP siguen fuera del core. El adaptador documental no despacha fondos. OpenAPI permanece en 192 operaciones.',
   },
@@ -60,12 +65,12 @@ const changelog = [
   {
     date: '01 SEP 2026',
     title: 'Data room público y presupuesto Gate 1',
-    detail: 'GET /api/v1/live-readiness publica capitalPlan (USD 500, gastado 0, liveReadyAfterSpend=false). /investors muestra evidencia del sandbox sin clientes ni volumen inventados. El envelope no autoriza AWS pago, Coelsa, banco patrocinante ni Go Live. OpenAPI sigue en 179 operaciones.',
+    detail: 'GET /api/v1/live-readiness publica capitalPlan (USD 500, gastado 0, liveReadyAfterSpend=false). /investors muestra evidencia del sandbox sin clientes ni volumen inventados. El envelope no autoriza AWS pago, Coelsa, banco patrocinante ni Go Live. OpenAPI quedó en 179 operaciones en ese corte; el contrato vigente es 192.',
   },
   {
     date: '01 SEP 2026',
     title: 'QR estático del punto de recaudación',
-    detail: 'Un collection_till emite su propio cimbra:qr:static:v1 (issueStaticQr o POST /api/v1/collection-tills/{id}/static-qr) sin gastar el QR estático de la cuenta. closedAmountOnly exige una orden de venta pendiente. El pago imputa collectionTillId. El payload no se cancela: se deshabilita el punto. OpenAPI pasa a 179 operaciones. No es QR interoperable, EMVCo ni POS.',
+    detail: 'Un collection_till emite su propio cimbra:qr:static:v1 (issueStaticQr o POST /api/v1/collection-tills/{id}/static-qr) sin gastar el QR estático de la cuenta. closedAmountOnly exige una orden de venta pendiente. El pago imputa collectionTillId. El payload no se cancela: se deshabilita el punto. OpenAPI quedó en 179 operaciones en ese corte; el contrato vigente es 192. No es QR interoperable, EMVCo ni POS.',
   },
   {
     date: '01 SEP 2026',

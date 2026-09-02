@@ -519,6 +519,15 @@ export class Cimbra {
     list: (options?: RequestOptions) => this.request<{ data: ApprovalRequest[] }>('GET', '/api/v1/approvals', undefined, options),
     retrieve: (id: string, options?: RequestOptions) =>
       this.request<ApprovalRequest>('GET', `/api/v1/approvals/${encodeURIComponent(id)}`, undefined, options),
+    approve: (id: string, reason: string, options?: RequestOptions) =>
+      this.post<{ ok: true } & Record<string, unknown>>(
+        `/api/v1/approvals/${encodeURIComponent(id)}/approve`, { reason }, options, true),
+    reject: (id: string, reason: string, options?: RequestOptions) =>
+      this.post<{ ok: true } & Record<string, unknown>>(
+        `/api/v1/approvals/${encodeURIComponent(id)}/reject`, { reason }, options, true),
+    cancel: (id: string, reason: string, options?: RequestOptions) =>
+      this.post<{ ok: true } & Record<string, unknown>>(
+        `/api/v1/approvals/${encodeURIComponent(id)}/cancel`, { reason }, options, true),
   };
 
   readonly holds = {

@@ -5,15 +5,24 @@ import { STATUS_SURFACES } from '@/app/lib/platform/help-center';
 
 export const metadata = {
   title: 'Status — Cimbra',
-  description: 'Estado público del sandbox Cimbra: modo efectivo, live fail-closed y topología de servicios. Sin uptime inventado.',
+  description: 'Estado público del sandbox Cimbra: modo efectivo, gates PSPCP, rieles oficiales y topología. Sin uptime inventado.',
 };
 
 export const dynamic = 'force-dynamic';
+
+const railLabels: Record<string, string> = {
+  unwired: 'Sin cablear',
+  negotiating: 'Negociando',
+  contracted: 'Contrato',
+  certified: 'Certificado',
+  live: 'Live',
+};
 
 export default function StatusPage() {
   const readiness = evaluateLiveReadiness();
   const topology = serviceTopology();
   const production = readiness.environments.find((item) => item.id === 'production');
+  const sponsor = readiness.rails.find((rail) => rail.id === 'sponsor_bank');
 
   return <main className="investor-shell">
     <header>
@@ -31,13 +40,36 @@ export default function StatusPage() {
       <div className="investor-proof" aria-label="Estado verificable">
         <article><strong>{readiness.effectiveMode}</strong><span>modo efectivo</span></article>
         <article><strong>{readiness.liveReady ? 'Sí' : 'No'}</strong><span>listo para dinero real</span></article>
+        <article><strong>{readiness.fintechPath.metCount}/{readiness.fintechPath.gateCount}</strong><span>gates PSPCP</span></article>
+        <article><strong>{readiness.summary.officialRailsLive}/{readiness.summary.officialRailsTotal}</strong><span>rieles live</span></article>
         <article><strong>{topology.totals.services}</strong><span>servicios de dominio</span></article>
-        <article><strong>{topology.totals.extractable}</strong><span>extraíbles hoy</span></article>
-        <article><strong>{topology.totals.standalone}</strong><span>runtime propio</span></article>
         <article><strong>{production?.hostname ?? 'sin hostname'}</strong><span>production</span></article>
       </div>
-      {readiness.blockReason && <p className="investor-note">{readiness.blockReason}</p>}
+      {readiness.blockReason && <p className="investor-note">Bloqueo live: {readiness.blockReason}</p>}
       <p className="investor-note">{topology.posture}</p>
+      <section>
+        <h2>Camino PSPCP</h2>
+        <ul className="investor-list">
+          {readiness.fintechPath.gates.map((gate) => (
+            <li key={gate.id}>
+              <strong>{gate.met ? 'Cumple' : 'Pendiente'} · {gate.name}</strong>
+              <span>{railLabels[gate.status] ?? gate.status} · {gate.summary}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
+      <section>
+        <h2>Rieles oficiales</h2>
+        <ul className="investor-list">
+          {readiness.rails.map((rail) => (
+            <li key={rail.id}>
+              <strong>{rail.name}</strong>
+              <span>{railLabels[rail.status] ?? rail.status} · {rail.counterparty}{rail.adapterRegistered ? ' · adaptador listo' : ''}</span>
+            </li>
+          ))}
+        </ul>
+        {sponsor && <p className="investor-note">Banco patrocinante: {sponsor.status}. La evidencia se opera en /ops; BIND Banco puede ser candidato regulado, bindX no es el core.</p>}
+      </section>
       <section>
         <h2>Servicios de dominio</h2>
         <ul className="investor-list">

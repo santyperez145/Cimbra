@@ -24,6 +24,12 @@ export const HELP_ARTICLES = [
     body: 'Desde Cuentas abrís una cuenta de producto para un cliente activo. El saldo sale de postings. El disponible resta holds. No es CBU, CVU ni una cuenta bancaria: el riel oficial exige Coelsa o un sponsor. Las correcciones se hacen con reversas, nunca mutando un asiento.',
   },
   {
+    id: 'ledger',
+    title: 'Libro mayor',
+    summary: 'Saldos, journals y holds en sólo lectura.',
+    body: 'Ledger consulta GET /api/v1/ledger. Ves saldos por moneda, journals recientes y holds activos. No hay edición manual: las correcciones viven en reversas de transferencias, book transfers, payments o cobranzas.',
+  },
+  {
     id: 'audit',
     title: 'Registro de auditoría',
     summary: 'Eventos append-only del tenant. Se consultan; no se editan.',
@@ -34,6 +40,54 @@ export const HELP_ARTICLES = [
     title: 'Movimientos y transferencias',
     summary: 'Listado paginado del API, alta idempotente y reversas compensatorias.',
     body: 'Movimientos opera GET/POST /api/v1/transfers y la reversa compensatoria. No es un book transfer entre cuentas ni un pago Coelsa. Un monto alto puede exigir maker/checker en Aprobaciones. Viewer lee y exporta; no crea ni revierte.',
+  },
+  {
+    id: 'book-transfers',
+    title: 'Book transfers',
+    summary: 'Movimiento atómico entre dos cuentas Cimbra de la misma moneda.',
+    body: 'Book transfers debita y acredita en un solo journal. Puede exigir aprobación. Distinto de cash-in/out (contra settlement interno) y de Pagos AR (instrumentos locales). No sale a Coelsa.',
+  },
+  {
+    id: 'cash-payments',
+    title: 'Cash-in y cash-out',
+    summary: 'Payments de sandbox contra una cuenta de producto.',
+    body: 'Cash-in/out usa POST /api/v1/payments. Contabiliza ingreso o egreso contra la cuenta de settlement interna. No llama bancos ni BaaS competidores. El historial se lee de journals cash_in/cash_out.',
+  },
+  {
+    id: 'wallets',
+    title: 'Wallets y bolsillos',
+    summary: 'Programas, wallets y movimientos entre pockets del tenant.',
+    body: 'Wallets modela bolsillos ledger-backed. Congelar o cerrar es un lifecycle propio. No es una billetera interoperable BCRA hasta el riel oficial correspondiente.',
+  },
+  {
+    id: 'collections',
+    title: 'Cobranzas',
+    summary: 'Links, QR Cimbra, tills y eco cerrado en sandbox.',
+    body: 'Cobranzas opera payment links, QR dinámico/estático/deuda y collection tills con CVU sandbox. No es POS, EMVCo ni PCT Coelsa. Las devoluciones son compensatorias.',
+  },
+  {
+    id: 'pagos-ar',
+    title: 'Pagos AR',
+    summary: 'Instrumentos locales sandbox: CVU, alias, DEBIN e instant transfers internos.',
+    body: 'Pagos AR usa el riel sandbox Cimbra (prefijo 0009999). No consulta el directorio nacional ni mueve Transferencias 3.0 reales. Live exige Coelsa u otro riel oficial.',
+  },
+  {
+    id: 'echeq',
+    title: 'ECHEQ sandbox',
+    summary: 'Ciclo de emisión, aceptación y depósito interno.',
+    body: 'ECHEQ en consola es payload cimbra:echeq:v1. No hay CMC7 ni compensación de cámara. Cesión y descuento quedan fuera hasta el riel Coelsa.',
+  },
+  {
+    id: 'payouts',
+    title: 'Payouts y lotes',
+    summary: 'Beneficiarios y lotes asíncronos con doble control.',
+    body: 'Payouts registra beneficiarios y lotes. La ejecución puede pedir aprobación. El archivo de resultados es sandbox; no liquida un banco real.',
+  },
+  {
+    id: 'risk',
+    title: 'Riesgo y holds',
+    summary: 'Reglas versionables, casos y reservas de fondos.',
+    body: 'Riesgo evalúa montos y señales. Un hold resta del disponible hasta capturar o liberar. Las reglas las gestionan owner/admin; operator resuelve casos.',
   },
   {
     id: 'support',
