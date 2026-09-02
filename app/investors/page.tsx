@@ -25,6 +25,7 @@ export default function InvestorsPage() {
     <header>
       <Link className="brand" href="/"><span className="brand-mark"><i /><i /><i /></span><span>CIMBRA</span></Link>
       <nav>
+        <Link href="/status">Status</Link>
         <Link href="/developers">Developers</Link>
         <Link href="/#demo">Contacto</Link>
       </nav>
@@ -51,7 +52,7 @@ export default function InvestorsPage() {
 
       <section>
         <h2>Qué existe hoy</h2>
-        <p>Sandbox verificable con {evidence.product.openApiOperations} operaciones, {evidence.product.capabilities.total} dominios de catálogo ({evidence.product.capabilities.sandbox} ejecutables, {evidence.product.capabilities.roadmap} en roadmap) y {evidence.product.productsInIntegracion} productos públicos en Integración. Ninguno está en Go Live. {evidence.product.officialRailsLive} de {evidence.product.officialRailsTotal} rieles oficiales están live. El ledger de doble partida es la fuente de verdad; las correcciones son compensaciones.</p>
+        <p>Sandbox verificable con {evidence.product.openApiOperations} operaciones, {evidence.product.capabilities.total} dominios de catálogo ({evidence.product.capabilities.sandbox} ejecutables, {evidence.product.capabilities.roadmap} en roadmap), {evidence.product.services.total} servicios de dominio ({evidence.product.services.extractable} extraíbles, {evidence.product.services.standalone} en runtime propio) y {evidence.product.productsInIntegracion} productos públicos en Integración. Ninguno está en Go Live. {evidence.product.officialRailsLive} de {evidence.product.officialRailsTotal} rieles oficiales están live. El ledger de doble partida es la fuente de verdad; las correcciones son compensaciones. Extraer un servicio a runtime independiente exige volumen o riesgo, no moda, y no activa AWS pago.</p>
         <ul className="investor-list">
           {evidence.products.map((product) => (
             <li key={product.id}><strong>{product.name}</strong><span>Integración · {product.missingForProduction}</span></li>

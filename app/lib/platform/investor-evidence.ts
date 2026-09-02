@@ -1,12 +1,14 @@
 import { PLATFORM_CAPABILITIES } from './capabilities.ts';
 import { capitalPlanSnapshot } from './capital-plan.ts';
 import { evaluateLiveReadiness, type LiveReadiness } from './live-readiness.ts';
+import { serviceTopology } from './service-catalog.ts';
 
 export function buildInvestorEvidence(
   readiness: LiveReadiness = evaluateLiveReadiness(),
   openApiOperations = 0,
 ) {
   const capital = capitalPlanSnapshot();
+  const services = serviceTopology();
   return {
     liveReady: readiness.liveReady,
     effectiveMode: readiness.effectiveMode,
@@ -31,6 +33,12 @@ export function buildInvestorEvidence(
         sandbox: PLATFORM_CAPABILITIES.filter((item) => item.availability === 'sandbox').length,
         foundation: PLATFORM_CAPABILITIES.filter((item) => item.availability === 'foundation').length,
         roadmap: PLATFORM_CAPABILITIES.filter((item) => item.availability === 'roadmap').length,
+      },
+      services: {
+        total: services.totals.services,
+        extractable: services.totals.extractable,
+        standalone: services.totals.standalone,
+        extractionDebt: services.totals.extractionDebt,
       },
     },
     capital,

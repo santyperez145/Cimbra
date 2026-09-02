@@ -34,6 +34,8 @@ export default async function Home() {
             <a href="#plataforma">Plataforma</a>
             <a href="#soluciones">Soluciones</a>
             <a href="#developers">Developers</a>
+            <a href="/help">Ayuda</a>
+            <a href="/status">Status</a>
             <a href="/investors">Inversores</a>
             <a href="#empresa">Empresa</a>
           </nav>
@@ -206,7 +208,7 @@ export default async function Home() {
         <DemoForm />
       </section>
 
-      <footer className="site-footer"><div className="footer-top"><a className="brand footer-brand" href="#inicio"><span className="brand-mark"><i /><i /><i /></span><span>CIMBRA</span></a><p>Infraestructura financiera<br />para Latinoamérica.</p><a className="footer-status" href="/api/health"><i /> Healthcheck público</a></div><div className="footer-links"><div><strong>Disponible</strong><a href="#plataforma">Core & Ledger</a><a href="#plataforma">Payments & Services</a><a href="#plataforma">Cards sandbox</a><a href="#plataforma">Risk & KYC/KYB</a></div><div><strong>Recursos</strong><a href="/developers">Documentación</a><a href="/console">Sandbox</a><a href="/openapi.yaml">OpenAPI</a><a href="/api/health">Status API</a></div><div><strong>Compañía</strong><a href="#empresa">Principios</a><a href="/investors">Inversores</a><a href="#demo">Contacto</a><a href="/terms">Términos</a><a href="/privacy">Privacidad</a></div><div><strong>Mercados objetivo</strong><span>Argentina · México</span><span>Colombia · Brasil</span><span>Chile · Perú</span></div></div><div className="footer-bottom"><span>© 2026 Cimbra Technologies. Todos los derechos reservados.</span><span>Sandbox tecnológico · No mueve fondos reales</span></div></footer>
+      <footer className="site-footer"><div className="footer-top"><a className="brand footer-brand" href="#inicio"><span className="brand-mark"><i /><i /><i /></span><span>CIMBRA</span></a><p>Infraestructura financiera<br />para Latinoamérica.</p><a className="footer-status" href="/status"><i /> Status público</a></div><div className="footer-links"><div><strong>Disponible</strong><a href="#plataforma">Core & Ledger</a><a href="#plataforma">Payments & Services</a><a href="#plataforma">Cards sandbox</a><a href="#plataforma">Risk & KYC/KYB</a></div><div><strong>Recursos</strong><a href="/developers">Documentación</a><a href="/help">Ayuda</a><a href="/status">Status</a><a href="/console">Sandbox</a><a href="/openapi.yaml">OpenAPI</a><a href="/api/health">Health JSON</a></div><div><strong>Compañía</strong><a href="#empresa">Principios</a><a href="/investors">Inversores</a><a href="#demo">Contacto</a><a href="/terms">Términos</a><a href="/privacy">Privacidad</a></div><div><strong>Mercados objetivo</strong><span>Argentina · México</span><span>Colombia · Brasil</span><span>Chile · Perú</span></div></div><div className="footer-bottom"><span>© 2026 Cimbra Technologies. Todos los derechos reservados.</span><span>Sandbox tecnológico · No mueve fondos reales</span></div></footer>
     </main>
   );
 }

@@ -38,6 +38,16 @@ type CapitalPlan = {
   raise: { instrument: string; amountUsd: number | null; thesis: string };
 };
 
+type ServiceTopology = {
+  services: Array<{
+    id: string; name: string; mission: string; runtime: 'in_process' | 'standalone'; ownedTables: number;
+    modules: number; extractable: boolean; extractionGate: string;
+    extractionDebt: Array<{ table: string; owner: string; reason: string }>;
+  }>;
+  totals: { services: number; standalone: number; extractable: number; ownedTables: number; extractionDebt: number };
+  posture: string;
+};
+
 type Readiness = {
   effectiveMode: 'sandbox' | 'live'; liveReady: boolean; liveBlocked: boolean; blockReason: string | null;
   goLive: { benchmark: string; documentationUrl: string; current: string; stages: Array<{ id: string; name: string; summary: string }> };
@@ -68,6 +78,7 @@ const railStatusClass = {
 export default function PlatformPanel() {
   const [capabilities, setCapabilities] = useState<Capability[]>([]);
   const [readiness, setReadiness] = useState<Readiness | null>(null);
+  const [topology, setTopology] = useState<ServiceTopology | null>(null);
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState('');
   const totals = useMemo(() => ({
@@ -77,10 +88,13 @@ export default function PlatformPanel() {
 
   useEffect(() => {
     const task = setTimeout(async () => {
-      const [catalogResponse, readinessResponse] = await Promise.all([
+      const [catalogResponse, readinessResponse, servicesResponse] = await Promise.all([
         authenticatedFetch('/api/v1/capabilities', { cache: 'no-store' }),
         authenticatedFetch('/api/v1/live-readiness', { cache: 'no-store' }),
+        authenticatedFetch('/api/v1/services', { cache: 'no-store' }),
       ]);
+      const services = await servicesResponse.json() as { data?: ServiceTopology };
+      if (servicesResponse.ok) setTopology(services.data ?? null);
       const catalog = await catalogResponse.json() as { data?: Capability[]; error?: { message?: string } | string };
       const live = await readinessResponse.json() as { data?: Readiness; error?: { message?: string } | string };
       if (!catalogResponse.ok) {
@@ -127,6 +141,9 @@ export default function PlatformPanel() {
     </article>
     <article className="module-list capability-list"><div className="card-head"><div><h2>Catálogo de servicios Cimbra</h2><p>Producto propio; competidores usados sólo como benchmark</p></div><b>{loading ? 'Cargando…' : `${capabilities.length} dominios`}</b></div>
       {capabilities.map((item) => <div key={item.id}><span className="movement"><i>⌘</i><b>{item.name}<small>{item.summary}</small><small>{item.interfaces.join(' · ')} · {item.features.join(' · ')}</small></b></span><em className={`capability-status ${item.availability}`}>{labels[item.availability]}</em></div>)}
+    </article>
+    <article className="module-list capability-list"><div className="card-head"><div><h2>Arquitectura de servicios</h2><p>{topology?.posture ?? 'Cada tabla y cada módulo de datos pertenece a un servicio de dominio verificado por tests de frontera.'}</p></div><b>{topology ? `${topology.totals.extractable}/${topology.totals.services} extraíbles` : 'Cargando…'}</b></div>
+      {(topology?.services ?? []).map((service) => <div key={service.id}><span className="movement"><i>{service.extractable ? '✓' : '○'}</i><b>{service.name}<small>{service.mission}</small><small>{service.ownedTables} tablas propias · {service.modules} módulos · runtime {service.runtime === 'in_process' ? 'compartido' : 'propio'}</small><small>Compuerta: {service.extractionGate}</small>{service.extractionDebt.length > 0 && <small>Deuda: {service.extractionDebt.map((debt) => `${debt.table} (${debt.owner})`).join(', ')}</small>}</b></span><em className={`capability-status ${service.extractable ? 'sandbox' : 'foundation'}`}>{service.extractable ? 'Extraíble' : `${service.extractionDebt.length} cruces`}</em></div>)}
     </article>
     <article className="launch-boundary"><div className="module-icon">✓</div><h2>Límite de lanzamiento</h2><p>No hay hostname de producción, producto en Go Live, riel oficial live ni adaptador de cámara. El envelope de USD 500 no autoriza AWS pago ni marca Go Live. Hasta entonces no hay claves <code>cim_sk_live_</code> ni movimiento de fondos. BIND, Dock, tapi, Pismo, Pomelo y Wibond no son conectores.</p></article>
   </div>;

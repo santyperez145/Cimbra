@@ -399,6 +399,40 @@ test('el SDK consulta el readiness live fail-closed', async () => {
   assert.equal(result.data.data.liveReady, false);
 });
 
+test('el SDK abre casos de soporte, actualiza la organización y lee la topología', async () => {
+  const calls: string[] = [];
+  const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async (input, init) => {
+    calls.push(`${init?.method ?? 'GET'} ${String(input)}`);
+    const url = String(input);
+    if (url.endsWith('/support/cases') && (init?.method ?? 'GET') === 'POST') {
+      return Response.json({ ok: true, replayed: false, case: { id: 'case_1', status: 'open' }, messages: [] }, { status: 201 });
+    }
+    if (url.endsWith('/support/cases')) return Response.json({ data: [{ id: 'case_1', status: 'open' }] });
+    if (url.includes('/support/cases/case_1/messages')) {
+      return Response.json({ ok: true, replayed: false, case: { id: 'case_1', status: 'pending_cimbra' }, messages: [] }, { status: 201 });
+    }
+    if (url.endsWith('/organization') && init?.method === 'PATCH') {
+      return Response.json({ ok: true, replayed: false, organization: { id: 'org_1', name: 'Comercio Sur', country: 'AR' } });
+    }
+    if (url.endsWith('/organization')) return Response.json({ data: { id: 'org_1', name: 'Comercio Sur', country: 'AR' } });
+    return Response.json({ data: { totals: { services: 21, standalone: 0, extractable: 10, ownedTables: 80, extractionDebt: 20 }, services: [], kernelContract: ['audit_events'], posture: 'runtime compartido' } });
+  } });
+  await client.support.open({ category: 'api', subject: 'Webhook sin replay', message: 'El delivery quedó failed.' });
+  await client.support.list();
+  await client.support.reply('case_1', 'Agrego el request id.');
+  await client.organization.retrieve();
+  await client.organization.update({ name: 'Comercio Sur' });
+  await client.services.topology();
+  assert.deepEqual(calls, [
+    'POST https://api.test/api/v1/support/cases',
+    'GET https://api.test/api/v1/support/cases',
+    'POST https://api.test/api/v1/support/cases/case_1/messages',
+    'GET https://api.test/api/v1/organization',
+    'PATCH https://api.test/api/v1/organization',
+    'GET https://api.test/api/v1/services',
+  ]);
+});
+
 test('el SDK crea reglas de riesgo y conciliaciones con idempotencia', async () => {
   const calls: Array<{ url: string; idempotencyKey: string | null }> = [];
   const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async (input, init) => {

@@ -547,6 +547,23 @@ if (decision.data.requiresApproval) {
 
 El caso o la excepción permanecen abiertos hasta la decisión independiente. La aprobación vuelve a validar el estado y ejecuta la resolución, el hold asociado y la auditoría en la misma transacción. Las API keys pueden originar el pedido con su scope de escritura, pero nunca actuar como checker.
 
+## Soporte, organización y topología de servicios
+
+```ts
+const opened = await cimbra.support.open({
+  category: 'api',
+  subject: 'Webhook sin replay',
+  message: 'El delivery quedó failed y necesito el request id.',
+});
+await cimbra.support.reply(opened.data.case.id, 'Agrego el request id de la entrega.');
+const organization = await cimbra.organization.retrieve();
+await cimbra.organization.update({ name: organization.data.name });
+const topology = await cimbra.services.topology();
+console.log(topology.data.totals.standalone); // 0 hasta autorizar gasto de infraestructura
+```
+
+Los casos son tenant-scoped. `/ops` no forma parte del SDK: es sesión humana de operadores de plataforma. Extraer un servicio a runtime propio no se declara por esta API.
+
 ## Verificar webhooks
 
 ```ts

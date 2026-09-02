@@ -104,7 +104,52 @@ export const leads = pgTable('leads', {
   id: text('id').primaryKey(), name: text('name').notNull(), company: text('company').notNull(),
   email: text('email').notNull(), volume: text('volume').notNull(), message: text('message').notNull().default(''),
   status: text('status').notNull().default('new'), createdAt: text('created_at').notNull(),
-}, (table) => [index('idx_leads_created').on(table.createdAt)]);
+}, (table) => [
+  index('idx_leads_created').on(table.createdAt),
+  check('leads_status', sql`${table.status} IN ('new', 'contacted', 'qualified', 'closed')`),
+]);
+
+export const platformOperators = pgTable('platform_operators', {
+  userId: text('user_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
+  role: text('role').notNull().default('operator'),
+  createdAt: text('created_at').notNull(),
+  lastSeenAt: text('last_seen_at').notNull(),
+}, (table) => [
+  check('platform_operators_role', sql`${table.role} IN ('owner', 'operator', 'viewer')`),
+]);
+
+export const supportCases = pgTable('support_cases', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  idempotencyKey: text('idempotency_key'),
+  openedBy: text('opened_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
+  category: text('category').notNull(),
+  subject: text('subject').notNull(),
+  status: text('status').notNull().default('open'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_support_cases_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  index('idx_support_cases_org_updated').on(table.organizationId, table.updatedAt),
+  index('idx_support_cases_status').on(table.status),
+  check('support_cases_category', sql`${table.category} IN ('sandbox', 'api', 'console', 'compliance', 'commercial', 'other')`),
+  check('support_cases_status', sql`${table.status} IN ('open', 'pending_cimbra', 'pending_tenant', 'resolved', 'closed')`),
+]);
+
+export const supportMessages = pgTable('support_messages', {
+  id: text('id').primaryKey(),
+  caseId: text('case_id').notNull().references(() => supportCases.id, { onDelete: 'cascade' }),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  idempotencyKey: text('idempotency_key'),
+  authorId: text('author_id').notNull().references(() => users.id, { onDelete: 'restrict' }),
+  authorKind: text('author_kind').notNull(),
+  body: text('body').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_support_messages_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  index('idx_support_messages_case_created').on(table.caseId, table.createdAt),
+  check('support_messages_author_kind', sql`${table.authorKind} IN ('tenant', 'platform')`),
+]);
 
 export const customers = pgTable('customers', {
   id: text('id').primaryKey(), organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }), type: text('type').notNull(),

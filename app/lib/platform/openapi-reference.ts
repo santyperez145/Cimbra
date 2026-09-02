@@ -66,6 +66,8 @@ const GROUP_ORDER = [
   'Aprobaciones',
   'Eventos y webhooks',
   'Compliance',
+  'Soporte',
+  'Plataforma y servicios',
   'Organización y credenciales',
 ] as const;
 
@@ -147,6 +149,8 @@ function authenticationLabel(value: unknown): ApiReferenceOperation['authenticat
 
 function operationGroup(path: string) {
   if (path.startsWith('/api/auth/') || path === '/api/health' || path.endsWith('/capabilities') || path.endsWith('/live-readiness')) return 'Identidad y estado';
+  if (path.includes('/support/')) return 'Soporte';
+  if (path.startsWith('/api/ops/') || path === '/api/v1/services') return 'Plataforma y servicios';
   if (path.includes('/due-diligence')) return 'Compliance';
   if (path.includes('/customers')) return 'Customers';
   if (path.includes('/accounts')) return 'Accounts';
@@ -173,6 +177,9 @@ function operationGroup(path: string) {
 function operationScope(path: string, method: string) {
   const access = method === 'get' ? 'read' : 'write';
   if (!path.startsWith('/api/v1/')) return null;
+  if (path.includes('/support/')) return `support:${access}`;
+  if (path === '/api/v1/organization') return `organization:${access}`;
+  if (path === '/api/v1/services') return 'platform:read';
   if (path.includes('/due-diligence')) return path.endsWith('/decide') ? null : `compliance:${access}`;
   if (path.includes('/customers')) return `customers:${access}`;
   if (path.includes('/accounts')) return `accounts:${access}`;

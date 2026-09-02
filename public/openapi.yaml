@@ -3124,6 +3124,257 @@ paths:
         '200': { description: Policy updated and audit event emitted }
         '403': { description: Owner role and MFA required }
         '409': { description: No independent checker exists or requests remain pending }
+  /api/v1/support/cases:
+    get:
+      operationId: listSupportCases
+      summary: List the tenant support cases with their status and message count
+      description: Support cases are tenant-scoped. A viewer can read them; opening or replying requires an operator role or the support:write scope.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      responses:
+        '200':
+          description: Support cases ordered by last activity
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/SupportCase' } }
+        '401': { description: Authentication required }
+        '403': { description: Missing support:read scope or role }
+    post:
+      operationId: createSupportCase
+      summary: Open a support case with its first message
+      description: Limited to 20 open cases per tenant. Emits an audit event and a support.case_opened webhook.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [category, subject, message]
+              additionalProperties: false
+              properties:
+                category: { type: string, enum: [sandbox, api, console, compliance, commercial, other] }
+                subject: { type: string, minLength: 4, maxLength: 140 }
+                message: { type: string, minLength: 8, maxLength: 4000 }
+      responses:
+        '201': { description: Support case opened }
+        '200': { description: Idempotently replayed case }
+        '400': { description: Invalid support case payload }
+        '409': { description: The tenant reached the open case limit }
+  /api/v1/support/cases/{id}:
+    get:
+      operationId: retrieveSupportCase
+      summary: Retrieve a support case with its full conversation
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses:
+        '200':
+          description: Support case and ordered messages
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [case, messages]
+                    properties:
+                      case: { $ref: '#/components/schemas/SupportCase' }
+                      messages: { type: array, items: { $ref: '#/components/schemas/SupportMessage' } }
+        '404': { description: Support case not found in tenant }
+    patch:
+      operationId: updateSupportCaseStatus
+      summary: Move a support case to another status
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              additionalProperties: false
+              properties:
+                status: { type: string, enum: [open, pending_cimbra, pending_tenant, resolved, closed] }
+      responses:
+        '200': { description: Status updated or already in that status }
+        '400': { description: Invalid status }
+        '404': { description: Support case not found in tenant }
+  /api/v1/support/cases/{id}/messages:
+    post:
+      operationId: replySupportCase
+      summary: Add a tenant message to an open support case
+      description: Moves the case to pending_cimbra. Closed and resolved cases reject new messages.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body]
+              additionalProperties: false
+              properties:
+                body: { type: string, minLength: 3, maxLength: 4000 }
+      responses:
+        '201': { description: Message added }
+        '200': { description: Idempotently replayed message }
+        '409': { description: The case is closed or reached the message limit }
+  /api/v1/organization:
+    get:
+      operationId: retrieveOrganization
+      summary: Retrieve the tenant profile and member count
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      responses:
+        '200':
+          description: Organization profile
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/Organization' }
+        '403': { description: Missing organization:read scope or role }
+    patch:
+      operationId: updateOrganization
+      summary: Update the tenant display name or country
+      description: Requires an owner or admin role, or the organization:write scope. Emits an audit event and an organization.updated webhook.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              additionalProperties: false
+              properties:
+                name: { type: string, minLength: 2, maxLength: 80 }
+                country: { type: string, enum: [AR, MX, CO, BR, CL, PE] }
+      responses:
+        '200': { description: Organization updated or unchanged }
+        '400': { description: Invalid organization payload }
+        '403': { description: Owner or admin role required }
+  /api/v1/services:
+    get:
+      operationId: getServiceTopology
+      summary: Return the service catalog, ownership boundaries and extraction debt
+      description: Every table and data-access module belongs to exactly one domain service. Services run in a shared runtime until a documented volume or risk gate justifies extracting them, and the cross-service write debt is reported explicitly.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      responses:
+        '200':
+          description: Service topology with per-service extraction readiness
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/ServiceTopology' }
+        '403': { description: Missing platform:read scope or console role }
+  /api/ops/overview:
+    get:
+      operationId: getPlatformOverview
+      summary: Platform superadmin overview across every tenant
+      description: Restricted to platform operators provisioned in CIMBRA_PLATFORM_OPERATOR_EMAILS. Sessions only, never API keys.
+      security: [{ session: [] }]
+      responses:
+        '200': { description: Tenants, leads, support queue, service topology and live readiness }
+        '403': { description: Caller is not a provisioned platform operator }
+  /api/ops/leads/{id}:
+    patch:
+      operationId: updatePlatformLead
+      summary: Move a commercial lead through its pipeline status
+      security: [{ session: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              additionalProperties: false
+              properties:
+                status: { type: string, enum: [new, contacted, qualified, closed] }
+      responses:
+        '200': { description: Lead status updated }
+        '404': { description: Lead not found }
+  /api/ops/support/cases/{id}:
+    get:
+      operationId: retrievePlatformSupportCase
+      summary: Retrieve any tenant support case with its conversation
+      description: Restricted to platform operators provisioned in CIMBRA_PLATFORM_OPERATOR_EMAILS. Sessions only.
+      security: [{ session: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses:
+        '200':
+          description: Support case and ordered messages
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [case, messages]
+                    properties:
+                      case: { $ref: '#/components/schemas/SupportCase' }
+                      messages: { type: array, items: { $ref: '#/components/schemas/SupportMessage' } }
+        '403': { description: Caller is not a provisioned platform operator }
+        '404': { description: Support case not found }
+    patch:
+      operationId: updatePlatformSupportCase
+      summary: Move any tenant support case to another status
+      security: [{ session: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              additionalProperties: false
+              properties:
+                status: { type: string, enum: [open, pending_cimbra, pending_tenant, resolved, closed] }
+      responses:
+        '200': { description: Status updated }
+        '404': { description: Support case not found }
+  /api/ops/support/cases/{id}/messages:
+    post:
+      operationId: replyPlatformSupportCase
+      summary: Answer a tenant support case as Cimbra
+      description: Adds a platform-authored message and moves the case to pending_tenant.
+      security: [{ session: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body]
+              additionalProperties: false
+              properties:
+                body: { type: string, minLength: 3, maxLength: 4000 }
+      responses:
+        '201': { description: Platform reply added }
+        '409': { description: The case is closed or reached the message limit }
   /api/platform/api-keys:
     get:
       operationId: listApiKeys
@@ -3148,7 +3399,7 @@ paths:
                   type: array
                   minItems: 1
                   uniqueItems: true
-                  items: { type: string, enum: ['customers:read', 'customers:write', 'accounts:read', 'accounts:write', 'cards:read', 'cards:write', 'transfers:read', 'transfers:write', 'payments:read', 'payments:write', 'payouts:read', 'payouts:write', 'billers:read', 'billers:write', 'wallets:read', 'wallets:write', 'risk:read', 'risk:write', 'disputes:read', 'disputes:write', 'reconciliation:read', 'reconciliation:write', 'settlements:read', 'settlements:write', 'approvals:read', 'operations:read', 'operations:write', 'platform:read', 'ledger:read', 'events:read', 'compliance:read', 'compliance:write', 'webhooks:manage'] }
+                  items: { type: string, enum: ['customers:read', 'customers:write', 'accounts:read', 'accounts:write', 'cards:read', 'cards:write', 'transfers:read', 'transfers:write', 'payments:read', 'payments:write', 'payouts:read', 'payouts:write', 'billers:read', 'billers:write', 'wallets:read', 'wallets:write', 'risk:read', 'risk:write', 'disputes:read', 'disputes:write', 'reconciliation:read', 'reconciliation:write', 'settlements:read', 'settlements:write', 'approvals:read', 'operations:read', 'operations:write', 'support:read', 'support:write', 'organization:read', 'organization:write', 'platform:read', 'ledger:read', 'events:read', 'compliance:read', 'compliance:write', 'webhooks:manage'] }
                 expiresInDays: { type: integer, minimum: 1, maximum: 365 }
       responses:
         '201': { description: API key created and secret returned once }
@@ -4096,6 +4347,82 @@ components:
         rail: { type: string, enum: [cimbra_sandbox] }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+    SupportCase:
+      type: object
+      required: [id, organizationId, openedBy, openedByName, category, subject, status, createdAt, updatedAt, messageCount]
+      properties:
+        id: { type: string, format: uuid }
+        organizationId: { type: string, format: uuid }
+        openedBy: { type: string, format: uuid }
+        openedByName: { type: string }
+        category: { type: string, enum: [sandbox, api, console, compliance, commercial, other] }
+        subject: { type: string }
+        status: { type: string, enum: [open, pending_cimbra, pending_tenant, resolved, closed] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        messageCount: { type: integer }
+    SupportMessage:
+      type: object
+      required: [id, caseId, authorId, authorName, authorKind, body, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        caseId: { type: string, format: uuid }
+        authorId: { type: string, format: uuid }
+        authorName: { type: string }
+        authorKind: { type: string, enum: [tenant, platform], description: platform identifies a Cimbra operator reply }
+        body: { type: string }
+        createdAt: { type: string, format: date-time }
+    Organization:
+      type: object
+      required: [id, name, slug, country, status, createdAt, memberCount]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        slug: { type: string }
+        country: { type: string, enum: [AR, MX, CO, BR, CL, PE] }
+        status: { type: string }
+        createdAt: { type: string, format: date-time }
+        memberCount: { type: integer }
+    ServiceTopology:
+      type: object
+      required: [services, totals, kernelContract, posture]
+      properties:
+        services:
+          type: array
+          items:
+            type: object
+            required: [id, name, mission, runtime, ownedTables, modules, publishes, extractable, extractionDebt, extractionGate, benchmark]
+            properties:
+              id: { type: string }
+              name: { type: string }
+              mission: { type: string }
+              runtime: { type: string, enum: [in_process, standalone] }
+              ownedTables: { type: integer }
+              modules: { type: integer }
+              publishes: { type: array, items: { type: string } }
+              extractable: { type: boolean, description: True when the service writes no table owned by another service }
+              extractionDebt:
+                type: array
+                items:
+                  type: object
+                  required: [table, owner, reason]
+                  properties:
+                    table: { type: string }
+                    owner: { type: string }
+                    reason: { type: string }
+              extractionGate: { type: string }
+              benchmark: { type: string }
+        totals:
+          type: object
+          required: [services, standalone, extractable, ownedTables, extractionDebt]
+          properties:
+            services: { type: integer }
+            standalone: { type: integer }
+            extractable: { type: integer }
+            ownedTables: { type: integer }
+            extractionDebt: { type: integer }
+        kernelContract: { type: array, items: { type: string } }
+        posture: { type: string }
     OperationalWorkItem:
       type: object
       required: [id, type, status, open, priority, assignee, dueAt, escalatedAt, slaStatus, reference, summary, amountMinor, amount, currency, noteCount, evidenceCount, metadata, createdAt, updatedAt]

@@ -20,6 +20,7 @@ import type {
   ReconciliationException, ReconciliationExceptionResolutionResult, ReconciliationRun, RequestOptions, RiskCase,
   ReportRiskOutcomeInput, RiskCaseResolutionResult, RiskEvaluation, RiskListEntry, RiskMetrics, RiskOutcome, RiskRule, RiskSimulation,
   RecurringPaymentMandate, RiskStepUpAttempt, RiskStepUpChallenge, SettlementCycle, SettlementExecutionResult, VerifyRiskStepUpChallengeInput,
+  Organization, OpenSupportCaseInput, ServiceTopology, SupportCase, SupportCaseResult, SupportCaseStatus, SupportCaseThread, UpdateOrganizationInput,
   RecordDueDiligenceCheckInput, Transaction, TransferCreationResult, Wallet, WalletLifecycleEvent, WalletPocket, WalletPocketTransferCreationResult, WalletProgram, WebhookOperationalState,
 } from './types.ts';
 
@@ -525,6 +526,28 @@ export class Cimbra {
       this.post<{ ok: true; hold: HoldResolution }>(`/api/v1/holds/${encodeURIComponent(id)}/capture`, undefined, options, true),
     release: (id: string, options?: RequestOptions) =>
       this.post<{ ok: true; hold: HoldResolution }>(`/api/v1/holds/${encodeURIComponent(id)}/release`, undefined, options, true),
+  };
+
+  readonly support = {
+    list: (options?: RequestOptions) => this.request<{ data: SupportCase[] }>('GET', '/api/v1/support/cases', undefined, options),
+    retrieve: (id: string, options?: RequestOptions) => this.request<{ data: SupportCaseThread }>(
+      'GET', `/api/v1/support/cases/${encodeURIComponent(id)}`, undefined, options),
+    open: (input: OpenSupportCaseInput, options?: RequestOptions) =>
+      this.post<SupportCaseResult>('/api/v1/support/cases', input, options, true),
+    reply: (id: string, body: string, options?: RequestOptions) =>
+      this.post<SupportCaseResult>(`/api/v1/support/cases/${encodeURIComponent(id)}/messages`, { body }, options, true),
+    updateStatus: (id: string, status: SupportCaseStatus, options?: RequestOptions) =>
+      this.patch<SupportCaseResult>(`/api/v1/support/cases/${encodeURIComponent(id)}`, { status }, options),
+  };
+
+  readonly organization = {
+    retrieve: (options?: RequestOptions) => this.request<{ data: Organization }>('GET', '/api/v1/organization', undefined, options),
+    update: (input: UpdateOrganizationInput, options?: RequestOptions) =>
+      this.patch<{ ok: true; organization: Organization; replayed: boolean }>('/api/v1/organization', input, options),
+  };
+
+  readonly services = {
+    topology: (options?: RequestOptions) => this.request<{ data: ServiceTopology }>('GET', '/api/v1/services', undefined, options),
   };
 
   readonly events = {

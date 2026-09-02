@@ -6,6 +6,9 @@ import { isPrivateAddress, normalizeWebhookUrl } from '../app/lib/platform/webho
 import { versionedApi } from '../app/lib/platform/versioned-api.ts';
 import { CAPABILITY_AVAILABILITY, PLATFORM_CAPABILITIES, PLATFORM_SUMMARY } from '../app/lib/platform/capabilities.ts';
 import { capitalPlanSnapshot, composeLeadMessage, isForbiddenCapitalSpend, normalizeDemoIntent } from '../app/lib/platform/capital-plan.ts';
+import { isPlatformOperatorEmail, platformOperatorEmails, platformOperatorProvisioned } from '../app/lib/platform/platform-operators.ts';
+import { SERVICE_CATALOG, serviceTopology } from '../app/lib/platform/service-catalog.ts';
+import { normalizeLeadStatusInput, normalizeOrganizationPatch, normalizeSupportCaseInput, normalizeSupportMessageInput } from '../app/lib/platform/support-input.ts';
 import { buildInvestorEvidence } from '../app/lib/platform/investor-evidence.ts';
 import { COMPETITOR_REFERENCES, evaluateLiveReadiness, PLATFORM_PRODUCTS, requireLiveApiKeysEnabled, requireSandboxLedgerOrCertifiedRail } from '../app/lib/platform/live-readiness.ts';
 import { dispatchOfficialRail, OFFICIAL_RAIL_ADAPTERS, OFFICIAL_RAIL_CONNECTIONS, requiredRailIdsForProduct } from '../app/lib/platform/official-rails.ts';
@@ -244,6 +247,35 @@ test('el envelope de USD 500 cubre Gate 1 y no habilita live ni rieles', () => {
   assert.equal(evidence.traction.lettersOfIntent, 0);
   assert.equal(evidence.product.productsGoLive, 0);
   assert.ok(PLATFORM_CAPABILITIES.some((item) => item.id === 'capital-live-path' && item.availability === 'foundation'));
+  assert.ok(PLATFORM_CAPABILITIES.some((item) => item.id === 'tenant-support' && item.availability === 'sandbox'));
+  assert.ok(PLATFORM_CAPABILITIES.some((item) => item.id === 'domain-services' && item.availability === 'foundation'));
+  assert.equal(evidence.product.services.standalone, 0);
+  assert.ok(evidence.product.services.total >= 10);
+});
+
+test('soporte, organización y operadores de plataforma validan entrada sin inventar SLA', () => {
+  assert.deepEqual(normalizeSupportCaseInput({
+    category: 'api', subject: 'Webhook sin reintento', message: 'El delivery quedó failed y no vi replay.',
+  }), { category: 'api', subject: 'Webhook sin reintento', message: 'El delivery quedó failed y no vi replay.' });
+  assert.equal(normalizeSupportCaseInput({ category: 'api', subject: 'x', message: 'corto' }), null);
+  assert.deepEqual(normalizeSupportMessageInput({ body: 'Reenvío el request id.' }), { body: 'Reenvío el request id.' });
+  assert.equal(normalizeSupportMessageInput({ body: 'no' }), null);
+  assert.deepEqual(normalizeOrganizationPatch({ name: 'Comercio Sur', country: 'AR' }), { name: 'Comercio Sur', country: 'AR' });
+  assert.equal(normalizeOrganizationPatch({ country: 'US' }), null);
+  assert.deepEqual(normalizeLeadStatusInput({ status: 'qualified' }), { status: 'qualified' });
+  assert.equal(normalizeLeadStatusInput({ status: 'hot' }), null);
+  const previous = process.env.CIMBRA_PLATFORM_OPERATOR_EMAILS;
+  process.env.CIMBRA_PLATFORM_OPERATOR_EMAILS = 'ops@cimbra.test, invalid, OPS@cimbra.test';
+  assert.deepEqual(platformOperatorEmails(), ['ops@cimbra.test']);
+  assert.equal(isPlatformOperatorEmail('OPS@cimbra.test'), true);
+  assert.equal(isPlatformOperatorEmail('owner@tenant.test'), false);
+  assert.equal(platformOperatorProvisioned(), true);
+  process.env.CIMBRA_PLATFORM_OPERATOR_EMAILS = previous;
+  const topology = serviceTopology();
+  assert.equal(topology.totals.standalone, 0);
+  assert.equal(topology.totals.services, SERVICE_CATALOG.length);
+  assert.ok(SERVICE_CATALOG.some((service) => service.id === 'support'));
+  assert.ok(SERVICE_CATALOG.some((service) => service.id === 'tenants'));
 });
 
 test('la jerarquía RBAC protege owner, admins y emails de invitación', () => {
@@ -280,7 +312,7 @@ test('una matriz canónica gobierna capacidades de API y consola', () => {
   assert.equal(roleCan('viewer', 'disputes.read'), true);
   assert.equal(roleCan('viewer', 'disputes.write'), false);
   for (const capability of Object.keys(ACCESS_POLICY) as Array<keyof typeof ACCESS_POLICY>) {
-    if (!['console.read', 'disputes.read', 'operations.read', 'approvals.read', 'security.manage_self'].includes(capability)) assert.equal(roleCan('viewer', capability), false, capability);
+    if (!['console.read', 'disputes.read', 'operations.read', 'approvals.read', 'support.read', 'organization.read', 'security.manage_self'].includes(capability)) assert.equal(roleCan('viewer', capability), false, capability);
   }
   assert.equal(ROLE_PROFILES.viewer.posture, 'Sólo lectura');
 });

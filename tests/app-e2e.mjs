@@ -148,6 +148,8 @@ async function cleanup() {
       await transaction`DELETE FROM due_diligence_events WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM due_diligence_cases WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM compliance_documents WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM support_messages WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM support_cases WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM audit_events WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM customers WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM organization_invitations WHERE organization_id = ${organizationId}`;
@@ -279,6 +281,51 @@ try {
   assert.ok(liveReadiness.data.rails.length >= 10);
   assert.equal(liveReadiness.data.rails.every((rail) => rail.status === 'unwired' && rail.adapterRegistered === false), true);
   assert.equal(liveReadiness.data.rails.some((rail) => /bind|dock|tapi|pismo|pomelo|wibond/i.test(rail.counterparty)), false);
+
+  const helpPage = await request('/help');
+  assert.equal(helpPage.status, 200);
+  assert.match(await helpPage.text(), /CENTRO DE AYUDA/);
+  assert.match(await helpPage.text(), /Padrón de clientes/);
+  const statusPage = await request('/status');
+  assert.equal(statusPage.status, 200);
+  assert.match(await statusPage.text(), /STATUS PÚBLICO/);
+
+  const organization = await json(await request('/api/v1/organization'), 200);
+  assert.equal(organization.data.country, 'AR');
+  const organizationUpdated = await json(await request('/api/v1/organization', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-org-${runId}` },
+    body: JSON.stringify({ name: `Cimbra QA ${runId.slice(0, 8)}` }),
+  }), 200);
+  assert.equal(organizationUpdated.organization.name, `Cimbra QA ${runId.slice(0, 8)}`);
+  const services = await json(await request('/api/v1/services'), 200);
+  assert.ok(services.data.totals.services >= 10);
+  assert.equal(services.data.totals.standalone, 0);
+  const openedCase = await json(await request('/api/v1/support/cases', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-support-${runId}` },
+    body: JSON.stringify({ category: 'api', subject: 'Webhook de QA sin replay', message: 'El delivery de prueba quedó failed y necesito el request id.' }),
+  }), 201);
+  assert.equal(openedCase.case.status, 'open');
+  const replayedCase = await json(await request('/api/v1/support/cases', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-support-${runId}` },
+    body: JSON.stringify({ category: 'api', subject: 'Webhook de QA sin replay', message: 'El delivery de prueba quedó failed y necesito el request id.' }),
+  }), 200);
+  assert.equal(replayedCase.replayed, true);
+  assert.equal(replayedCase.case.id, openedCase.case.id);
+  const listedCases = await json(await request('/api/v1/support/cases'), 200);
+  assert.ok(listedCases.data.some((item) => item.id === openedCase.case.id));
+  const replied = await json(await request(`/api/v1/support/cases/${openedCase.case.id}/messages`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-support-msg-${runId}` },
+    body: JSON.stringify({ body: 'Agrego el request id de la entrega fallida.' }),
+  }), 201);
+  assert.equal(replied.case.status, 'pending_cimbra');
+  const resolved = await json(await request(`/api/v1/support/cases/${openedCase.case.id}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-support-close-${runId}` },
+    body: JSON.stringify({ status: 'resolved' }),
+  }), 200);
+  assert.equal(resolved.case.status, 'resolved');
+  const opsDenied = await json(await request('/api/ops/overview'), 403);
+  assert.equal(opsDenied.error.code, 'platform_operator_required');
+
   const invited = await json(await request('/api/platform/access', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email: `operator-${runId}@example.test`, role: 'operator' }),
@@ -2626,6 +2673,16 @@ try {
   assert.equal(viewerPayoutBatchDenied.error.code, 'insufficient_role');
   const viewerCredentialsDenied = await json(await request('/api/platform/api-keys'), 403);
   assert.equal(viewerCredentialsDenied.code, 'insufficient_role');
+  const viewerSupportDenied = await json(await request('/api/v1/support/cases', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-viewer-support-${runId}` },
+    body: JSON.stringify({ category: 'api', subject: 'Viewer no puede abrir', message: 'Este caso no debería crearse.' }),
+  }), 403);
+  assert.equal(viewerSupportDenied.error.code, 'insufficient_role');
+  const viewerOrgDenied = await json(await request('/api/v1/organization', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-viewer-org-${runId}` },
+    body: JSON.stringify({ name: 'Viewer no puede' }),
+  }), 403);
+  assert.equal(viewerOrgDenied.error.code, 'insufficient_role');
   cookie = ownerCookieAfterRequest;
   await json(await request(`/api/platform/access/members/${checkerMember.id}`, {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role: 'admin' }),
@@ -2656,6 +2713,10 @@ try {
   assert.ok(events.some((event) => event.action === 'payout.item_failed' && event.payload.failureCode === 'payout_reversed'));
   assert.ok(events.some((event) => event.action === 'book_transfer.created'));
   assert.ok(events.some((event) => event.action === 'book_transfer.reversed'));
+  assert.ok(events.some((event) => event.action === 'organization.updated'));
+  assert.ok(events.some((event) => event.action === 'support.case_opened'));
+  assert.ok(events.some((event) => event.action === 'support.message_added'));
+  assert.ok(events.some((event) => event.action === 'support.status_updated'));
   assert.ok(events.every((event) => typeof event.payload === 'object'));
 
   const [integrity] = await sql`
@@ -2674,7 +2735,7 @@ try {
 
   console.log(JSON.stringify({
     ok: true,
-    checks: ['auth', 'landing-session-state', 'console-session-guard', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'viewer-read-only', 'member-invitations', 'dual-control', 'maker-checker', 'transfer-approval', 'book-transfer-approval', 'approval-replay', 'approval-fail-closed', 'payout-approval', 'risk-case-approval', 'risk-hold-bypass-guard', 'reconciliation-exception-approval', 'disputes', 'partial-dispute', 'dispute-ledger-credit', 'dispute-compensation', 'dispute-approval', 'dispute-evidence', 'dispute-rbac', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'book-transfers', 'account-statements', 'book-transfer-compensation', 'book-transfer-rbac', 'wallets', 'wallet-pockets', 'wallet-lifecycle', 'wallet-rbac', 'instant-payments', 'cvu-alias', 'alias-assign', 'cvu-revoke', 'holder-confirmation', 'internal-credit', 'sandbox-outbound', 'internal-debit', 'cimbra-qr', 'qr-sale-orders', 'qr-debts', 'instant-return', 'instant-rbac', 'collections', 'payment-links', 'collection-tills', 'collection-internal', 'collection-inbound', 'collection-refund', 'collection-cancel', 'collection-card-denied', 'collection-debt-link', 'collection-till-link', 'collection-rbac', 'echeqs', 'echeq-accept', 'echeq-deposit', 'echeq-cancel', 'echeq-return', 'echeq-nsf', 'echeq-discount-denied', 'echeq-rbac', 'payout-beneficiaries', 'protected-payout-destination', 'payout-batches', 'payout-scheduling', 'payout-result-file', 'payout-compensation', 'payout-rbac', 'payout-s2s', 'billers', 'biller-obligations', 'protected-subscriber-reference', 'bill-payments', 'mobile-topups', 'gift-cards', 'recurring-mandates', 'mandate-consent', 'biller-rbac', 'biller-s2s', 'bill-payment-compensation', 'cdd-kyb', 'cdd-evidence', 'cdd-idempotency', 'cdd-maker-checker', 'cdd-s2s-orchestration', 'cdd-session-only-decision', 'cdd-expiry', 'cdd-rbac', 'card-programs', 'card-lifecycle', 'card-controls', 'card-terminal-state', 'card-rbac', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'risk-signals-privacy', 'risk-decision-lists', 'risk-step-up', 'risk-step-up-idempotency', 'risk-step-up-rbac', 'risk-decision-slo', 'risk-confirmed-outcomes', 'risk-supervised-metrics', 'risk-outcome-revisions', 'reconciliation', 'operations-work-queue', 'operations-idempotency', 'operations-evidence', 'operations-rbac', 'csv-import', 'settlement', 'private-evidence', 'audit'],
+    checks: ['auth', 'landing-session-state', 'console-session-guard', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'viewer-read-only', 'member-invitations', 'public-help-status', 'organization-profile', 'service-topology', 'support-cases', 'ops-fail-closed', 'dual-control', 'maker-checker', 'transfer-approval', 'book-transfer-approval', 'approval-replay', 'approval-fail-closed', 'payout-approval', 'risk-case-approval', 'risk-hold-bypass-guard', 'reconciliation-exception-approval', 'disputes', 'partial-dispute', 'dispute-ledger-credit', 'dispute-compensation', 'dispute-approval', 'dispute-evidence', 'dispute-rbac', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'book-transfers', 'account-statements', 'book-transfer-compensation', 'book-transfer-rbac', 'wallets', 'wallet-pockets', 'wallet-lifecycle', 'wallet-rbac', 'instant-payments', 'cvu-alias', 'alias-assign', 'cvu-revoke', 'holder-confirmation', 'internal-credit', 'sandbox-outbound', 'internal-debit', 'cimbra-qr', 'qr-sale-orders', 'qr-debts', 'instant-return', 'instant-rbac', 'collections', 'payment-links', 'collection-tills', 'collection-internal', 'collection-inbound', 'collection-refund', 'collection-cancel', 'collection-card-denied', 'collection-debt-link', 'collection-till-link', 'collection-rbac', 'echeqs', 'echeq-accept', 'echeq-deposit', 'echeq-cancel', 'echeq-return', 'echeq-nsf', 'echeq-discount-denied', 'echeq-rbac', 'payout-beneficiaries', 'protected-payout-destination', 'payout-batches', 'payout-scheduling', 'payout-result-file', 'payout-compensation', 'payout-rbac', 'payout-s2s', 'billers', 'biller-obligations', 'protected-subscriber-reference', 'bill-payments', 'mobile-topups', 'gift-cards', 'recurring-mandates', 'mandate-consent', 'biller-rbac', 'biller-s2s', 'bill-payment-compensation', 'cdd-kyb', 'cdd-evidence', 'cdd-idempotency', 'cdd-maker-checker', 'cdd-s2s-orchestration', 'cdd-session-only-decision', 'cdd-expiry', 'cdd-rbac', 'card-programs', 'card-lifecycle', 'card-controls', 'card-terminal-state', 'card-rbac', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'risk-signals-privacy', 'risk-decision-lists', 'risk-step-up', 'risk-step-up-idempotency', 'risk-step-up-rbac', 'risk-decision-slo', 'risk-confirmed-outcomes', 'risk-supervised-metrics', 'risk-outcome-revisions', 'reconciliation', 'operations-work-queue', 'operations-idempotency', 'operations-evidence', 'operations-rbac', 'csv-import', 'settlement', 'private-evidence', 'audit'],
   }));
 } finally {
   await cleanup();

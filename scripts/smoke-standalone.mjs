@@ -105,6 +105,14 @@ try {
   if (!investors.includes('DATA ROOM PÚBLICO') || !investors.includes('USD 500')) {
     throw new Error('The investors data room did not render the Gate 1 envelope.');
   }
+  const help = await fetchRequired('/help');
+  if (!help.includes('CENTRO DE AYUDA') || !help.includes('Cómo abrir un caso')) {
+    throw new Error('The public help center did not render.');
+  }
+  const status = await fetchRequired('/status');
+  if (!status.includes('STATUS PÚBLICO') || !status.includes('servicios de dominio')) {
+    throw new Error('The public status page did not render the service topology.');
+  }
 
   const assetPath = html.match(/(?:src|href)="([^"]*\/_next\/static\/[^"]+)"/)?.[1];
   if (!assetPath) throw new Error('The standalone response did not reference a Next.js static asset.');

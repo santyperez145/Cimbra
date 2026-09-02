@@ -50,7 +50,7 @@ test('el OpenAPI público usa el sandbox real y operaciones identificables', () 
   assert.equal(spec.info.version, '2026-09-01');
   assert.deepEqual(spec.servers, [{ url: 'https://cimbra-rose.vercel.app', description: 'Current environment is sandbox (BIND APIBANK, Pismo sandbox.pismolabs.io, Pomelo sandbox.api.pomelo.la). Production hostname is not provisioned.' }]);
   const operations = contractOperations();
-  assert.equal(operations.length, 179);
+  assert.equal(operations.length, 192);
   const ids = operations.map(({ operation }) => operation.operationId);
   assert.equal(ids.every(Boolean), true);
   assert.equal(new Set(ids).size, ids.length);
@@ -165,6 +165,13 @@ test('OpenAPI publica book transfers y statements como contratos completos', () 
   assert.equal(spec.paths['/api/v1/echeqs/{id}/deposit'].post.operationId, 'depositEcheq');
   assert.equal(spec.paths['/api/v1/echeqs/{id}/return'].post.operationId, 'returnEcheq');
   assert.equal(spec.paths['/api/v1/live-readiness'].get.operationId, 'getLiveReadiness');
+  assert.equal(spec.paths['/api/v1/support/cases'].get.operationId, 'listSupportCases');
+  assert.equal(spec.paths['/api/v1/support/cases'].post.operationId, 'createSupportCase');
+  assert.equal(spec.paths['/api/v1/support/cases/{id}'].get.operationId, 'retrieveSupportCase');
+  assert.equal(spec.paths['/api/v1/organization'].patch.operationId, 'updateOrganization');
+  assert.equal(spec.paths['/api/v1/services'].get.operationId, 'getServiceTopology');
+  assert.equal(spec.paths['/api/ops/overview'].get.operationId, 'getPlatformOverview');
+  assert.equal(spec.paths['/api/ops/support/cases/{id}'].get.operationId, 'retrievePlatformSupportCase');
   assert.match(readFileSync(join(root, 'public', 'openapi.yaml'), 'utf8'), /required: \[requestedMode, effectiveMode, liveReady, liveBlocked, blockReason, goLive, environments, products, rails, fintechPath, capitalPlan, references, summary\]/);
   assert.match(reference, /path\.includes\('\/instant-transfers'\) \|\| path\.includes\('\/rail-instruments'\)/);
   assert.match(reference, /return 'Instant payments'/);

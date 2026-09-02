@@ -20,18 +20,21 @@ import PayoutsPanel from './payouts-panel';
 import ReconciliationPanel from './reconciliation-panel';
 import RiskPanel from './risk-panel';
 import SecurityPanel from './security-panel';
+import SupportPanel from './support-panel';
+import OrganizationPanel from './organization-panel';
 import WalletsPanel from './wallets-panel';
 import InstantPaymentsPanel from './instant-payments-panel';
 import CollectionsPanel from './collections-panel';
+import CustomersPanel from './customers-panel';
 import EcheqsPanel from './echeqs-panel';
 
 type Role = OrganizationRole;
 const nav: Array<{ icon: string; label: string; capability?: AccessCapability }> = [
   { icon: '▦', label: 'Vista general' }, { icon: '↔', label: 'Movimientos' }, { icon: '⇄', label: 'Payments' }, { icon: '≡', label: 'Payouts' }, { icon: '⌁', label: 'Servicios' },
-  { icon: '◉', label: 'Cuentas' }, { icon: '▣', label: 'Wallets' }, { icon: '⚡', label: 'Pagos AR' }, { icon: '◎', label: 'Cobranzas' }, { icon: '▭', label: 'ECHEQ' }, { icon: '▰', label: 'Tarjetas' }, { icon: '◇', label: 'Riesgo' },
+  { icon: '◍', label: 'Clientes' }, { icon: '◉', label: 'Cuentas' }, { icon: '▣', label: 'Wallets' }, { icon: '⚡', label: 'Pagos AR' }, { icon: '◎', label: 'Cobranzas' }, { icon: '▭', label: 'ECHEQ' }, { icon: '▰', label: 'Tarjetas' }, { icon: '◇', label: 'Riesgo' },
   { icon: '◫', label: 'Disputas', capability: 'disputes.read' }, { icon: '≋', label: 'Conciliación' }, { icon: '☷', label: 'Operaciones' }, { icon: '⚖', label: 'Aprobaciones' }, { icon: '✓', label: 'Compliance' }, { icon: '⌘', label: 'Plataforma' },
   { icon: '⌁', label: 'Developers', capability: 'credentials.manage' }, { icon: '♙', label: 'Accesos', capability: 'organization.manage' },
-  { icon: '⌾', label: 'Seguridad' },
+  { icon: '⌂', label: 'Organización' }, { icon: '☎', label: 'Soporte' }, { icon: '⌾', label: 'Seguridad' },
 ];
 
 function money(value: number, currency = 'ARS') {
@@ -43,9 +46,10 @@ function statusLabel(status: string) {
   return ({ settled: 'Liquidado', authorized: 'Autorizado', review: 'En revisión', pending: 'Pendiente', reversed: 'Revertido', cancelled: 'Cancelado' } as Record<string, string>)[status] ?? status;
 }
 
-export default function ConsoleClient({ data, user }: {
+export default function ConsoleClient({ data, user, platformOperator = false }: {
   data: DashboardData;
   user: { userId: string; displayName: string; email: string; role: Role; emailVerified: boolean; mfaEnabled: boolean; recoveryCodeCount: number };
+  platformOperator?: boolean;
 }) {
   const router = useRouter();
   const mounted = useSyncExternalStore(() => () => undefined, () => true, () => false);
@@ -145,7 +149,8 @@ export default function ConsoleClient({ data, user }: {
           {visibleNav.map(({ icon, label }) => <button key={label} className={active === label ? 'active' : ''} onClick={() => setActive(label)}><i>{icon}</i>{label}</button>)}
         </nav>
         <label className="mobile-console-nav"><span>MÓDULO</span><select aria-label="Módulo de consola" value={active} onChange={(event) => setActive(event.target.value)}>{visibleNav.map(({ label }) => <option key={label}>{label}</option>)}</select></label>
-        <div className="app-help"><strong>Centro de ayuda</strong><span>Estamos para acompañarte</span></div>
+        <button type="button" className="app-help" onClick={() => setActive('Soporte')}><strong>Centro de ayuda</strong><span>Abrí un caso y seguí su historial</span></button>
+        {platformOperator && <Link className="app-help" href="/ops"><strong>Superadministración</strong><span>Plano de control multi-tenant</span></Link>}
         <button className="app-user" onClick={signOut} title="Cerrar sesión" disabled={signingOut}><b>{user.displayName.slice(0, 2).toUpperCase()}</b><span><strong>{user.displayName}</strong><small>{user.email} · {ROLE_PROFILES[user.role].label}</small></span><i>↗</i></button>
       </aside>
 
@@ -153,7 +158,7 @@ export default function ConsoleClient({ data, user }: {
         <header className="app-topbar"><div><small>CONSOLA /</small><strong>{active}</strong><span className={`role-posture role-${user.role}`}>{ROLE_PROFILES[user.role].posture}</span></div><div className="app-top-actions"><span className="live-pill"><i /> Base y ledger operativos</span>{canOperate && <button className="app-primary" onClick={() => setTransferOpen(true)}>+ Nueva transferencia</button>}</div></header>
         <div className="app-content">
           {shellFeedback && <div className="form-feedback ledger-feedback" role="alert">{shellFeedback}</div>}
-          {active === 'Vista general' ? <>
+          {active === 'Clientes' ? <CustomersPanel role={user.role} /> : active === 'Vista general' ? <>
           <div className="app-welcome"><div><p suppressHydrationWarning>{new Date().toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'America/Argentina/Buenos_Aires' }).toUpperCase()}</p><h1>Todo en orden, {user.displayName.split(' ')[0]}.</h1><span>Tu operación está funcionando con normalidad.</span></div><select aria-label="Período" value={overviewPeriod} onChange={(event) => setOverviewPeriod(event.target.value as '7d' | '30d')}><option value="30d">Últimos 30 días</option><option value="7d">Últimos 7 días</option></select></div>
           <div className="app-kpis">
             <article className="kpi-balance"><div><small>SALDO DISPONIBLE · {primaryBalance?.currency ?? 'ARS'}</small><span>Calculado desde postings</span></div><strong>{money(primaryBalance?.available ?? data.balance, primaryBalance?.currency ?? 'ARS')}</strong><small className="ledger-caption">Contable {money(primaryBalance?.current ?? data.balance, primaryBalance?.currency ?? 'ARS')} · Reservado {money(primaryBalance?.held ?? 0, primaryBalance?.currency ?? 'ARS')}</small><div className="balance-actions">{canOperate && <button onClick={() => setTransferOpen(true)}>↗ Transferir</button>}<button onClick={() => setActive('Cuentas')}>◎ Ver ledger</button></div></article>
@@ -224,6 +229,10 @@ function SecondaryConsoleView({ active, data, role, busy, feedback, onTransfer, 
   if (active === 'Developers') return <DevelopersPanel journalCount={data.journalCount} />;
 
   if (active === 'Plataforma') return <PlatformPanel />;
+
+  if (active === 'Soporte') return <SupportPanel readOnly={!roleCan(role, 'support.write')} />;
+
+  if (active === 'Organización') return <OrganizationPanel canManage={roleCan(role, 'organization.manage')} />;
 
   return null;
 }

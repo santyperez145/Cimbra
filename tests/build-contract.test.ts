@@ -69,3 +69,13 @@ test('el estado de cuenta conserva layout de formulario y métricas responsive',
   assert.match(styles, /@media\(max-width:620px\).*\.book-statement-body \.module-metrics\{grid-template-columns:1fr\}/);
   assert.match(styles, /@media\(max-width:620px\).*\.book-transfers-console>\.module-list>div:not\(\.card-head\)\{[^}]*flex-direction:column/);
 });
+
+test('la consola opera el padrón de clientes sobre la API v1', () => {
+  const consoleClient = readFileSync(join(root, 'app', 'console', 'console-client.tsx'), 'utf8');
+  const panel = readFileSync(join(root, 'app', 'console', 'customers-panel.tsx'), 'utf8');
+  assert.match(consoleClient, /label: 'Clientes'/);
+  assert.match(consoleClient, /active === 'Clientes'/);
+  assert.match(panel, /\/api\/v1\/customers/);
+  assert.match(panel, /Idempotency-Key/);
+  assert.match(panel, /finance\.write/);
+});

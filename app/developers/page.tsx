@@ -28,6 +28,16 @@ const errorResponses = [
 
 const changelog = [
   {
+    date: '02 SEP 2026',
+    title: 'Padrón de clientes en la consola',
+    detail: 'La consola opera GET/POST /api/v1/customers con el mismo contrato del SDK: alta idempotente, last4 fiscal y detalle por id. Viewer lee; operator/admin/owner crean. El KYC/KYB sigue en Compliance. OpenAPI permanece en 192 operaciones.',
+  },
+  {
+    date: '02 SEP 2026',
+    title: 'Soporte, organización, superadmin y catálogo de servicios',
+    detail: 'API v1 de casos de soporte y perfil del tenant, /ops para operadores provisionados, /help y /status públicos, y GET /api/v1/services con fronteras de dominio verificadas. Runtime compartido: ningún servicio se declara standalone. OpenAPI pasa a 192 operaciones. BIND, Dock, tapi, Pismo, Pomelo y Wibond siguen siendo benchmarks.',
+  },
+  {
     date: '01 SEP 2026',
     title: 'Data room público y presupuesto Gate 1',
     detail: 'GET /api/v1/live-readiness publica capitalPlan (USD 500, gastado 0, liveReadyAfterSpend=false). /investors muestra evidencia del sandbox sin clientes ni volumen inventados. El envelope no autoriza AWS pago, Coelsa, banco patrocinante ni Go Live. OpenAPI sigue en 179 operaciones.',
@@ -470,6 +480,8 @@ await cimbra.paymentLinks.refund(link.data.link.id, { amount: '3.00' });`;
       <span className="docs-product">DEVELOPER PLATFORM</span>
       <div>
         <PlatformStatus />
+        <Link href="/help">Ayuda</Link>
+        <Link href="/status">Status</Link>
         <Link href="/openapi.yaml">OpenAPI</Link>
         {user ? <Link className="docs-cta" href="/console">Abrir consola ↗</Link> : <Link className="docs-cta" href="/login?return_to=%2Fconsole">Ingresar ↗</Link>}
       </div>
@@ -520,7 +532,7 @@ await cimbra.paymentLinks.refund(link.data.link.id, { amount: '3.00' });`;
           <article><strong>{API_SCOPES.length}</strong><span>Scopes S2S canónicos</span></article>
           <article><strong>{WEBHOOK_EVENT_TYPES.length}</strong><span>Tipos de evento emitidos</span></article>
         </div>
-        <div className="docs-callout"><i>i</i><div><strong>Entorno sandbox, contrato de producción</strong><p>Customers, KYC/KYB, cuentas, wallets, book transfers, estados de cuenta, tarjetas, beneficiarios, lotes de payouts, servicios, obligaciones, recargas, mandatos, movimientos, ledger, riesgo, conciliación, disputas, operaciones, aprobaciones y webhooks se persisten sobre el núcleo real. El host activo es sandbox, como sandbox.bind.com.ar, sandbox.pismolabs.io y sandbox.api.pomelo.la. Live exige hostname de producción, producto en Go Live, rieles oficiales BCRA/Coelsa/sponsor en live y un adaptador Cimbra registrado.</p></div></div>
+        <div className="docs-callout"><i>i</i><div><strong>Entorno sandbox, contrato de producción</strong><p>Customers, KYC/KYB, cuentas, wallets, book transfers, estados de cuenta, tarjetas, beneficiarios, lotes de payouts, servicios, obligaciones, recargas, mandatos, movimientos, ledger, riesgo, conciliación, disputas, operaciones, aprobaciones, soporte, organización, topología de servicios y webhooks se persisten sobre el núcleo real. El host activo es sandbox, como sandbox.bind.com.ar, sandbox.pismolabs.io y sandbox.api.pomelo.la. Live exige hostname de producción, producto en Go Live, rieles oficiales BCRA/Coelsa/sponsor en live y un adaptador Cimbra registrado.</p></div></div>
       </section>
 
       <section id="environments" className="docs-section">

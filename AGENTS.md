@@ -32,6 +32,14 @@ Una capacidad no está terminada por tener una pantalla o un endpoint aislado. D
 - No simular integraciones ni declarar productivo lo que carece de riel, contrato, licencia, certificación, SLO y evidencia operativa.
 - Priorizar seguridad, trazabilidad, segregación de funciones, doble control, reconciliación y recuperación ante fallos sobre amplitud superficial.
 
+## Servicios y fronteras
+
+- La plataforma se construye como un conjunto de servicios de dominio con datos propios. Cada tabla pertenece a exactamente un servicio y cada módulo que escribe datos pertenece a exactamente un servicio; `app/lib/platform/service-catalog.ts` es el catálogo canónico y `tests/service-boundaries.test.ts` lo hace cumplir.
+- Ningún servicio escribe tablas de otro salvo por el contrato del kernel de auditoría o por una deuda de extracción declarada, con tabla, propietario y razón. La deuda es visible y auditable: no puede crecer en silencio.
+- Todo servicio nuevo declara misión, datos propios, superficie API, eventos publicados, compuerta de extracción y comparación con el mercado antes de escribir código.
+- La separación a runtime independiente se decide por volumen, riesgo, disponibilidad exigida o perímetro regulatorio, nunca por moda arquitectónica. Hasta que una compuerta se cumpla, los servicios corren en un runtime compartido con fronteras verificadas, listos para extraerse sin reescritura.
+- No se activa infraestructura paga para separar servicios sin autorización expresa del gasto. Un servicio con deuda de extracción cero se considera extraíble; reducir esa deuda es trabajo de arquitectura prioritario.
+
 ## Producto y experiencia por rol
 
 - Owner: gobierno del tenant, seguridad, miembros, políticas, credenciales y visibilidad total.

@@ -1,7 +1,8 @@
 import { requireUser } from '@/app/lib/auth/session';
-import { getDashboardData } from '@/db/runtime';
-import { AccessControlError } from '@/db/access';
 import { remainingRecoveryCodes } from '@/app/lib/auth/mfa';
+import { isPlatformOperatorEmail } from '@/app/lib/platform/platform-ops';
+import { AccessControlError } from '@/db/access';
+import { getDashboardData } from '@/db/runtime';
 import ConsoleClient from './console-client';
 import { redirect } from 'next/navigation';
 
@@ -16,5 +17,5 @@ export default async function ConsolePage() {
     throw error;
   }
   const recoveryCodeCount = user.mfaEnabled ? await remainingRecoveryCodes(user.userId) : 0;
-  return <ConsoleClient data={data} user={{ userId: user.userId, displayName: user.displayName, email: user.email, role: data.role, emailVerified: user.emailVerified, mfaEnabled: user.mfaEnabled, recoveryCodeCount }} />;
+  return <ConsoleClient data={data} platformOperator={isPlatformOperatorEmail(user.email)} user={{ userId: user.userId, displayName: user.displayName, email: user.email, role: data.role, emailVerified: user.emailVerified, mfaEnabled: user.mfaEnabled, recoveryCodeCount }} />;
 }

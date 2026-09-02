@@ -10,12 +10,16 @@ Superficies disponibles:
 
 - `/` — propuesta comercial profesional, estado de sesión contextual, prueba técnica, casos de uso, modelo de acceso y captación persistente de leads.
 - `/investors` — data room público: evidencia de sandbox, presupuesto de USD 500 para Gate 1, camino PSPCP y captura de inversores. Sin tracción inventada. Live sigue fail-closed.
-- `/developers` — portal técnico generado desde OpenAPI con entornos, quickstart ejecutable, auth/RBAC/scopes, errores, rate limits, SDK descargable, webhooks, catálogo de eventos y las 179 operaciones publicadas.
+- `/help` — centro de ayuda público con los mismos artículos que la consola: sandbox, roles, clientes, soporte, PSPCP y API keys.
+- `/status` — estado público fail-closed: modo efectivo, liveReady y topología de servicios de dominio. El JSON operativo sigue en `/api/health`.
+- `/ops` — superadministración de Cimbra. Acceso por `CIMBRA_PLATFORM_OPERATOR_EMAILS`, no por rol del tenant. Sin operadores provisionados, la ruta existe y deniega.
+- `/developers` — portal técnico generado desde OpenAPI con entornos, quickstart ejecutable, auth/RBAC/scopes, errores, rate limits, SDK descargable, webhooks, catálogo de eventos y las 192 operaciones publicadas.
 - `/login` — registro e inicio de sesión propio con usuario/email y contraseña; OAuth Google y Apple se activa al configurar sus credenciales.
 - `/forgot-password`, `/reset-password` y `/verify-email` — ciclo de vida de cuenta con tokens opacos, expiración, uso único y respuestas anti-enumeración.
-- `/console` — consola protegida y consciente del rol; owner/admin administran miembros e invitaciones, operator ejecuta, viewer trabaja en modo lectura y Operaciones unifica ownership, SLA y expedientes de riesgo/conciliación.
+- `/console` — consola protegida y consciente del rol; owner/admin administran miembros e invitaciones, operator ejecuta, viewer trabaja en modo lectura. El padrón de clientes, Compliance y Operaciones unifican altas, KYC/KYB, ownership, SLA y expedientes.
 - `/api/health` — readiness sin caché para esquema PostgreSQL, secretos críticos y modo operativo (`environment`, `liveReady`), sin exponer valores secretos.
-- `/api/v1/*` — API pública versionada. Incluye `GET /api/v1/live-readiness` (entornos, productos, rieles oficiales BCRA/Coelsa/sponsor y camino PSPCP) además de customers, KYC/KYB, accounts, statements, wallets, book transfers, pagos instantáneos AR, cobranzas, cards, transfers, payments, payouts, billers, riesgo, conciliación, operaciones, settlement, aprobaciones, holds, ledger, events, compliance y webhooks.
+- `/api/v1/*` — API pública versionada. Incluye `GET /api/v1/live-readiness`, `GET /api/v1/services` (catálogo de servicios de dominio y deuda de extracción), soporte, organización, customers, KYC/KYB, accounts, statements, wallets, book transfers, pagos instantáneos AR, cobranzas, cards, transfers, payments, payouts, billers, riesgo, conciliación, operaciones, settlement, aprobaciones, holds, ledger, events, compliance y webhooks.
+- `/api/ops/*` — plano de control multi-tenant para operadores de plataforma. Sesión humana únicamente.
 - `/api/sandbox/*` — alias de compatibilidad deprecado; las integraciones nuevas deben usar v1.
 - `/api/platform/api-keys` — claves Bearer con scopes, vencimiento, rate limit, rotación y revocación inmediata.
 - `/api/platform/access` — miembros, invitaciones verificadas, jerarquía de roles, revocación y trazabilidad del tenant.
@@ -63,7 +67,7 @@ La aplicación corre sobre Next.js en Vercel, PostgreSQL administrado y Vercel B
 4. Cargá `CIMBRA_PUBLIC_URL` y `NEXT_PUBLIC_CIMBRA_PUBLIC_URL` con el dominio público HTTPS.
 5. Generá valores aleatorios independientes de 32 bytes para `CIMBRA_ENCRYPTION_KEY` y `CRON_SECRET`; guardalos como secretos del entorno.
 6. Verificá un dominio en Resend y cargá `RESEND_API_KEY` y `CIMBRA_FROM_EMAIL`; sin ambos valores el producto no simula envíos y muestra el proveedor como pendiente. En producción activá `CIMBRA_REQUIRE_VERIFIED_EMAIL=1` y `CIMBRA_REQUIRE_PRIVILEGED_MFA=1`; la infraestructura AWS ya lo hace automáticamente.
-7. Cargá las credenciales de Google y Apple indicadas en `.env.example` si esos proveedores se habilitarán.
+7. Cargá las credenciales de Google y Apple indicadas en `.env.example` si esos proveedores se habilitarán. Para habilitar `/ops`, cargá `CIMBRA_PLATFORM_OPERATOR_EMAILS` con emails verificados; vacío deja la superficie fail-closed.
 8. Ejecutá `npm run db:migrate` una vez por ambiente antes de desplegar el código que depende de la migración. Las migraciones son la única fuente de verdad del esquema.
 9. Desplegá con la integración Git o mediante `npm run deploy`.
 

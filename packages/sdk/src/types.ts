@@ -577,3 +577,34 @@ export type CreateDisputeInput = {
   transactionId: string; reason: DisputeReason; description: string; amount: string; currency: Currency; provisionalCreditRequested?: boolean;
 };
 export type CreateWebhookInput = { name: string; url: string; eventTypes: string[] };
+
+export type SupportCategory = 'sandbox' | 'api' | 'console' | 'compliance' | 'commercial' | 'other';
+export type SupportCaseStatus = 'open' | 'pending_cimbra' | 'pending_tenant' | 'resolved' | 'closed';
+export type SupportCase = {
+  id: string; organizationId: string; openedBy: string; openedByName: string; category: SupportCategory;
+  subject: string; status: SupportCaseStatus; createdAt: string; updatedAt: string; messageCount: number;
+};
+export type SupportMessage = {
+  id: string; caseId: string; authorId: string; authorName: string; authorKind: 'tenant' | 'platform';
+  body: string; createdAt: string;
+};
+export type SupportCaseThread = { case: SupportCase; messages: SupportMessage[] };
+export type SupportCaseResult = { ok: true; case: SupportCase; messages: SupportMessage[]; replayed: boolean };
+export type OpenSupportCaseInput = { category: SupportCategory; subject: string; message: string };
+
+export type Organization = {
+  id: string; name: string; slug: string; country: string; status: string; createdAt: string; memberCount: number;
+};
+export type UpdateOrganizationInput = { name?: string; country?: 'AR' | 'MX' | 'CO' | 'BR' | 'CL' | 'PE' };
+
+export type ServiceExtractionDebt = { table: string; owner: string; reason: string };
+export type ServiceTopology = {
+  services: Array<{
+    id: string; name: string; mission: string; runtime: 'in_process' | 'standalone'; ownedTables: number;
+    modules: number; publishes: string[]; extractable: boolean; extractionDebt: ServiceExtractionDebt[];
+    extractionGate: string; benchmark: string;
+  }>;
+  totals: { services: number; standalone: number; extractable: number; ownedTables: number; extractionDebt: number };
+  kernelContract: string[];
+  posture: string;
+};

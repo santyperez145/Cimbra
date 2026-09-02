@@ -4,8 +4,9 @@
 
 - marca y narrativa comercial orientada a compradores, con capacidades y límites verificables;
 - sitio responsive, sesión contextual y captación persistente;
-- portal developer conectado al OpenAPI real, con las 179 operaciones, parámetros, respuestas, búsqueda, quickstart ejecutable, límites del entorno sandbox y changelog;
+- portal developer conectado al OpenAPI real, con las 192 operaciones, parámetros, respuestas, búsqueda, quickstart ejecutable, límites del entorno sandbox y changelog;
 - `GET /api/v1/live-readiness` y `/api/health` exponen sandbox vs production, etapas Pomelo Integración → Homologación → Go Live, productos del catálogo público, rieles oficiales (BCRA, Coelsa, banco patrocinante, PCI), el camino PSPCP y el envelope de USD 500 de Gate 1 (`capitalPlan`, gastado 0); `liveReady=false` porque no hay hostname, inscripción, riel live ni adaptador. Gastar ese presupuesto no marca Go Live.
+- soporte tenant-scoped (`/api/v1/support`), perfil de organización, catálogo de servicios (`GET /api/v1/services`), centro de ayuda `/help`, status público `/status` y superadministración `/ops` restringida a `CIMBRA_PLATFORM_OPERATOR_EMAILS`. Los servicios de dominio corren en runtime compartido; extraer uno exige volumen o riesgo y autorización de gasto.
 - identidad y consola multi-tenant básica;
 - registro e inicio de sesión propio, sesiones revocables y OAuth Google/Apple;
 - sandbox persistente para customers, accounts, statements, book transfers, cards y transfers;
@@ -43,7 +44,7 @@
 
 Presupuesto autorizado: **USD 500**. Compra consulta legal del camino SAS/PSPCP, dominio y búsqueda marcaria, entrevistas a design partners y correo transaccional. No constituye sociedad, no inscribe el PSP (el trámite BCRA es gratuito pero exige persona jurídica), no paga Coelsa ni un banco patrocinante, no activa AWS pago y no marca Go Live.
 
-El data room público vive en `/investors` y se deriva de `live-readiness`, el catálogo y el envelope. No hay clientes, volumen ni LOIs inventados.
+El data room público vive en `/investors` y se deriva de `live-readiness`, el catálogo, el envelope y la topología de servicios. No hay clientes, volumen ni LOIs inventados. `/help` y `/status` son superficies públicas reales; `/ops` no se habilita por rol de tenant.
 
 - entrevistas con 15 compradores y 5 equipos técnicos;
 - tres cartas de intención con caso de uso, volumen y mercado;

@@ -132,6 +132,7 @@ export const WEBHOOK_EVENT_TYPES = [
   'approval.request_cancelled',
   'approval.request_expired',
   'approval.request_failed',
+  'organization.updated',
   'organization.invitation_created',
   'organization.invitation_accepted',
   'organization.invitation_revoked',
@@ -146,6 +147,9 @@ export const WEBHOOK_EVENT_TYPES = [
   'due_diligence.rejected',
   'due_diligence.cancelled',
   'due_diligence.expired',
+  'support.case_opened',
+  'support.message_added',
+  'support.status_updated',
 ] as const;
 
 export type WebhookEventType = typeof WEBHOOK_EVENT_TYPES[number] | '*';

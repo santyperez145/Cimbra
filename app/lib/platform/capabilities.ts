@@ -126,6 +126,18 @@ export const PLATFORM_CAPABILITIES: readonly PlatformCapability[] = [
     interfaces: ['rest_api', 'webhooks', 'sdk', 'console'], regulatoryBoundary: 'Disponible para integración técnica; los endpoints sandbox no autorizan ni liquidan fondos reales.',
   },
   {
+    id: 'tenant-support', name: 'Support Desk', domain: 'platform', availability: 'sandbox', delivery: 'cimbra_native',
+    summary: 'Casos de soporte del tenant con historial append-only, webhooks y superadministración de plataforma.',
+    features: ['casos con categoría', 'thread append-only', 'idempotencia', 'RBAC support:read/write', 'ops /ops', 'centro de ayuda /help'],
+    interfaces: ['rest_api', 'webhooks', 'sdk', 'console'], regulatoryBoundary: 'No es un SLA comercial ni un canal de red. Los operadores de plataforma se provisionan por lista explícita, no por rol del tenant.',
+  },
+  {
+    id: 'domain-services', name: 'Domain Services & Extraction Gates', domain: 'platform', availability: 'foundation', delivery: 'cimbra_native',
+    summary: 'Catálogo de servicios de dominio con datos propios, deuda de extracción visible y runtime compartido hasta que volumen o riesgo justifiquen separación.',
+    features: ['owned tables', 'boundary tests', 'extraction debt', 'GET /api/v1/services', 'zero standalone without spend auth'],
+    interfaces: ['rest_api', 'console'], regulatoryBoundary: 'No se activa infraestructura paga para separar servicios. Extraer el ledger o un riel exige volumen, riesgo o perímetro regulatorio, no moda arquitectónica.',
+  },
+  {
     id: 'capital-live-path', name: 'Capital Plan & Investor Evidence', domain: 'platform', availability: 'foundation', delivery: 'cimbra_native',
     summary: 'Envelope de USD 500 para Gate 1, data room público sin tracción inventada y camino PSPCP fail-closed.',
     features: ['USD 500 Gate 1 envelope', 'forbidden AWS/Coelsa/Go Live spend', 'public /investors data room', 'live-readiness capitalPlan', 'zero invented traction'],
