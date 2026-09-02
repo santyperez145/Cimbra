@@ -847,6 +847,11 @@ export async function resolveHold(input: {
             SELECT id FROM payment_qrs WHERE organization_id = ? AND payload = (SELECT qr_payload FROM instant_transfers WHERE id = ?)
           )`)
           .bind(pendingInstant.id, now, input.organizationId, input.organizationId, pendingInstant.id).run();
+        await transaction.prepare(`UPDATE payment_links SET status = 'paid', paid_method = 'cimbra_qr', updated_at = ?
+          WHERE organization_id = ? AND status = 'pending' AND qr_debt_id IN (
+            SELECT id FROM qr_debts WHERE organization_id = ? AND paid_transfer_id = ?
+          )`)
+          .bind(now, input.organizationId, input.organizationId, pendingInstant.id).run();
       }
       await insertAudit(transaction, {
         organizationId: input.organizationId, actorId: input.actor.userId, action: `instant.transfer_${transferStatus}`,

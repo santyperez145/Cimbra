@@ -932,6 +932,18 @@ export async function payPaymentQr(input: {
       }
       return { transfer: serializeTransfer(existing), replayed: true };
     }
+    const qrPeek = await database.prepare(
+      'SELECT kind FROM payment_qrs WHERE organization_id = ? AND id = ? LIMIT 1',
+    ).bind(input.organizationId, input.qrId).first<{ kind: string }>();
+    if (qrPeek?.kind === 'debt') {
+      const debtPeek = await database.prepare(
+        'SELECT id FROM qr_debts WHERE organization_id = ? AND payment_qr_id = ? LIMIT 1',
+      ).bind(input.organizationId, input.qrId).first<{ id: string }>();
+      if (debtPeek) {
+        await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+          .bind(`${input.organizationId}:debt-settle:${debtPeek.id}`).first();
+      }
+    }
     const qr = await database.prepare(
       `SELECT id, account_id AS "accountId", amount_minor::text AS "amountMinor", description, payload, kind, status, expires_at AS "expiresAt"
        FROM payment_qrs WHERE organization_id = ? AND id = ? FOR UPDATE`,
@@ -1022,6 +1034,19 @@ export async function payPaymentQr(input: {
         resourceType: 'qr_debt', resourceId: debt.id,
         payload: { transferId: id, paymentQrId: qr.id, amountMinor: amountMinor.toString() },
       });
+      const linked = await database.prepare(
+        `SELECT id FROM payment_links WHERE organization_id = ? AND qr_debt_id = ? AND status IN ('open', 'pending') LIMIT 1`,
+      ).bind(input.organizationId, debt.id).first<{ id: string }>();
+      if (linked) {
+        await database.prepare(`UPDATE payment_links SET status = 'paid', paid_method = 'cimbra_qr',
+          payer_account_id = ?, transaction_id = ?, updated_at = ? WHERE id = ?`)
+          .bind(source.id, movement.transactionId, createdAt, linked.id).run();
+        await insertAudit(database, {
+          organizationId: input.organizationId, actorId: input.actor.userId, action: 'collection.link_paid',
+          resourceType: 'payment_link', resourceId: linked.id,
+          payload: { method: 'cimbra_qr', status: 'paid', transactionId: movement.transactionId, via: 'payment_qr' },
+        });
+      }
     }
     await insertAudit(database, {
       organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.qr_paid',

@@ -34,7 +34,7 @@ async function create(request: Request) {
         : parsed.unsupportedMethod === 'pos' || parsed.unsupportedMethod === 'tap_to_phone' ? 'presentment_acquiring_not_supported'
           : 'interoperable_qr_not_supported';
       return NextResponse.json({
-        error: 'El sandbox de cobranzas no procesa tarjetas, POS ni QR interoperable. Usá internal o sandbox_inbound.',
+        error: 'El sandbox de cobranzas no procesa tarjetas, POS ni QR interoperable. Usá internal, sandbox_inbound, cimbra_qr o cimbra_cvu.',
         code,
       }, { status: 422 });
     }

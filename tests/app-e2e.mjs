@@ -119,11 +119,11 @@ async function cleanup() {
       await transaction`DELETE FROM payout_batches WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM payout_beneficiaries WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM qr_sale_orders WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM payment_links WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM qr_debts WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM instant_transfers WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM collection_tills WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM payment_qrs WHERE organization_id = ${organizationId}`;
-      await transaction`DELETE FROM payment_links WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM echeq_endorsements WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM echeqs WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM rail_instruments WHERE organization_id = ${organizationId}`;
@@ -1045,6 +1045,100 @@ try {
   }), 404);
   assert.equal(tillPushOff.error.code, 'unknown_sandbox_cvu');
   assert.ok((await json(await request('/api/v1/collection-tills?limit=10'), 200)).data.some((item) => item.id === tillCreated.till.id));
+
+  const linkedDebt = await json(await request('/api/v1/qr-debts', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-link-debt-${runId}` },
+    body: JSON.stringify({
+      accountId: destinationAccount.id, externalReference: `DEUDA-LINK-${runId}`, description: 'Deuda del link',
+      amount: '7.00', currency: 'ARS',
+    }),
+  }), 201);
+  const linkedTill = await json(await request('/api/v1/collection-tills', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-link-till-${runId}` },
+    body: JSON.stringify({
+      accountId: destinationAccount.id, externalReference: `TILL-LINK-${runId}`, name: 'Caja link',
+    }),
+  }), 201);
+  const missingDebt = await json(await request('/api/v1/payment-links', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-link-qr-missing-${runId}` },
+    body: JSON.stringify({
+      accountId: destinationAccount.id, externalReference: `FAC-QR-MISS-${runId}`, description: 'Sin deuda',
+      amount: '7.00', currency: 'ARS', methods: ['cimbra_qr'],
+    }),
+  }), 400);
+  assert.equal(missingDebt.error.code, 'invalid_payment_link');
+  const debtLink = await json(await request('/api/v1/payment-links', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-link-qr-${runId}` },
+    body: JSON.stringify({
+      accountId: destinationAccount.id, externalReference: `FAC-QR-${runId}`, description: 'Link con deuda',
+      amount: '7.00', currency: 'ARS', methods: ['cimbra_qr'], qrDebtId: linkedDebt.debt.id,
+    }),
+  }), 201);
+  assert.equal(debtLink.link.qrDebtId, linkedDebt.debt.id);
+  assert.match(debtLink.link.qrPayload, /^cimbra:qr:debt:v1:/);
+  const duplicateDebtLink = await json(await request('/api/v1/payment-links', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-link-qr-dup-${runId}` },
+    body: JSON.stringify({
+      accountId: destinationAccount.id, externalReference: `FAC-QR-DUP-${runId}`, description: 'Misma deuda',
+      amount: '7.00', currency: 'ARS', methods: ['cimbra_qr'], qrDebtId: linkedDebt.debt.id,
+    }),
+  }), 409);
+  assert.equal(duplicateDebtLink.error.code, 'qr_debt_link_conflict');
+  const paidDebtLink = await json(await request(`/api/v1/payment-links/${debtLink.link.id}/pay`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-link-qr-pay-${runId}` },
+    body: JSON.stringify({ method: 'cimbra_qr', payerAccountId: account.id }),
+  }), 201);
+  assert.equal(paidDebtLink.link.status, 'paid'); assert.equal(paidDebtLink.link.paidMethod, 'cimbra_qr');
+  const settledDebt = await json(await request(`/api/v1/qr-debts/${linkedDebt.debt.id}`), 200);
+  assert.equal(settledDebt.status, 'paid');
+  const syncDebt = await json(await request('/api/v1/qr-debts', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-link-debt-sync-${runId}` },
+    body: JSON.stringify({
+      accountId: destinationAccount.id, externalReference: `DEUDA-SYNC-${runId}`, description: 'Deuda sincronizada',
+      amount: '5.00', currency: 'ARS',
+    }),
+  }), 201);
+  const syncLink = await json(await request('/api/v1/payment-links', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-link-sync-${runId}` },
+    body: JSON.stringify({
+      accountId: destinationAccount.id, externalReference: `FAC-SYNC-${runId}`, description: 'Link sincronizado',
+      amount: '5.00', currency: 'ARS', methods: ['cimbra_qr'], qrDebtId: syncDebt.debt.id,
+    }),
+  }), 201);
+  const qrPaid = await json(await request(`/api/v1/payment-qrs/${syncDebt.debt.paymentQrId}/pay`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-link-sync-pay-${runId}` },
+    body: JSON.stringify({
+      sourceAccountId: account.id, externalReference: `QR-SYNC-${runId}`,
+    }),
+  }), 201);
+  assert.equal(qrPaid.transfer.status, 'settled');
+  const synced = await json(await request(`/api/v1/payment-links/${syncLink.link.id}`), 200);
+  assert.equal(synced.status, 'paid'); assert.equal(synced.paidMethod, 'cimbra_qr');
+  const cvuLink = await json(await request('/api/v1/payment-links', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-link-cvu-${runId}` },
+    body: JSON.stringify({
+      accountId: destinationAccount.id, externalReference: `FAC-CVU-${runId}`, description: 'Link con till',
+      amount: '8.00', currency: 'ARS', methods: ['cimbra_cvu'], collectionTillId: linkedTill.till.id,
+    }),
+  }), 201);
+  assert.equal(cvuLink.link.collectionTillId, linkedTill.till.id); assert.equal(cvuLink.link.cvu, linkedTill.till.cvu);
+  const paidCvuLink = await json(await request(`/api/v1/payment-links/${cvuLink.link.id}/pay`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-link-cvu-pay-${runId}` },
+    body: JSON.stringify({ method: 'cimbra_cvu', payerAccountId: account.id }),
+  }), 201);
+  assert.equal(paidCvuLink.link.status, 'paid'); assert.equal(paidCvuLink.link.paidMethod, 'cimbra_cvu');
+  const inboundCvuLink = await json(await request('/api/v1/payment-links', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-link-cvu-in-${runId}` },
+    body: JSON.stringify({
+      accountId: destinationAccount.id, externalReference: `FAC-CVU-IN-${runId}`, description: 'Link inbound till',
+      amount: '3.00', currency: 'ARS', methods: ['cimbra_cvu'], collectionTillId: linkedTill.till.id,
+    }),
+  }), 201);
+  const inboundCvuPaid = await json(await request(`/api/v1/payment-links/${inboundCvuLink.link.id}/pay`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-link-cvu-in-pay-${runId}` },
+    body: JSON.stringify({ method: 'cimbra_cvu' }),
+  }), 201);
+  assert.equal(inboundCvuPaid.link.status, 'paid'); assert.equal(inboundCvuPaid.link.paidMethod, 'cimbra_cvu');
 
   const beneficiaryCuit = '30000075678';
   const echeqPayload = {
@@ -2440,7 +2534,7 @@ try {
 
   console.log(JSON.stringify({
     ok: true,
-    checks: ['auth', 'landing-session-state', 'console-session-guard', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'viewer-read-only', 'member-invitations', 'dual-control', 'maker-checker', 'transfer-approval', 'book-transfer-approval', 'approval-replay', 'approval-fail-closed', 'payout-approval', 'risk-case-approval', 'risk-hold-bypass-guard', 'reconciliation-exception-approval', 'disputes', 'partial-dispute', 'dispute-ledger-credit', 'dispute-compensation', 'dispute-approval', 'dispute-evidence', 'dispute-rbac', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'book-transfers', 'account-statements', 'book-transfer-compensation', 'book-transfer-rbac', 'wallets', 'wallet-pockets', 'wallet-lifecycle', 'wallet-rbac', 'instant-payments', 'cvu-alias', 'alias-assign', 'cvu-revoke', 'holder-confirmation', 'internal-credit', 'sandbox-outbound', 'internal-debit', 'cimbra-qr', 'qr-sale-orders', 'qr-debts', 'instant-return', 'instant-rbac', 'collections', 'payment-links', 'collection-tills', 'collection-internal', 'collection-inbound', 'collection-refund', 'collection-cancel', 'collection-card-denied', 'collection-rbac', 'echeqs', 'echeq-accept', 'echeq-deposit', 'echeq-cancel', 'echeq-return', 'echeq-nsf', 'echeq-discount-denied', 'echeq-rbac', 'payout-beneficiaries', 'protected-payout-destination', 'payout-batches', 'payout-scheduling', 'payout-result-file', 'payout-compensation', 'payout-rbac', 'payout-s2s', 'billers', 'biller-obligations', 'protected-subscriber-reference', 'bill-payments', 'mobile-topups', 'gift-cards', 'recurring-mandates', 'mandate-consent', 'biller-rbac', 'biller-s2s', 'bill-payment-compensation', 'cdd-kyb', 'cdd-evidence', 'cdd-idempotency', 'cdd-maker-checker', 'cdd-s2s-orchestration', 'cdd-session-only-decision', 'cdd-expiry', 'cdd-rbac', 'card-programs', 'card-lifecycle', 'card-controls', 'card-terminal-state', 'card-rbac', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'risk-signals-privacy', 'risk-decision-lists', 'risk-step-up', 'risk-step-up-idempotency', 'risk-step-up-rbac', 'risk-decision-slo', 'risk-confirmed-outcomes', 'risk-supervised-metrics', 'risk-outcome-revisions', 'reconciliation', 'operations-work-queue', 'operations-idempotency', 'operations-evidence', 'operations-rbac', 'csv-import', 'settlement', 'private-evidence', 'audit'],
+    checks: ['auth', 'landing-session-state', 'console-session-guard', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'viewer-read-only', 'member-invitations', 'dual-control', 'maker-checker', 'transfer-approval', 'book-transfer-approval', 'approval-replay', 'approval-fail-closed', 'payout-approval', 'risk-case-approval', 'risk-hold-bypass-guard', 'reconciliation-exception-approval', 'disputes', 'partial-dispute', 'dispute-ledger-credit', 'dispute-compensation', 'dispute-approval', 'dispute-evidence', 'dispute-rbac', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'book-transfers', 'account-statements', 'book-transfer-compensation', 'book-transfer-rbac', 'wallets', 'wallet-pockets', 'wallet-lifecycle', 'wallet-rbac', 'instant-payments', 'cvu-alias', 'alias-assign', 'cvu-revoke', 'holder-confirmation', 'internal-credit', 'sandbox-outbound', 'internal-debit', 'cimbra-qr', 'qr-sale-orders', 'qr-debts', 'instant-return', 'instant-rbac', 'collections', 'payment-links', 'collection-tills', 'collection-internal', 'collection-inbound', 'collection-refund', 'collection-cancel', 'collection-card-denied', 'collection-debt-link', 'collection-till-link', 'collection-rbac', 'echeqs', 'echeq-accept', 'echeq-deposit', 'echeq-cancel', 'echeq-return', 'echeq-nsf', 'echeq-discount-denied', 'echeq-rbac', 'payout-beneficiaries', 'protected-payout-destination', 'payout-batches', 'payout-scheduling', 'payout-result-file', 'payout-compensation', 'payout-rbac', 'payout-s2s', 'billers', 'biller-obligations', 'protected-subscriber-reference', 'bill-payments', 'mobile-topups', 'gift-cards', 'recurring-mandates', 'mandate-consent', 'biller-rbac', 'biller-s2s', 'bill-payment-compensation', 'cdd-kyb', 'cdd-evidence', 'cdd-idempotency', 'cdd-maker-checker', 'cdd-s2s-orchestration', 'cdd-session-only-decision', 'cdd-expiry', 'cdd-rbac', 'card-programs', 'card-lifecycle', 'card-controls', 'card-terminal-state', 'card-rbac', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'risk-signals-privacy', 'risk-decision-lists', 'risk-step-up', 'risk-step-up-idempotency', 'risk-step-up-rbac', 'risk-decision-slo', 'risk-confirmed-outcomes', 'risk-supervised-metrics', 'risk-outcome-revisions', 'reconciliation', 'operations-work-queue', 'operations-idempotency', 'operations-evidence', 'operations-rbac', 'csv-import', 'settlement', 'private-evidence', 'audit'],
   }));
 } finally {
   await cleanup();

@@ -1151,7 +1151,7 @@ paths:
     post:
       operationId: createPaymentLink
       summary: Create a sandbox collection link against an Argentine ARS account
-      description: Payload format cimbra:link:v1 is not a card network checkout. Allowed methods are internal Cimbra accounts or sandbox inbound cash-in. Card, POS and interoperable QR return 422.
+      description: Payload format cimbra:link:v1 is not a card network checkout. Allowed methods are internal Cimbra accounts, sandbox inbound cash-in, Cimbra QR of an associated open debt (cimbra_qr) or the sandbox CVU of an associated collection till (cimbra_cvu). Card, POS, hosted checkout and interoperable QR return 422. The pay amount is closed; partial CVU overpayment is not simulated.
       security: [{ session: [] }, { bearerApiKey: [] }]
       parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody:
@@ -1175,13 +1175,15 @@ paths:
                 methods:
                   type: array
                   minItems: 1
-                  items: { type: string, enum: [internal, sandbox_inbound] }
+                  items: { type: string, enum: [internal, sandbox_inbound, cimbra_qr, cimbra_cvu] }
+                qrDebtId: { type: [string, 'null'], format: uuid }
+                collectionTillId: { type: [string, 'null'], format: uuid }
       responses:
         '201': { description: Payment link created }
         '200': { description: Idempotent replay }
         '400': { description: Invalid payload }
         '403': { description: Missing payments:write scope or finance.write permission }
-        '422': { description: Card, POS or interoperable QR requested }
+        '422': { description: Card, POS, hosted checkout or interoperable QR requested }
   /api/v1/payment-links/{id}:
     get:
       operationId: retrievePaymentLink
@@ -1214,7 +1216,7 @@ paths:
     post:
       operationId: payPaymentLink
       summary: Collect a sandbox payment link
-      description: internal debits another Cimbra account in the tenant. sandbox_inbound posts a cash-in against settlement. Card acquiring is not supported.
+      description: internal debits another Cimbra account in the tenant. sandbox_inbound posts a cash-in against settlement. cimbra_qr pays the associated closed QR debt. cimbra_cvu credits the associated till CVU for the closed link amount. Card acquiring is not supported.
       security: [{ session: [] }, { bearerApiKey: [] }]
       parameters:
         - $ref: '#/components/parameters/ResourceId'
@@ -1228,7 +1230,7 @@ paths:
               additionalProperties: false
               required: [method]
               properties:
-                method: { type: string, enum: [internal, sandbox_inbound, card, pos, tap_to_phone, qr_interoperable] }
+                method: { type: string, enum: [internal, sandbox_inbound, cimbra_qr, cimbra_cvu, card, pos, tap_to_phone, qr_interoperable] }
                 payerAccountId: { type: string, format: uuid }
                 signals: { $ref: '#/components/schemas/RiskSignalsInput' }
       responses:
@@ -3891,7 +3893,7 @@ components:
         updatedAt: { type: string, format: date-time }
     PaymentLink:
       type: object
-      required: [id, accountId, accountReference, customerName, amountMinor, amount, currency, description, externalReference, allowedMethods, payload, status, expiresAt, paidMethod, payerAccountId, payerAccountReference, transactionId, reversalTransactionId, createdAt, updatedAt]
+      required: [id, accountId, accountReference, customerName, amountMinor, amount, currency, description, externalReference, allowedMethods, payload, qrDebtId, collectionTillId, qrPayload, cvu, status, expiresAt, paidMethod, payerAccountId, payerAccountReference, transactionId, reversalTransactionId, createdAt, updatedAt]
       additionalProperties: false
       properties:
         id: { type: string, format: uuid }
@@ -3905,11 +3907,15 @@ components:
         externalReference: { type: string }
         allowedMethods:
           type: array
-          items: { type: string, enum: [internal, sandbox_inbound] }
+          items: { type: string, enum: [internal, sandbox_inbound, cimbra_qr, cimbra_cvu] }
         payload: { type: string }
+        qrDebtId: { type: [string, 'null'], format: uuid }
+        collectionTillId: { type: [string, 'null'], format: uuid }
+        qrPayload: { type: [string, 'null'] }
+        cvu: { type: [string, 'null'] }
         status: { type: string, enum: [open, pending, paid, expired, cancelled, refunded] }
         expiresAt: { type: string, format: date-time }
-        paidMethod: { type: [string, 'null'], enum: [internal, sandbox_inbound] }
+        paidMethod: { type: [string, 'null'], enum: [internal, sandbox_inbound, cimbra_qr, cimbra_cvu] }
         payerAccountId: { type: [string, 'null'], format: uuid }
         payerAccountReference: { type: [string, 'null'] }
         transactionId: { type: [string, 'null'], format: uuid }

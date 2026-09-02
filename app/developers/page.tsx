@@ -29,6 +29,11 @@ const errorResponses = [
 const changelog = [
   {
     date: '01 SEP 2026',
+    title: 'Link de cobro asociado a deuda QR o till',
+    detail: 'POST /api/v1/payment-links acepta qrDebtId y collectionTillId. Los medios cimbra_qr y cimbra_cvu liquidan el QR de la deuda o el CVU del till al monto cerrado. Pagar el QR también cierra el link. No hay checkout hospedado, tarjeta ni QR de red.',
+  },
+  {
+    date: '01 SEP 2026',
     title: 'Punto de recaudación Cimbra con CVU propio',
     detail: 'POST /api/v1/collection-tills emite un CVU sandbox atribuido al till, no un segundo CVU de la cuenta cobradora. PATCH asigna alias de tenant, POST /inbound acredita el ledger y DELETE deshabilita el CVU. La transferencia interna al CVU queda con collectionTillId. No es caja BIND ni crédito Coelsa.',
   },
@@ -415,9 +420,12 @@ const link = await cimbra.paymentLinks.create({
   description: 'Honorarios agosto',
   amount: '18500.00',
   currency: 'ARS',
+  methods: ['cimbra_qr', 'cimbra_cvu'],
+  qrDebtId: '<qr_debt_uuid>',
+  collectionTillId: till.data.till.id,
 });
 await cimbra.paymentLinks.pay(link.data.link.id, {
-  method: 'internal',
+  method: 'cimbra_qr',
   payerAccountId: '<payer_account_uuid>',
 });`;
 
@@ -622,12 +630,12 @@ await cimbra.paymentLinks.pay(link.data.link.id, {
 
       <section id="collections" className="docs-section">
         <p className="docs-kicker">ARGENTINA · COBRANZAS</p><h2>Un link de cobro y un punto de recaudación, sin fingir adquirencia de red.</h2>
-        <p className="docs-section-lede">El comercio emite un link contra una cuenta ARS argentina o un punto de recaudación con CVU sandbox propio. El pagador liquida desde otra cuenta Cimbra del tenant; un inbound sandbox acredita el ledger. La devolución del link usa postings compensatorios.</p>
+        <p className="docs-section-lede">El comercio emite un link contra una cuenta ARS argentina, opcionalmente asociado a una deuda QR abierta o a un punto de recaudación. El pagador liquida desde otra cuenta Cimbra, con inbound sandbox, pagando el QR de la deuda o acreditando el CVU del till. La devolución del link usa postings compensatorios y no reabre la deuda.</p>
         <div className="webhook-contract-grid">
-          <article><strong>Link</strong><p>Monto cerrado, vencimiento y payload <code>cimbra:link:v1</code>. Owner/Admin/Operator crean; Viewer sólo consulta.</p></article>
+          <article><strong>Link</strong><p>Monto cerrado, vencimiento y payload <code>cimbra:link:v1</code>. Puede llevar <code>qrDebtId</code> o <code>collectionTillId</code>. Owner/Admin/Operator crean; Viewer sólo consulta.</p></article>
           <article><strong>Punto de recaudación</strong><p><code>collection_tills</code> emite un CVU <code>000+9999</code> del till. Transferencias internas e inbound quedan con <code>collectionTillId</code>. No es caja BIND.</p></article>
           <article><strong>Scopes</strong><p><code>payments:read/write</code> protege S2S. El cobro entra al motor de riesgo y puede quedar en hold.</p></article>
-          <article><strong>Límite real</strong><p>No hay checkout hospedado PCI, marcas, sucursales ni liquidación a un adquirente. El CVU del till no viaja por Coelsa. BIND y el resto siguen como benchmarks, no conectores.</p></article>
+          <article><strong>Límite real</strong><p>No hay checkout hospedado PCI, marcas, sucursales ni liquidación a un adquirente. El cobro por CVU es de monto cerrado: no se simulan pagos parciales de cámara. El CVU del till no viaja por Coelsa. BIND y el resto siguen como benchmarks, no conectores.</p></article>
         </div>
         <CodeBlock language="TYPESCRIPT · SDK REAL" value={collectionsExample} />
       </section>

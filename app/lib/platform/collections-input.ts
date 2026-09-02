@@ -1,7 +1,7 @@
 import { majorToMinor, normalizeCurrency, type Currency } from '../ledger/money.ts';
 import { normalizeAlias } from './cbu.ts';
 
-export const COLLECTION_METHODS = ['internal', 'sandbox_inbound'] as const;
+export const COLLECTION_METHODS = ['internal', 'sandbox_inbound', 'cimbra_qr', 'cimbra_cvu'] as const;
 export const UNSUPPORTED_COLLECTION_METHODS = ['card', 'pos', 'tap_to_phone', 'qr_interoperable'] as const;
 
 export type CollectionMethod = typeof COLLECTION_METHODS[number];
@@ -19,7 +19,7 @@ function collapsed(value: unknown, min: number, max: number) {
 }
 
 function parseMethods(value: unknown): CollectionMethod[] | UnsupportedCollectionMethod | null {
-  const raw = value === undefined ? [...COLLECTION_METHODS] : value;
+  const raw = value === undefined ? ['internal', 'sandbox_inbound'] : value;
   if (!Array.isArray(raw) || raw.length === 0) return null;
   const unsupported = raw.find((item): item is UnsupportedCollectionMethod =>
     typeof item === 'string' && (UNSUPPORTED_COLLECTION_METHODS as readonly string[]).includes(item));
@@ -32,7 +32,7 @@ function parseMethods(value: unknown): CollectionMethod[] | UnsupportedCollectio
 export function normalizePaymentLinkInput(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const body = value as Record<string, unknown>;
-  if (!hasOnlyKeys(body, ['accountId', 'externalReference', 'description', 'amount', 'currency', 'expiresInMinutes', 'methods'])) {
+  if (!hasOnlyKeys(body, ['accountId', 'externalReference', 'description', 'amount', 'currency', 'expiresInMinutes', 'methods', 'qrDebtId', 'collectionTillId'])) {
     return null;
   }
   const accountId = typeof body.accountId === 'string' ? body.accountId : '';
@@ -41,17 +41,28 @@ export function normalizePaymentLinkInput(value: unknown) {
   const currency = normalizeCurrency(body.currency);
   const expiresInMinutes = body.expiresInMinutes === undefined ? 60 : Number(body.expiresInMinutes);
   const methods = parseMethods(body.methods);
+  const qrDebtId = body.qrDebtId === undefined || body.qrDebtId === null || body.qrDebtId === ''
+    ? null : typeof body.qrDebtId === 'string' ? body.qrDebtId : '';
+  const collectionTillId = body.collectionTillId === undefined || body.collectionTillId === null || body.collectionTillId === ''
+    ? null : typeof body.collectionTillId === 'string' ? body.collectionTillId : '';
   if (!uuid.test(accountId) || !externalReference || !description || currency !== 'ARS'
     || !Number.isInteger(expiresInMinutes) || expiresInMinutes < 5 || expiresInMinutes > 10_080 || !methods) {
     return null;
   }
+  if (qrDebtId && !uuid.test(qrDebtId)) return null;
+  if (collectionTillId && !uuid.test(collectionTillId)) return null;
   if (typeof methods === 'string') {
     return { unsupportedMethod: methods as UnsupportedCollectionMethod };
   }
+  if (methods.includes('cimbra_qr') && !qrDebtId) return null;
+  if (methods.includes('cimbra_cvu') && !collectionTillId) return null;
   let amountMinor: bigint;
   try { amountMinor = majorToMinor(body.amount, currency); } catch { return null; }
   if (amountMinor <= 0n || amountMinor > majorToMinor('10000000', currency)) return null;
-  return { accountId, externalReference, description, amountMinor, currency: currency as Currency, expiresInMinutes, methods };
+  return {
+    accountId, externalReference, description, amountMinor, currency: currency as Currency, expiresInMinutes, methods,
+    qrDebtId, collectionTillId,
+  };
 }
 
 export function normalizePaymentLinkPayInput(value: unknown) {
@@ -66,7 +77,9 @@ export function normalizePaymentLinkPayInput(value: unknown) {
   const payerAccountId = body.payerAccountId === undefined || body.payerAccountId === null || body.payerAccountId === ''
     ? null : typeof body.payerAccountId === 'string' ? body.payerAccountId : '';
   if (method === 'internal' && (!payerAccountId || !uuid.test(payerAccountId))) return null;
+  if (method === 'cimbra_qr' && (!payerAccountId || !uuid.test(payerAccountId))) return null;
   if (method === 'sandbox_inbound' && payerAccountId) return null;
+  if (method === 'cimbra_cvu' && payerAccountId && !uuid.test(payerAccountId)) return null;
   if (payerAccountId && !uuid.test(payerAccountId)) return null;
   return { method: method as CollectionMethod, payerAccountId };
 }

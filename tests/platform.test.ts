@@ -194,6 +194,9 @@ test('los rieles oficiales son contrapartes reguladas y el adaptador falla cerra
   assert.match(qr?.sandboxCoverage ?? '', /orden de venta/);
   assert.match(qr?.sandboxCoverage ?? '', /cimbra:qr:debt:v1/);
   assert.match(qr?.missingForProduction ?? '', /PCT Coelsa/);
+  const collections = evaluateLiveReadiness().products.find((product) => product.id === 'collections');
+  assert.match(collections?.sandboxCoverage ?? '', /cimbra_qr/);
+  assert.match(collections?.sandboxCoverage ?? '', /cimbra_cvu/);
   assert.throws(
     () => dispatchOfficialRail('coelsa_transfers', [{ id: 'coelsa_transfers', status: 'unwired' }]),
     (error: unknown) => error instanceof PlatformRailError && error.code === 'rail_not_wired',
@@ -408,6 +411,25 @@ test('cobranzas validan links de cobro, medios sandbox y rechazan adquirencia de
   assert.equal(normalizePaymentLinkInput({
     accountId, externalReference: 'FAC-003', description: 'Vacío', amount: '10', currency: 'ARS', methods: [],
   }), null);
+  const debtId = '00000000-0000-4000-8000-000000000012';
+  const tillId = '00000000-0000-4000-8000-000000000013';
+  const associated = normalizePaymentLinkInput({
+    accountId, externalReference: 'FAC-004', description: 'Deuda asociada', amount: '80.00', currency: 'ARS',
+    methods: ['cimbra_qr', 'cimbra_cvu'], qrDebtId: debtId, collectionTillId: tillId,
+  });
+  assert.ok(associated); assert.ok(!('unsupportedMethod' in associated));
+  if (!('unsupportedMethod' in associated)) {
+    assert.deepEqual(associated.methods, ['cimbra_cvu', 'cimbra_qr']);
+    assert.equal(associated.qrDebtId, debtId); assert.equal(associated.collectionTillId, tillId);
+  }
+  assert.equal(normalizePaymentLinkInput({
+    accountId, externalReference: 'FAC-005', description: 'QR sin deuda', amount: '10', currency: 'ARS', methods: ['cimbra_qr'],
+  }), null);
+  const qrPay = normalizePaymentLinkPayInput({ method: 'cimbra_qr', payerAccountId: payerId });
+  assert.ok(qrPay); assert.ok(!('unsupportedMethod' in qrPay));
+  if (!('unsupportedMethod' in qrPay)) assert.equal(qrPay.method, 'cimbra_qr');
+  assert.equal(normalizePaymentLinkPayInput({ method: 'cimbra_qr' }), null);
+  assert.deepEqual(normalizePaymentLinkPayInput({ method: 'cimbra_cvu' }), { method: 'cimbra_cvu', payerAccountId: null });
   const internalPay = normalizePaymentLinkPayInput({ method: 'internal', payerAccountId: payerId });
   assert.ok(internalPay); assert.ok(!('unsupportedMethod' in internalPay));
   if (!('unsupportedMethod' in internalPay)) {

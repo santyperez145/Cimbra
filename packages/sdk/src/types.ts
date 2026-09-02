@@ -315,14 +315,15 @@ export type QrDebt = {
   status: 'open' | 'paid' | 'expired' | 'cancelled';
   expiresAt: string; paidTransferId: string | null; createdAt: string; updatedAt: string;
 };
-export type CollectionMethod = 'internal' | 'sandbox_inbound';
+export type CollectionMethod = 'internal' | 'sandbox_inbound' | 'cimbra_qr' | 'cimbra_cvu';
 export type PaymentLink = {
   id: string; accountId: string; accountReference: string; customerName: string;
   amountMinor: string; amount: number; currency: 'ARS'; description: string; externalReference: string;
   allowedMethods: CollectionMethod[]; payload: string;
+  qrDebtId: string | null; collectionTillId: string | null; qrPayload: string | null; cvu: string | null;
   status: 'open' | 'pending' | 'paid' | 'expired' | 'cancelled' | 'refunded'; expiresAt: string;
   paidMethod: CollectionMethod | null; payerAccountId: string | null; payerAccountReference: string | null;
-  transactionId: string | null; reversalTransactionId: string | null;   createdAt: string; updatedAt: string;
+  transactionId: string | null; reversalTransactionId: string | null; createdAt: string; updatedAt: string;
 };
 export type CollectionTill = {
   id: string; accountId: string; accountReference: string; customerName: string;
@@ -472,7 +473,7 @@ export type CreateQrDebtInput = {
 };
 export type CreatePaymentLinkInput = {
   accountId: string; externalReference: string; description: string; amount: string; currency: 'ARS';
-  expiresInMinutes?: number; methods?: CollectionMethod[];
+  expiresInMinutes?: number; methods?: CollectionMethod[]; qrDebtId?: string | null; collectionTillId?: string | null;
 };
 export type CreateCollectionTillInput = {
   accountId: string; externalReference: string; name: string; paymentQrId?: string | null; alias?: string | null;

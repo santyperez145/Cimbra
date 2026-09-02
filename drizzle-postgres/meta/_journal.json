@@ -288,6 +288,13 @@
       "when": 1788310451087,
       "tag": "0040_handy_warstar",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1788311819362,
+      "tag": "0041_pretty_skreet",
+      "breakpoints": true
     }
   ]
 }

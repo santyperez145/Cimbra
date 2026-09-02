@@ -8,7 +8,8 @@ type Account = { id: string; accountReference: string; currency: string; status:
 type PaymentLink = {
   id: string; accountId: string; accountReference: string; customerName: string;
   amount: number; currency: string; description: string; externalReference: string;
-  allowedMethods: string[]; payload: string; status: string; expiresAt: string;
+  allowedMethods: string[]; payload: string; qrDebtId: string | null; collectionTillId: string | null;
+  qrPayload: string | null; cvu: string | null; status: string; expiresAt: string;
   paidMethod: string | null; payerAccountReference: string | null; createdAt: string;
 };
 type CollectionTill = {
@@ -17,6 +18,7 @@ type CollectionTill = {
   paymentQrId: string | null; status: string; createdAt: string;
 };
 type PaymentQr = { id: string; accountId: string; kind: string; status: string; description: string };
+type QrDebt = { id: string; accountId: string; status: string; description: string; externalReference: string; amount: number };
 
 const STATUS_LABELS: Record<string, string> = {
   open: 'Abierto', pending: 'En revisión', paid: 'Cobrado', expired: 'Expirado', cancelled: 'Cancelado', refunded: 'Devuelto',
@@ -39,6 +41,7 @@ export default function CollectionsPanel({ role, accounts }: { role: Organizatio
   const [links, setLinks] = useState<PaymentLink[]>([]);
   const [tills, setTills] = useState<CollectionTill[]>([]);
   const [staticQrs, setStaticQrs] = useState<PaymentQr[]>([]);
+  const [openDebts, setOpenDebts] = useState<QrDebt[]>([]);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState('');
   const canOperate = roleCan(role, 'finance.write');
@@ -50,10 +53,11 @@ export default function CollectionsPanel({ role, accounts }: { role: Organizatio
   const activeTills = tills.filter((till) => till.status === 'active').length;
 
   const load = useCallback(async () => {
-    const [linksResponse, tillsResponse, qrResponse] = await Promise.all([
+    const [linksResponse, tillsResponse, qrResponse, debtResponse] = await Promise.all([
       authenticatedFetch('/api/v1/payment-links?limit=50', { cache: 'no-store' }),
       authenticatedFetch('/api/v1/collection-tills?limit=50', { cache: 'no-store' }),
       authenticatedFetch('/api/v1/payment-qrs?limit=50', { cache: 'no-store' }),
+      authenticatedFetch('/api/v1/qr-debts?limit=50', { cache: 'no-store' }),
     ]);
     const linksResult = await linksResponse.json() as { data?: PaymentLink[]; error?: unknown };
     if (!linksResponse.ok) throw new Error(apiError(linksResult, 'No pudimos cargar los links de cobro.'));
@@ -64,6 +68,10 @@ export default function CollectionsPanel({ role, accounts }: { role: Organizatio
     if (qrResponse.ok) {
       const qrResult = await qrResponse.json() as { data?: PaymentQr[] };
       setStaticQrs((qrResult.data ?? []).filter((qr) => qr.kind === 'static' && qr.status === 'active'));
+    }
+    if (debtResponse.ok) {
+      const debtResult = await debtResponse.json() as { data?: QrDebt[] };
+      setOpenDebts((debtResult.data ?? []).filter((debt) => debt.status === 'open'));
     }
   }, []);
 
@@ -77,7 +85,9 @@ export default function CollectionsPanel({ role, accounts }: { role: Organizatio
     const form = event.currentTarget;
     const data = new FormData(form);
     setBusy(true); setFeedback('');
-    const methods = ['internal', 'sandbox_inbound'].filter((method) => data.get(method) === 'on');
+    const methods = ['internal', 'sandbox_inbound', 'cimbra_qr', 'cimbra_cvu'].filter((method) => data.get(method) === 'on');
+    const qrDebtId = String(data.get('qrDebtId') ?? '');
+    const collectionTillId = String(data.get('collectionTillId') ?? '');
     const response = await authenticatedFetch('/api/v1/payment-links', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
@@ -85,6 +95,7 @@ export default function CollectionsPanel({ role, accounts }: { role: Organizatio
         accountId: data.get('accountId'), externalReference: data.get('externalReference'),
         description: data.get('description'), amount: data.get('amount'), currency: 'ARS',
         expiresInMinutes: Number(data.get('expiresInMinutes') || 60), methods,
+        qrDebtId: qrDebtId || undefined, collectionTillId: collectionTillId || undefined,
       }),
     });
     const result = await response.json() as { error?: unknown };
@@ -105,7 +116,7 @@ export default function CollectionsPanel({ role, accounts }: { role: Organizatio
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
       body: JSON.stringify({
-        method, payerAccountId: method === 'internal' ? data.get('payerAccountId') : undefined,
+        method, payerAccountId: method === 'sandbox_inbound' ? undefined : data.get('payerAccountId') || undefined,
       }),
     });
     const result = await response.json() as { error?: unknown };
@@ -188,7 +199,7 @@ export default function CollectionsPanel({ role, accounts }: { role: Organizatio
   }
 
   return <div className="module-view wallets-console collections-console">
-    <div className="module-view-head"><div><p>ARGENTINA · COBRANZAS</p><h1>Cobranzas</h1><span>Links de cobro y puntos de recaudación con CVU propio. No es caja BIND, POS ni botón de tarjeta.</span></div><span className="module-health"><i /> {openCount} abiertos · {activeTills} puntos</span></div>
+    <div className="module-view-head"><div><p>ARGENTINA · COBRANZAS</p><h1>Cobranzas</h1><span>Links de cobro, deuda QR o till asociado, y puntos de recaudación con CVU propio. No es caja BIND, POS ni botón de tarjeta.</span></div><span className="module-health"><i /> {openCount} abiertos · {activeTills} puntos</span></div>
     {feedback && <div className="form-feedback ledger-feedback">{feedback}</div>}
     <div className="module-metrics">
       <article><span>Abiertos</span><strong>{openCount}</strong></article>
@@ -196,7 +207,7 @@ export default function CollectionsPanel({ role, accounts }: { role: Organizatio
       <article><span>Devueltos</span><strong>{refundedCount}</strong></article>
       <article><span>Puntos activos</span><strong>{activeTills}</strong></article>
     </div>
-    <p className="role-boundary-copy">El link de cobro sandbox se paga con una cuenta Cimbra del tenant o con un inbound ledger. El punto de recaudación emite un CVU sandbox propio: las transferencias internas y el inbound se atribuyen a ese punto. No procesa tarjetas, POS, Tap to Phone ni QR interoperable.</p>
+    <p className="role-boundary-copy">El link sandbox se paga con una cuenta Cimbra, un inbound ledger, el QR de una deuda asociada o el CVU de un till. Un inbound suelto al till no cierra el link. No procesa tarjetas, POS, Tap to Phone, checkout hospedado ni QR interoperable.</p>
     {pendingCount > 0 && <p className="role-boundary-copy">{pendingCount} links en revisión, expirados o cancelados.</p>}
 
     {canOperate && <div className="compliance-grid wallets-grid">
@@ -211,15 +222,19 @@ export default function CollectionsPanel({ role, accounts }: { role: Organizatio
             <legend>Medios sandbox</legend>
             <label><input type="checkbox" name="internal" defaultChecked /> Cuenta Cimbra (eco cerrado)</label>
             <label><input type="checkbox" name="sandbox_inbound" defaultChecked /> Inbound sandbox</label>
+            <label><input type="checkbox" name="cimbra_qr" /> QR de deuda asociada</label>
+            <label><input type="checkbox" name="cimbra_cvu" /> CVU del punto de recaudación</label>
           </fieldset>
+          <label>Deuda QR opcional<select name="qrDebtId" defaultValue=""><option value="">Sin asociar</option>{openDebts.map((debt) => <option key={debt.id} value={debt.id}>{debt.externalReference} · {money(debt.amount)}</option>)}</select></label>
+          <label>Punto opcional<select name="collectionTillId" defaultValue=""><option value="">Sin asociar</option>{tills.filter((till) => till.status === 'active').map((till) => <option key={till.id} value={till.id}>{till.name} · {till.cvu.slice(-4)}</option>)}</select></label>
           <button className="app-primary" disabled={busy || arsAccounts.length === 0}>{busy ? 'Creando…' : 'Crear link'}</button>
         </form>
       </article>
       <article className="integration-card"><div className="card-head"><div><h2>Cobrar un link</h2><p>Internal exige pagador distinto</p></div></div>
         <form className="book-statement-body" onSubmit={pay}>
           <label>Link<select name="linkId" required defaultValue=""><option value="" disabled>Seleccionar</option>{links.filter((link) => link.status === 'open').map((link) => <option key={link.id} value={link.id}>{link.externalReference} · {money(link.amount)}</option>)}</select></label>
-          <label>Método<select name="method" defaultValue="internal"><option value="internal">Cuenta Cimbra</option><option value="sandbox_inbound">Inbound sandbox</option></select></label>
-          <label>Pagador<select name="payerAccountId" defaultValue=""><option value="">Sólo para cobro interno</option>{arsAccounts.map((account) => <option key={account.id} value={account.id}>{account.accountReference}</option>)}</select></label>
+          <label>Método<select name="method" defaultValue="internal"><option value="internal">Cuenta Cimbra</option><option value="sandbox_inbound">Inbound sandbox</option><option value="cimbra_qr">QR de deuda</option><option value="cimbra_cvu">CVU del till</option></select></label>
+          <label>Pagador<select name="payerAccountId" defaultValue=""><option value="">Inbound o CVU sin pagador</option>{arsAccounts.map((account) => <option key={account.id} value={account.id}>{account.accountReference}</option>)}</select></label>
           <button className="app-primary" disabled={busy}>{busy ? 'Cobrando…' : 'Cobrar'}</button>
         </form>
       </article>
@@ -273,7 +288,7 @@ export default function CollectionsPanel({ role, accounts }: { role: Organizatio
         <div className="movement">
           <strong>{link.externalReference}</strong>
           <span>{link.accountReference} · {link.customerName}</span>
-          <small>{link.payload} · {link.allowedMethods.join(' · ')}{link.paidMethod ? ` · cobrado ${link.paidMethod}` : ''}{link.payerAccountReference ? ` · pagador ${link.payerAccountReference}` : ''}</small>
+          <small>{link.payload} · {link.allowedMethods.join(' · ')}{link.qrPayload ? ` · ${link.qrPayload}` : ''}{link.cvu ? ` · ${link.cvu}` : ''}{link.paidMethod ? ` · cobrado ${link.paidMethod}` : ''}{link.payerAccountReference ? ` · pagador ${link.payerAccountReference}` : ''}</small>
         </div>
         <strong>{money(link.amount, link.currency)}</strong>
         <span>{STATUS_LABELS[link.status] ?? link.status}</span>

@@ -1213,6 +1213,8 @@ export const paymentLinks = pgTable('payment_links', {
   reversalTransactionId: text('reversal_transaction_id').references(() => transactions.id, { onDelete: 'restrict' }),
   payIdempotencyKey: text('pay_idempotency_key'), payFingerprint: text('pay_fingerprint'),
   refundIdempotencyKey: text('refund_idempotency_key'),
+  qrDebtId: text('qr_debt_id').references(() => qrDebts.id, { onDelete: 'restrict' }),
+  collectionTillId: text('collection_till_id').references((): AnyPgColumn => collectionTills.id, { onDelete: 'restrict' }),
   createdBy: text('created_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
   createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
 }, (table) => [
@@ -1223,10 +1225,12 @@ export const paymentLinks = pgTable('payment_links', {
   uniqueIndex('idx_payment_links_reversal').on(table.reversalTransactionId),
   uniqueIndex('idx_payment_links_org_pay_idempotency').on(table.organizationId, table.payIdempotencyKey),
   uniqueIndex('idx_payment_links_org_refund_idempotency').on(table.organizationId, table.refundIdempotencyKey),
+  uniqueIndex('idx_payment_links_qr_debt').on(table.qrDebtId).where(sql`${table.qrDebtId} IS NOT NULL`),
   index('idx_payment_links_org_created').on(table.organizationId, table.createdAt),
+  index('idx_payment_links_collection_till').on(table.collectionTillId),
   check('payment_links_currency', sql`${table.currency} = 'ARS'`),
   check('payment_links_status', sql`${table.status} IN ('open', 'pending', 'paid', 'expired', 'cancelled', 'refunded')`),
-  check('payment_links_paid_method', sql`${table.paidMethod} IS NULL OR ${table.paidMethod} IN ('internal', 'sandbox_inbound')`),
+  check('payment_links_paid_method', sql`${table.paidMethod} IS NULL OR ${table.paidMethod} IN ('internal', 'sandbox_inbound', 'cimbra_qr', 'cimbra_cvu')`),
   check('payment_links_amount_positive', sql`${table.amountMinor} > 0`),
 ]);
 
