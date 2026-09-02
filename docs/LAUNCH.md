@@ -4,7 +4,7 @@
 
 - marca y narrativa comercial orientada a compradores, con capacidades y límites verificables;
 - sitio responsive, sesión contextual y captación persistente;
-- portal developer conectado al OpenAPI real, con las 168 operaciones, parámetros, respuestas, búsqueda, quickstart ejecutable, límites del entorno sandbox y changelog;
+- portal developer conectado al OpenAPI real, con las 172 operaciones, parámetros, respuestas, búsqueda, quickstart ejecutable, límites del entorno sandbox y changelog;
 - `GET /api/v1/live-readiness` y `/api/health` exponen sandbox vs production, etapas Pomelo Integración → Homologación → Go Live, productos del catálogo público, rieles oficiales (BCRA, Coelsa, banco patrocinante, PCI) y el camino PSPCP; `liveReady=false` porque no hay hostname, inscripción, riel live ni adaptador;
 - identidad y consola multi-tenant básica;
 - registro e inicio de sesión propio, sesiones revocables y OAuth Google/Apple;
@@ -33,7 +33,7 @@
 - beneficiarios protegidos y payouts masivos con lotes de hasta 100 ítems, maker/checker, agenda/deadline, worker recuperable, riesgo/ledger por ítem y archivo de resultados.
 - book transfers internos con locks de origen/destino, saldo disponible, postings atómicos, riesgo/holds, maker/checker, reversas compensatorias, statements, API, SDK, eventos y consola por rol; no equivalen a un riel bancario externo.
 - wallets nativas con programas tenant, wallets por customer, bolsillos ledger-backed, movimientos internos, freeze/close, API, SDK, eventos y consola por rol; no custodian fondos ni emiten una app de consumidor.
-- pagos instantáneos sandbox para Argentina con CVU 0009999, alias tenant-scoped (asignar o cambiar sobre un CVU existente, un cambio real cada 24 h; eliminar el CVU no borra la cuenta ni el saldo), confirmación de titular, crédito interno o cash-out a settlement, débito interno, QR Cimbra dinámico y estático con orden de venta, devoluciones, API, SDK, eventos y consola; no es Coelsa, DEBIN ni QR interoperable.
+- pagos instantáneos sandbox para Argentina con CVU 0009999, alias tenant-scoped (asignar o cambiar sobre un CVU existente, un cambio real cada 24 h; eliminar el CVU no borra la cuenta ni el saldo), confirmación de titular, crédito interno o cash-out a settlement, débito interno, QR Cimbra dinámico, estático y de deuda con orden de venta, devoluciones, API, SDK, eventos y consola; no es Coelsa, DEBIN ni QR interoperable.
 - cobranzas sandbox para Argentina con links de cobro, eco cerrado entre cuentas Cimbra, inbound ledger y devoluciones compensatorias; no procesa tarjetas, POS ni QR interoperable.
 - ECHEQ sandbox para Argentina con emisión, aceptación, endoso, depósito interno, anulación y devolución previa; no es Coelsa, CMC7, descuento ni compensación a 48 horas.
 - customer due diligence KYC/KYB nativo con partes relacionadas, beneficiarios finales, policy snapshot, checks y evidencia append-only, expiración, API/SDK de orquestación, webhooks, consola por rol y aprobación humana maker/checker; no incluye biometría, consulta oficial ni habilitación regulatoria externa.

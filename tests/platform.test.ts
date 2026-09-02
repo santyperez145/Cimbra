@@ -25,7 +25,7 @@ import { normalizePayoutBatchInput, normalizePayoutBeneficiaryInput, normalizePa
 import { parseBookTransferInput, statementPeriod } from '../app/lib/platform/book-transfers-input.ts';
 import { normalizeWalletInput, normalizeWalletProgramInput, normalizeWalletTransition, parseWalletPocketTransferInput } from '../app/lib/platform/wallets-input.ts';
 import { classifyRailValue, isSandboxCvu, isWellFormedCbu, issueSandboxCvu, normalizeAlias } from '../app/lib/platform/cbu.ts';
-import { aliasChangeBlocked, ALIAS_CHANGE_WINDOW_MS, normalizeAssignAliasInput, normalizeDebitRequestInput, normalizeInstantTransferInput, normalizeIssueInstrumentInput, normalizePaymentQrInput, normalizeQrSaleOrderInput } from '../app/lib/platform/instant-payments-input.ts';
+import { aliasChangeBlocked, ALIAS_CHANGE_WINDOW_MS, normalizeAssignAliasInput, normalizeDebitRequestInput, normalizeInstantTransferInput, normalizeIssueInstrumentInput, normalizePaymentQrInput, normalizeQrDebtInput, normalizeQrSaleOrderInput } from '../app/lib/platform/instant-payments-input.ts';
 import { normalizePaymentLinkInput, normalizePaymentLinkPayInput } from '../app/lib/platform/collections-input.ts';
 import { normalizeCuit } from '../app/lib/platform/cuit.ts';
 import { normalizeEcheqAcceptInput, normalizeEcheqDepositInput, normalizeEcheqEndorseInput, normalizeEcheqInput } from '../app/lib/platform/echeqs-input.ts';
@@ -192,6 +192,7 @@ test('los rieles oficiales son contrapartes reguladas y el adaptador falla cerra
   const qr = evaluateLiveReadiness().products.find((product) => product.id === 'qr_interoperable');
   assert.match(qr?.sandboxCoverage ?? '', /cimbra:qr:static:v1/);
   assert.match(qr?.sandboxCoverage ?? '', /orden de venta/);
+  assert.match(qr?.sandboxCoverage ?? '', /cimbra:qr:debt:v1/);
   assert.match(qr?.missingForProduction ?? '', /PCT Coelsa/);
   assert.throws(
     () => dispatchOfficialRail('coelsa_transfers', [{ id: 'coelsa_transfers', status: 'unwired' }]),
@@ -375,6 +376,14 @@ test('pagos instantáneos validan CBU/CVU, alias, titular y límites de riel san
   assert.equal(normalizeQrSaleOrderInput({
     paymentQrId: accountId, externalReference: 'OV-002', description: 'Mostrador', amount: '15.50', expiresInMinutes: 0,
   }), null);
+  const debt = normalizeQrDebtInput({
+    accountId, externalReference: 'DEUDA-001', description: 'Cuota única', amount: '80.00', currency: 'ARS',
+  });
+  assert.ok(debt); assert.equal(debt.amountMinor, 8000n); assert.equal(debt.expiresInMinutes, 1440);
+  assert.equal(normalizeQrDebtInput({
+    accountId, externalReference: 'DEUDA-002', description: 'Cuota', amount: '80.00', expiresInMinutes: 4,
+  }), null);
+  assert.equal(normalizePaymentQrInput({ accountId, description: 'Deuda', kind: 'debt', amount: '10.00' }), null);
 });
 
 test('cobranzas validan links de cobro, medios sandbox y rechazan adquirencia de red', () => {

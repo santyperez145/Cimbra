@@ -237,7 +237,7 @@ await cimbra.instantTransfers.create({
 await cimbra.railInstruments.revoke(issued.data.instruments[0].id);
 ```
 
-El CVU usa prefijo `000` y código PSP `9999` de Cimbra, no un código Coelsa. El alias vive en el tenant: se asigna o cambia sobre un CVU existente, con un cambio real cada 24 horas. Eliminar el CVU no borra la cuenta ni el saldo. Un débito externo no está soportado. El QR dinámico `cimbra:qr:v1` se consume en un pago; el estático `cimbra:qr:static:v1` es reutilizable hasta cancelarlo. Una orden de venta Cimbra fija un monto cerrado sobre ese QR estático.
+El CVU usa prefijo `000` y código PSP `9999` de Cimbra, no un código Coelsa. El alias vive en el tenant: se asigna o cambia sobre un CVU existente, con un cambio real cada 24 horas. Eliminar el CVU no borra la cuenta ni el saldo. Un débito externo no está soportado. El QR dinámico `cimbra:qr:v1` se consume en un pago; el estático `cimbra:qr:static:v1` es reutilizable hasta cancelarlo. Una orden de venta Cimbra fija un monto cerrado sobre ese QR estático. Un QR de deuda `cimbra:qr:debt:v1` es un recurso primario con monto cerrado y un solo pago.
 
 ```ts
 const staticQr = await cimbra.paymentQrs.create({
@@ -257,6 +257,16 @@ const saleOrder = await cimbra.qrSaleOrders.create({
   amount: '2500.00',
 });
 await cimbra.qrSaleOrders.cancel(saleOrder.data.order.id);
+const debt = await cimbra.qrDebts.create({
+  accountId: '00000000-0000-4000-8000-000000000001',
+  externalReference: 'DEUDA-001',
+  description: 'Cuota única',
+  amount: '3200.00',
+});
+await cimbra.paymentQrs.pay(debt.data.debt.paymentQrId, {
+  sourceAccountId: '00000000-0000-4000-8000-000000000002',
+  externalReference: 'QR-DEBT-001',
+});
 await cimbra.paymentQrs.cancel(staticQr.data.qr.id);
 ```
 

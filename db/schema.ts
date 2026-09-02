@@ -1141,11 +1141,12 @@ export const paymentQrs = pgTable('payment_qrs', {
   uniqueIndex('idx_payment_qrs_org_cancel_idempotency').on(table.organizationId, table.cancelIdempotencyKey).where(sql`${table.cancelIdempotencyKey} IS NOT NULL`),
   index('idx_payment_qrs_org_created').on(table.organizationId, table.createdAt),
   check('payment_qrs_currency', sql`${table.currency} = 'ARS'`),
-  check('payment_qrs_kind', sql`${table.kind} IN ('dynamic', 'static')`),
+  check('payment_qrs_kind', sql`${table.kind} IN ('dynamic', 'static', 'debt')`),
   check('payment_qrs_status', sql`${table.status} IN ('active', 'paid', 'expired', 'cancelled')`),
   check('payment_qrs_amount_positive', sql`${table.amountMinor} IS NULL OR ${table.amountMinor} > 0`),
   check('payment_qrs_static_open', sql`${table.kind} <> 'static' OR ${table.amountMinor} IS NULL`),
-  check('payment_qrs_expires_shape', sql`(${table.kind} = 'static' AND ${table.expiresAt} IS NULL) OR (${table.kind} = 'dynamic' AND ${table.expiresAt} IS NOT NULL)`),
+  check('payment_qrs_debt_closed', sql`${table.kind} <> 'debt' OR ${table.amountMinor} IS NOT NULL`),
+  check('payment_qrs_expires_shape', sql`(${table.kind} = 'static' AND ${table.expiresAt} IS NULL) OR (${table.kind} IN ('dynamic', 'debt') AND ${table.expiresAt} IS NOT NULL)`),
 ]);
 
 export const qrSaleOrders = pgTable('qr_sale_orders', {
@@ -1169,6 +1170,31 @@ export const qrSaleOrders = pgTable('qr_sale_orders', {
   check('qr_sale_orders_currency', sql`${table.currency} = 'ARS'`),
   check('qr_sale_orders_status', sql`${table.status} IN ('pending', 'paid', 'expired', 'cancelled', 'superseded')`),
   check('qr_sale_orders_amount_positive', sql`${table.amountMinor} > 0`),
+]);
+
+export const qrDebts = pgTable('qr_debts', {
+  id: text('id').primaryKey(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  idempotencyKey: text('idempotency_key').notNull(), requestFingerprint: text('request_fingerprint').notNull(),
+  accountId: text('account_id').notNull().references(() => accounts.id, { onDelete: 'restrict' }),
+  paymentQrId: text('payment_qr_id').notNull().references(() => paymentQrs.id, { onDelete: 'restrict' }),
+  amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(), currency: text('currency').notNull(),
+  description: text('description').notNull(), externalReference: text('external_reference').notNull(),
+  status: text('status').notNull().default('open'),
+  expiresAt: text('expires_at').notNull(),
+  paidTransferId: text('paid_transfer_id').references(() => instantTransfers.id, { onDelete: 'restrict' }),
+  cancelIdempotencyKey: text('cancel_idempotency_key'),
+  createdBy: text('created_by').notNull().references(() => users.id, { onDelete: 'restrict' }),
+  createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  uniqueIndex('idx_qr_debts_org_idempotency').on(table.organizationId, table.idempotencyKey),
+  uniqueIndex('idx_qr_debts_org_reference').on(table.organizationId, table.externalReference),
+  uniqueIndex('idx_qr_debts_payment_qr').on(table.paymentQrId),
+  uniqueIndex('idx_qr_debts_org_cancel_idempotency').on(table.organizationId, table.cancelIdempotencyKey).where(sql`${table.cancelIdempotencyKey} IS NOT NULL`),
+  index('idx_qr_debts_org_created').on(table.organizationId, table.createdAt),
+  check('qr_debts_currency', sql`${table.currency} = 'ARS'`),
+  check('qr_debts_status', sql`${table.status} IN ('open', 'paid', 'expired', 'cancelled')`),
+  check('qr_debts_amount_positive', sql`${table.amountMinor} > 0`),
 ]);
 
 export const paymentLinks = pgTable('payment_links', {

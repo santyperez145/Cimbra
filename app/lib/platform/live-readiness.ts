@@ -86,8 +86,8 @@ export const PLATFORM_PRODUCTS: readonly Omit<PlatformProduct, 'status' | 'requi
     benchmark: 'BIND PSP — Pagar QR (PCT en Coelsa), QR estático de caja y QR de deuda',
     documentationUrl: 'https://psp.bind.com.ar/developers/apis/pagar-qr',
     network: 'QR interoperable / Coelsa',
-    sandboxCoverage: 'QR dinámico cimbra:qr:v1, QR estático cimbra:qr:static:v1 y orden de venta Cimbra. Cobro cerrado en el tenant. No es PCT ni lectura por otras billeteras.',
-    missingForProduction: 'Instrucción PCT Coelsa, certificación del administrador del esquema de transferencias inmediatas y registro de billetera interoperable si Cimbra inicia pagos. El QR estático y la orden de venta Cimbra no sustituyen el riel.',
+    sandboxCoverage: 'QR dinámico cimbra:qr:v1, QR estático cimbra:qr:static:v1, orden de venta Cimbra y QR de deuda cimbra:qr:debt:v1. Cobro cerrado en el tenant. No es PCT ni lectura por otras billeteras.',
+    missingForProduction: 'Instrucción PCT Coelsa, certificación del administrador del esquema de transferencias inmediatas y registro de billetera interoperable si Cimbra inicia pagos. El QR estático, la orden de venta y el QR de deuda Cimbra no sustituyen el riel.',
   },
   {
     id: 'collections', name: 'Cobro (deuda, link y recaudación)', country: 'AR',

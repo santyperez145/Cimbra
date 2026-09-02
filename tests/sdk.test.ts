@@ -187,6 +187,10 @@ test('el SDK cablea CVU, directorio, crédito inmediato, débito interno y QR', 
     if (url.endsWith('/qr-sale-orders/so_1') && init?.method === 'DELETE') {
       return Response.json({ ok: true, replayed: false, order: { id: 'so_1', status: 'cancelled' } });
     }
+    if (url.endsWith('/qr-debts')) return Response.json({ ok: true, replayed: false, debt: { id: 'debt_1' } }, { status: 201 });
+    if (url.endsWith('/qr-debts/debt_1') && init?.method === 'DELETE') {
+      return Response.json({ ok: true, replayed: false, debt: { id: 'debt_1', status: 'cancelled' } });
+    }
     if (url.endsWith('/cancel')) return Response.json({ ok: true, replayed: false, qr: { id: 'qr_1', status: 'cancelled' } }, { status: 201 });
     return Response.json({ ok: true, replayed: false, transfer: { id: 'ip_2' } }, { status: 201 });
   } });
@@ -209,6 +213,10 @@ test('el SDK cablea CVU, directorio, crédito inmediato, débito interno y QR', 
     paymentQrId: qr.data.qr.id, externalReference: 'OV-001', description: 'Mostrador', amount: '12.00',
   });
   await client.qrSaleOrders.cancel(saleOrder.data.order.id);
+  const debt = await client.qrDebts.create({
+    accountId: 'acc_1', externalReference: 'DEUDA-001', description: 'Cuota', amount: '20.00',
+  });
+  await client.qrDebts.cancel(debt.data.debt.id);
   await client.paymentQrs.cancel(qr.data.qr.id);
   assert.deepEqual(calls, [
     'POST https://api.test/api/v1/rail-instruments',
@@ -222,6 +230,8 @@ test('el SDK cablea CVU, directorio, crédito inmediato, débito interno y QR', 
     'POST https://api.test/api/v1/payment-qrs/qr_1/pay',
     'POST https://api.test/api/v1/qr-sale-orders',
     'DELETE https://api.test/api/v1/qr-sale-orders/so_1',
+    'POST https://api.test/api/v1/qr-debts',
+    'DELETE https://api.test/api/v1/qr-debts/debt_1',
     'POST https://api.test/api/v1/payment-qrs/qr_1/cancel',
   ]);
 });

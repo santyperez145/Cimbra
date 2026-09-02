@@ -38,6 +38,7 @@ export async function GET() {
         AND to_regclass('public.instant_transfers') IS NOT NULL
         AND to_regclass('public.payment_qrs') IS NOT NULL
         AND to_regclass('public.qr_sale_orders') IS NOT NULL
+        AND to_regclass('public.qr_debts') IS NOT NULL
         AND to_regclass('public.payment_links') IS NOT NULL
         AND to_regclass('public.echeqs') IS NOT NULL
         AND to_regclass('public.platform_rails') IS NOT NULL

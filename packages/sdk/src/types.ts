@@ -299,7 +299,7 @@ export type InstantTransfer = {
 };
 export type PaymentQr = {
   id: string; accountId: string; accountReference: string; amountMinor: string | null; amount: number | null;
-  currency: 'ARS'; description: string; payload: string; kind: 'dynamic' | 'static';
+  currency: 'ARS'; description: string; payload: string; kind: 'dynamic' | 'static' | 'debt';
   status: 'active' | 'paid' | 'expired' | 'cancelled';
   expiresAt: string | null; paidTransferId: string | null; createdAt: string; updatedAt: string;
 };
@@ -307,6 +307,12 @@ export type QrSaleOrder = {
   id: string; paymentQrId: string; qrPayload: string; accountId: string; accountReference: string;
   amountMinor: string; amount: number; currency: 'ARS'; description: string; externalReference: string;
   status: 'pending' | 'paid' | 'expired' | 'cancelled' | 'superseded';
+  expiresAt: string; paidTransferId: string | null; createdAt: string; updatedAt: string;
+};
+export type QrDebt = {
+  id: string; accountId: string; accountReference: string; paymentQrId: string; payload: string;
+  amountMinor: string; amount: number; currency: 'ARS'; description: string; externalReference: string;
+  status: 'open' | 'paid' | 'expired' | 'cancelled';
   expiresAt: string; paidTransferId: string | null; createdAt: string; updatedAt: string;
 };
 export type CollectionMethod = 'internal' | 'sandbox_inbound';
@@ -455,6 +461,9 @@ export type CreatePaymentQrInput = {
 export type PayPaymentQrInput = { sourceAccountId: string; externalReference: string; amount?: string; signals?: RiskSignalsInput };
 export type CreateQrSaleOrderInput = {
   paymentQrId: string; externalReference: string; description: string; amount: string; currency?: 'ARS'; expiresInMinutes?: number;
+};
+export type CreateQrDebtInput = {
+  accountId: string; externalReference: string; description: string; amount: string; currency?: 'ARS'; expiresInMinutes?: number;
 };
 export type CreatePaymentLinkInput = {
   accountId: string; externalReference: string; description: string; amount: string; currency: 'ARS';

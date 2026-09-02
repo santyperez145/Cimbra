@@ -151,7 +151,7 @@ function operationGroup(path: string) {
   if (path.includes('/customers')) return 'Customers';
   if (path.includes('/accounts')) return 'Accounts';
   if (path.includes('/book-transfers')) return 'Book transfers';
-  if (path.includes('/instant-transfers') || path.includes('/rail-instruments') || path.includes('/rail-directory') || path.includes('/debit-requests') || path.includes('/payment-qrs') || path.includes('/qr-sale-orders')) return 'Instant payments';
+  if (path.includes('/instant-transfers') || path.includes('/rail-instruments') || path.includes('/rail-directory') || path.includes('/debit-requests') || path.includes('/payment-qrs') || path.includes('/qr-sale-orders') || path.includes('/qr-debts')) return 'Instant payments';
   if (path.includes('/payment-links')) return 'Cobranzas';
   if (path.includes('/echeqs')) return 'ECHEQ';
   if (path.includes('/wallets') || path.includes('/wallet-programs')) return 'Wallets';
@@ -177,7 +177,7 @@ function operationScope(path: string, method: string) {
   if (path.includes('/customers')) return `customers:${access}`;
   if (path.includes('/accounts')) return `accounts:${access}`;
   if (path.includes('/book-transfers')) return `transfers:${access}`;
-  if (path.includes('/instant-transfers') || path.includes('/rail-instruments') || path.includes('/rail-directory') || path.includes('/debit-requests') || path.includes('/payment-qrs') || path.includes('/qr-sale-orders')) return `transfers:${access}`;
+  if (path.includes('/instant-transfers') || path.includes('/rail-instruments') || path.includes('/rail-directory') || path.includes('/debit-requests') || path.includes('/payment-qrs') || path.includes('/qr-sale-orders') || path.includes('/qr-debts')) return `transfers:${access}`;
   if (path.includes('/payment-links')) return `payments:${access}`;
   if (path.includes('/echeqs')) return `transfers:${access}`;
   if (path.includes('/wallets') || path.includes('/wallet-programs')) return `wallets:${access}`;

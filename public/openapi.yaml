@@ -1072,6 +1072,71 @@ paths:
         '403': { description: Missing transfers:write scope or finance.write permission }
         '404': { description: Sale order not found }
         '409': { description: Sale order is not pending }
+  /api/v1/qr-debts:
+    get:
+      operationId: listQrDebts
+      summary: List Cimbra QR debts with a closed amount and a single payment
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageCursor'
+      responses:
+        '200': { description: QR debt page }
+        '403': { description: Missing transfers:read scope or console role }
+    post:
+      operationId: createQrDebt
+      summary: Create a Cimbra QR debt with a closed amount and one payment
+      description: Resource is the debt, not an overlay on a static QR. Payload cimbra:qr:debt:v1. Requires an active sandbox CVU on the collecting account. Sandbox settles synchronously in the same transaction. Not BIND deuda, EMVCo or Coelsa PCT.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [accountId, externalReference, description, amount]
+              properties:
+                accountId: { type: string, format: uuid }
+                externalReference: { type: string, minLength: 2, maxLength: 100 }
+                description: { type: string, minLength: 2, maxLength: 180 }
+                amount:
+                  oneOf:
+                    - { type: string, pattern: '^\d+(?:\.\d+)?$' }
+                    - { type: number, exclusiveMinimum: 0, maximum: 10000000 }
+                currency: { type: string, enum: [ARS] }
+                expiresInMinutes: { type: integer, minimum: 5, maximum: 1440, default: 1440 }
+      responses:
+        '201': { description: QR debt created }
+        '200': { description: Idempotent replay }
+        '400': { description: Invalid payload }
+        '403': { description: Missing transfers:write scope or finance.write permission }
+        '409': { description: External reference conflict }
+        '422': { description: Collecting account requires an active sandbox CVU }
+  /api/v1/qr-debts/{id}:
+    get:
+      operationId: retrieveQrDebt
+      summary: Retrieve a Cimbra QR debt by id
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses:
+        '200': { description: QR debt }
+        '403': { description: Missing transfers:read scope or console role }
+        '404': { description: QR debt not found }
+    delete:
+      operationId: cancelQrDebt
+      summary: Delete an open Cimbra QR debt so the QR can no longer be paid
+      description: Does not reverse a settled payment. A paid debt is not reopened. Not a Coelsa or competitor deuda command.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200': { description: QR debt cancelled or idempotent replay }
+        '403': { description: Missing transfers:write scope or finance.write permission }
+        '404': { description: QR debt not found }
+        '409': { description: QR debt is not open }
   /api/v1/payment-links:
     get:
       operationId: listPaymentLinks
@@ -3658,7 +3723,7 @@ components:
         currency: { type: string, enum: [ARS] }
         description: { type: string }
         payload: { type: string }
-        kind: { type: string, enum: [dynamic, static] }
+        kind: { type: string, enum: [dynamic, static, debt] }
         status: { type: string, enum: [active, paid, expired, cancelled] }
         expiresAt: { type: [string, 'null'], format: date-time }
         paidTransferId: { type: [string, 'null'], format: uuid }
@@ -3680,6 +3745,26 @@ components:
         description: { type: string }
         externalReference: { type: string }
         status: { type: string, enum: [pending, paid, expired, cancelled, superseded] }
+        expiresAt: { type: string, format: date-time }
+        paidTransferId: { type: [string, 'null'], format: uuid }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    QrDebt:
+      type: object
+      required: [id, accountId, accountReference, paymentQrId, payload, amountMinor, amount, currency, description, externalReference, status, expiresAt, paidTransferId, createdAt, updatedAt]
+      additionalProperties: false
+      properties:
+        id: { type: string, format: uuid }
+        accountId: { type: string, format: uuid }
+        accountReference: { type: string }
+        paymentQrId: { type: string, format: uuid }
+        payload: { type: string }
+        amountMinor: { type: string }
+        amount: { type: number }
+        currency: { type: string, enum: [ARS] }
+        description: { type: string }
+        externalReference: { type: string }
+        status: { type: string, enum: [open, paid, expired, cancelled] }
         expiresAt: { type: string, format: date-time }
         paidTransferId: { type: [string, 'null'], format: uuid }
         createdAt: { type: string, format: date-time }

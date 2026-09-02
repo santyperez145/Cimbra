@@ -7,7 +7,7 @@ import {
 import { aliasChangeBlocked } from '@/app/lib/platform/instant-payments-input';
 import type {
   CounterpartyKind, NormalizedAssignAliasInput, NormalizedDebitRequestInput, NormalizedDebitResponse, NormalizedInstantTransferInput,
-  NormalizedIssueInstrumentInput, NormalizedPaymentQrInput, NormalizedQrPayInput, NormalizedQrSaleOrderInput, RailScheme,
+  NormalizedIssueInstrumentInput, NormalizedPaymentQrInput, NormalizedQrPayInput, NormalizedQrSaleOrderInput, NormalizedQrDebtInput, RailScheme,
 } from '@/app/lib/platform/instant-payments-input';
 import { assertSandboxLedgerOrCertifiedRail } from './platform-rails';
 import type { ProtectedRiskSignals } from '@/app/lib/platform/risk-signals';
@@ -44,12 +44,18 @@ type TransferRow = {
 
 type QrRow = {
   id: string; accountId: string; accountReference: string; amountMinor: string | null; currency: Currency;
-  description: string; payload: string; kind: 'dynamic' | 'static'; status: string; expiresAt: string | null;
+  description: string; payload: string; kind: 'dynamic' | 'static' | 'debt'; status: string; expiresAt: string | null;
   paidTransferId: string | null; requestFingerprint: string; createdAt: string; updatedAt: string;
 };
 
 type SaleOrderRow = {
   id: string; paymentQrId: string; qrPayload: string; accountId: string; accountReference: string;
+  amountMinor: string; currency: Currency; description: string; externalReference: string; status: string;
+  expiresAt: string; paidTransferId: string | null; requestFingerprint: string; createdAt: string; updatedAt: string;
+};
+
+type DebtRow = {
+  id: string; accountId: string; accountReference: string; paymentQrId: string; payload: string;
   amountMinor: string; currency: Currency; description: string; externalReference: string; status: string;
   expiresAt: string; paidTransferId: string | null; requestFingerprint: string; createdAt: string; updatedAt: string;
 };
@@ -87,6 +93,15 @@ const saleOrderSelect = `SELECT so.id, so.payment_qr_id AS "paymentQrId", q.payl
   JOIN payment_qrs q ON q.id = so.payment_qr_id
   JOIN accounts a ON a.id = q.account_id`;
 
+const debtSelect = `SELECT d.id, d.account_id AS "accountId", a.account_reference AS "accountReference",
+  d.payment_qr_id AS "paymentQrId", q.payload, d.amount_minor::text AS "amountMinor", d.currency, d.description,
+  d.external_reference AS "externalReference", d.status, d.expires_at AS "expiresAt",
+  d.paid_transfer_id AS "paidTransferId", d.request_fingerprint AS "requestFingerprint",
+  d.created_at AS "createdAt", d.updated_at AS "updatedAt"
+  FROM qr_debts d
+  JOIN payment_qrs q ON q.id = d.payment_qr_id
+  JOIN accounts a ON a.id = d.account_id`;
+
 function serializeInstrument(row: InstrumentRow) {
   const { requestFingerprint: _fingerprint, valueChangedAt: _changed, ...publicRow } = row;
   void _fingerprint; void _changed;
@@ -112,6 +127,11 @@ function serializeSaleOrder(row: SaleOrderRow) {
   return { ...publicRow, amount: minorToMajorNumber(BigInt(row.amountMinor), row.currency) };
 }
 
+function serializeDebt(row: DebtRow) {
+  const { requestFingerprint: _fingerprint, ...publicRow } = row; void _fingerprint;
+  return { ...publicRow, amount: minorToMajorNumber(BigInt(row.amountMinor), row.currency) };
+}
+
 async function expireStaleSaleOrders(database: DatabaseClient, organizationId: string, paymentQrId?: string) {
   const now = new Date().toISOString();
   if (paymentQrId) {
@@ -122,6 +142,26 @@ async function expireStaleSaleOrders(database: DatabaseClient, organizationId: s
   }
   await database.prepare(
     "UPDATE qr_sale_orders SET status = 'expired', updated_at = ? WHERE organization_id = ? AND status = 'pending' AND expires_at <= ?",
+  ).bind(now, organizationId, now).run();
+}
+
+async function expireStaleDebts(database: DatabaseClient, organizationId: string, paymentQrId?: string) {
+  const now = new Date().toISOString();
+  if (paymentQrId) {
+    await database.prepare(
+      "UPDATE qr_debts SET status = 'expired', updated_at = ? WHERE organization_id = ? AND payment_qr_id = ? AND status = 'open' AND expires_at <= ?",
+    ).bind(now, organizationId, paymentQrId, now).run();
+    await database.prepare(
+      "UPDATE payment_qrs SET status = 'expired', updated_at = ? WHERE organization_id = ? AND id = ? AND kind = 'debt' AND status = 'active' AND expires_at <= ?",
+    ).bind(now, organizationId, paymentQrId, now).run();
+    return;
+  }
+  await database.prepare(
+    "UPDATE qr_debts SET status = 'expired', updated_at = ? WHERE organization_id = ? AND status = 'open' AND expires_at <= ?",
+  ).bind(now, organizationId, now).run();
+  await database.prepare(
+    `UPDATE payment_qrs SET status = 'expired', updated_at = ?
+     WHERE organization_id = ? AND kind = 'debt' AND status = 'active' AND expires_at <= ?`,
   ).bind(now, organizationId, now).run();
 }
 
@@ -770,6 +810,7 @@ export async function respondDebitRequest(input: {
 }
 
 export async function listPaymentQrs(input: { organizationId: string; limit: number; cursor?: { createdAt: string; id: string } }) {
+  await expireStaleDebts(getDatabaseClient(), input.organizationId);
   const clause = input.cursor ? 'AND (q.created_at, q.id) < (?, ?)' : '';
   const statement = getDatabaseClient().prepare(
     `${qrSelect} WHERE q.organization_id = ? ${clause} ORDER BY q.created_at DESC, q.id DESC LIMIT ?`,
@@ -863,21 +904,34 @@ export async function payPaymentQr(input: {
        FROM payment_qrs WHERE organization_id = ? AND id = ? FOR UPDATE`,
     ).bind(input.organizationId, input.qrId).first<{
       id: string; accountId: string; amountMinor: string | null; description: string; payload: string;
-      kind: 'dynamic' | 'static'; status: string; expiresAt: string | null;
+      kind: 'dynamic' | 'static' | 'debt'; status: string; expiresAt: string | null;
     }>();
     if (!qr) throw new InstantPaymentError('QR no encontrado.', 404, 'payment_qr_not_found');
     if (qr.status !== 'active') throw new InstantPaymentError('El QR ya no está activo.', 409, 'qr_not_active');
-    if (qr.kind === 'dynamic' && (!qr.expiresAt || qr.expiresAt <= new Date().toISOString())) {
+    if ((qr.kind === 'dynamic' || qr.kind === 'debt') && (!qr.expiresAt || qr.expiresAt <= new Date().toISOString())) {
       await database.prepare("UPDATE payment_qrs SET status = 'expired', updated_at = ? WHERE id = ?")
         .bind(new Date().toISOString(), qr.id).run();
+      if (qr.kind === 'debt') {
+        await database.prepare("UPDATE qr_debts SET status = 'expired', updated_at = ? WHERE organization_id = ? AND payment_qr_id = ? AND status = 'open'")
+          .bind(new Date().toISOString(), input.organizationId, qr.id).run();
+      }
       throw new InstantPaymentError('El QR expiró.', 409, 'qr_expired');
     }
     await expireStaleSaleOrders(database, input.organizationId, qr.id);
+    await expireStaleDebts(database, input.organizationId, qr.id);
     const saleOrder = qr.kind === 'static'
       ? await database.prepare(
         `${saleOrderSelect} WHERE so.organization_id = ? AND so.payment_qr_id = ? AND so.status = 'pending' LIMIT 1 FOR UPDATE OF so`,
       ).bind(input.organizationId, qr.id).first<SaleOrderRow>()
       : null;
+    const debt = qr.kind === 'debt'
+      ? await database.prepare(
+        `${debtSelect} WHERE d.organization_id = ? AND d.payment_qr_id = ? AND d.status = 'open' LIMIT 1 FOR UPDATE OF d`,
+      ).bind(input.organizationId, qr.id).first<DebtRow>()
+      : null;
+    if (qr.kind === 'debt' && !debt) {
+      throw new InstantPaymentError('La deuda asociada ya no está abierta.', 409, 'debt_not_open');
+    }
     const amountMinor = saleOrder
       ? BigInt(saleOrder.amountMinor)
       : qr.amountMinor ? BigInt(qr.amountMinor) : input.payment.amountMinor;
@@ -914,7 +968,7 @@ export async function payPaymentQr(input: {
       status: movement.status, transactionId: movement.transactionId, qrPayload: qr.payload, expiresAt: null,
       actorId: input.actor.userId, createdAt,
     });
-    if (movement.status === 'settled' && qr.kind === 'dynamic') {
+    if (movement.status === 'settled' && (qr.kind === 'dynamic' || qr.kind === 'debt')) {
       await database.prepare("UPDATE payment_qrs SET status = 'paid', paid_transfer_id = ?, updated_at = ? WHERE id = ?")
         .bind(id, createdAt, qr.id).run();
     }
@@ -924,6 +978,15 @@ export async function payPaymentQr(input: {
       await insertAudit(database, {
         organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.sale_order_paid',
         resourceType: 'qr_sale_order', resourceId: saleOrder.id,
+        payload: { transferId: id, paymentQrId: qr.id, amountMinor: amountMinor.toString() },
+      });
+    }
+    if (movement.status === 'settled' && debt) {
+      await database.prepare("UPDATE qr_debts SET status = 'paid', paid_transfer_id = ?, updated_at = ? WHERE id = ?")
+        .bind(id, createdAt, debt.id).run();
+      await insertAudit(database, {
+        organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.debt_paid',
+        resourceType: 'qr_debt', resourceId: debt.id,
         payload: { transferId: id, paymentQrId: qr.id, amountMinor: amountMinor.toString() },
       });
     }
@@ -964,11 +1027,25 @@ export async function cancelPaymentQr(input: {
     await database.prepare(
       "UPDATE qr_sale_orders SET status = 'cancelled', updated_at = ? WHERE organization_id = ? AND payment_qr_id = ? AND status = 'pending'",
     ).bind(now, input.organizationId, qr.id).run();
+    await database.prepare(
+      "UPDATE qr_debts SET status = 'cancelled', updated_at = ? WHERE organization_id = ? AND payment_qr_id = ? AND status = 'open'",
+    ).bind(now, input.organizationId, qr.id).run();
     await insertAudit(database, {
       organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.qr_cancelled',
       resourceType: 'payment_qr', resourceId: qr.id,
       payload: { kind: qr.kind, idempotencyKey: input.idempotencyKey },
     });
+    if (qr.kind === 'debt') {
+      const debt = await database.prepare(`${debtSelect} WHERE d.organization_id = ? AND d.payment_qr_id = ? LIMIT 1`)
+        .bind(input.organizationId, qr.id).first<DebtRow>();
+      if (debt) {
+        await insertAudit(database, {
+          organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.debt_cancelled',
+          resourceType: 'qr_debt', resourceId: debt.id,
+          payload: { paymentQrId: qr.id, idempotencyKey: input.idempotencyKey },
+        });
+      }
+    }
     return { qr: serializeQr({ ...qr, status: 'cancelled', updatedAt: now }), replayed: false };
   });
 }
@@ -1092,5 +1169,135 @@ export async function cancelQrSaleOrder(input: {
       payload: { paymentQrId: order.paymentQrId, idempotencyKey: input.idempotencyKey },
     });
     return { order: serializeSaleOrder({ ...order, status: 'cancelled', updatedAt: now }), replayed: false };
+  });
+}
+
+export async function listQrDebts(input: { organizationId: string; limit: number; cursor?: { createdAt: string; id: string } }) {
+  await expireStaleDebts(getDatabaseClient(), input.organizationId);
+  const clause = input.cursor ? 'AND (d.created_at, d.id) < (?, ?)' : '';
+  const statement = getDatabaseClient().prepare(
+    `${debtSelect} WHERE d.organization_id = ? ${clause} ORDER BY d.created_at DESC, d.id DESC LIMIT ?`,
+  );
+  const rows = input.cursor
+    ? await statement.bind(input.organizationId, input.cursor.createdAt, input.cursor.id, input.limit + 1).all<DebtRow>()
+    : await statement.bind(input.organizationId, input.limit + 1).all<DebtRow>();
+  return rows.results.map(serializeDebt);
+}
+
+export async function retrieveQrDebt(organizationId: string, id: string) {
+  await expireStaleDebts(getDatabaseClient(), organizationId);
+  const row = await getDatabaseClient().prepare(`${debtSelect} WHERE d.organization_id = ? AND d.id = ? LIMIT 1`)
+    .bind(organizationId, id).first<DebtRow>();
+  return row ? serializeDebt(row) : null;
+}
+
+export async function createQrDebt(input: {
+  organizationId: string; actor: AuthUser; idempotencyKey: string; debt: NormalizedQrDebtInput;
+}) {
+  await assertSandboxLedgerOrCertifiedRail('qr_interoperable', InstantPaymentError);
+  const fingerprint = await sha256(JSON.stringify({
+    accountId: input.debt.accountId, amountMinor: input.debt.amountMinor.toString(),
+    description: input.debt.description, externalReference: input.debt.externalReference,
+    expiresInMinutes: input.debt.expiresInMinutes,
+  }));
+  return getDatabaseClient().transaction(async (database) => {
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:qr-debt:${input.idempotencyKey}`).first();
+    const existing = await database.prepare(`${debtSelect} WHERE d.organization_id = ? AND d.idempotency_key = ? LIMIT 1`)
+      .bind(input.organizationId, input.idempotencyKey).first<DebtRow>();
+    if (existing) {
+      if (existing.requestFingerprint !== fingerprint) {
+        throw new InstantPaymentError('La Idempotency-Key ya fue usada con otra deuda QR.', 409, 'idempotency_mismatch');
+      }
+      return { debt: serializeDebt(existing), replayed: true };
+    }
+    const account = await loadAccount(database, input.organizationId, input.debt.accountId, true);
+    assertArsAccount(account);
+    const cvu = await database.prepare(
+      "SELECT id FROM rail_instruments WHERE organization_id = ? AND account_id = ? AND kind = 'cvu' AND status = 'active' LIMIT 1",
+    ).bind(input.organizationId, account.id).first<{ id: string }>();
+    if (!cvu) {
+      throw new InstantPaymentError('El QR de deuda exige un CVU sandbox activo en la cuenta cobradora.', 422, 'cvu_required');
+    }
+    const referenceOwner = await database.prepare(
+      'SELECT id FROM qr_debts WHERE organization_id = ? AND external_reference = ? LIMIT 1',
+    ).bind(input.organizationId, input.debt.externalReference).first<{ id: string }>();
+    if (referenceOwner) {
+      throw new InstantPaymentError('La referencia externa ya pertenece a otra deuda QR.', 409, 'external_reference_conflict');
+    }
+    const qrId = crypto.randomUUID();
+    const debtId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + input.debt.expiresInMinutes * 60_000).toISOString();
+    const payload = `cimbra:qr:debt:v1:${qrId}`;
+    await database.prepare(`INSERT INTO payment_qrs
+      (id, organization_id, idempotency_key, request_fingerprint, account_id, amount_minor, currency, description, payload,
+       kind, status, expires_at, paid_transfer_id, created_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'ARS', ?, ?, 'debt', 'active', ?, NULL, ?, ?, ?)`)
+      .bind(qrId, input.organizationId, `debt:${input.idempotencyKey}`, fingerprint, account.id,
+        input.debt.amountMinor.toString(), input.debt.description, payload, expiresAt, input.actor.userId, now, now).run();
+    await database.prepare(`INSERT INTO qr_debts
+      (id, organization_id, idempotency_key, request_fingerprint, account_id, payment_qr_id, amount_minor, currency, description,
+       external_reference, status, expires_at, paid_transfer_id, created_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'ARS', ?, ?, 'open', ?, NULL, ?, ?, ?)`)
+      .bind(debtId, input.organizationId, input.idempotencyKey, fingerprint, account.id, qrId,
+        input.debt.amountMinor.toString(), input.debt.description, input.debt.externalReference, expiresAt,
+        input.actor.userId, now, now).run();
+    await insertAudit(database, {
+      organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.qr_created',
+      resourceType: 'payment_qr', resourceId: qrId,
+      payload: { accountId: account.id, kind: 'debt', amountMinor: input.debt.amountMinor.toString(), expiresAt },
+    });
+    await insertAudit(database, {
+      organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.debt_created',
+      resourceType: 'qr_debt', resourceId: debtId,
+      payload: { paymentQrId: qrId, amountMinor: input.debt.amountMinor.toString(), expiresAt, payload },
+    });
+    const created = await database.prepare(`${debtSelect} WHERE d.organization_id = ? AND d.id = ? LIMIT 1`)
+      .bind(input.organizationId, debtId).first<DebtRow>();
+    return { debt: serializeDebt(created!), replayed: false };
+  });
+}
+
+export async function cancelQrDebt(input: {
+  organizationId: string; actor: AuthUser; debtId: string; idempotencyKey: string;
+}) {
+  await assertSandboxLedgerOrCertifiedRail('qr_interoperable', InstantPaymentError);
+  return getDatabaseClient().transaction(async (database) => {
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:qr-debt-cancel:${input.idempotencyKey}`).first();
+    const replay = await database.prepare(`${debtSelect} WHERE d.organization_id = ? AND d.cancel_idempotency_key = ? LIMIT 1`)
+      .bind(input.organizationId, input.idempotencyKey).first<DebtRow>();
+    if (replay) {
+      if (replay.id !== input.debtId) {
+        throw new InstantPaymentError('La Idempotency-Key ya fue usada con otra deuda QR.', 409, 'idempotency_mismatch');
+      }
+      return { debt: serializeDebt(replay), replayed: true };
+    }
+    await expireStaleDebts(database, input.organizationId);
+    const debt = await database.prepare(`${debtSelect} WHERE d.organization_id = ? AND d.id = ? LIMIT 1 FOR UPDATE OF d`)
+      .bind(input.organizationId, input.debtId).first<DebtRow>();
+    if (!debt) throw new InstantPaymentError('Deuda QR no encontrada.', 404, 'debt_not_found');
+    if (debt.status !== 'open') {
+      throw new InstantPaymentError('Sólo se puede eliminar una deuda QR abierta.', 409, 'debt_not_open');
+    }
+    const now = new Date().toISOString();
+    await database.prepare(
+      "UPDATE qr_debts SET status = 'cancelled', cancel_idempotency_key = ?, updated_at = ? WHERE id = ?",
+    ).bind(input.idempotencyKey, now, debt.id).run();
+    await database.prepare(
+      "UPDATE payment_qrs SET status = 'cancelled', updated_at = ? WHERE id = ? AND kind = 'debt' AND status = 'active'",
+    ).bind(now, debt.paymentQrId).run();
+    await insertAudit(database, {
+      organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.debt_cancelled',
+      resourceType: 'qr_debt', resourceId: debt.id,
+      payload: { paymentQrId: debt.paymentQrId, idempotencyKey: input.idempotencyKey },
+    });
+    await insertAudit(database, {
+      organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.qr_cancelled',
+      resourceType: 'payment_qr', resourceId: debt.paymentQrId,
+      payload: { kind: 'debt', debtId: debt.id },
+    });
+    return { debt: serializeDebt({ ...debt, status: 'cancelled', updatedAt: now }), replayed: false };
   });
 }

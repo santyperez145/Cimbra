@@ -765,6 +765,78 @@ try {
     body: JSON.stringify({ sourceAccountId: destinationAccount.id, externalReference: `QR-OV-OPEN-${runId}`, amount: '1.50' }),
   }), 201);
   assert.equal(openAfterCancel.transfer.amount, 1.5);
+  const debtViaQr = await json(await request('/api/v1/payment-qrs', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-qr-debt-kind-${runId}` },
+    body: JSON.stringify({ accountId: account.id, description: 'Deuda vía QR', kind: 'debt', amount: '6.00' }),
+  }), 400);
+  assert.equal(debtViaQr.error.code, 'invalid_payment_qr');
+  const debtKey = `qa-debt-${runId}`;
+  const debtPayload = {
+    accountId: account.id, externalReference: `DEUDA-${runId}`, description: 'Cuota única QA', amount: '6.00', currency: 'ARS',
+  };
+  const debtCreated = await json(await request('/api/v1/qr-debts', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': debtKey },
+    body: JSON.stringify(debtPayload),
+  }), 201);
+  assert.equal(debtCreated.debt.status, 'open');
+  assert.equal(debtCreated.debt.amount, 6);
+  assert.match(debtCreated.debt.payload, /^cimbra:qr:debt:v1:/);
+  const debtReplay = await json(await request('/api/v1/qr-debts', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': debtKey },
+    body: JSON.stringify(debtPayload),
+  }), 200);
+  assert.equal(debtReplay.replayed, true);
+  const retrievedDebt = await json(await request(`/api/v1/qr-debts/${debtCreated.debt.id}`), 200);
+  assert.equal(retrievedDebt.id, debtCreated.debt.id);
+  const saleOnDebt = await json(await request('/api/v1/qr-sale-orders', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-ov-debt-${runId}` },
+    body: JSON.stringify({
+      paymentQrId: debtCreated.debt.paymentQrId, externalReference: `OV-DEBT-${runId}`, description: 'No aplica',
+      amount: '5.00', currency: 'ARS',
+    }),
+  }), 422);
+  assert.equal(saleOnDebt.error.code, 'sale_order_requires_static_qr');
+  const debtMismatch = await json(await request(`/api/v1/payment-qrs/${debtCreated.debt.paymentQrId}/pay`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-debt-mismatch-${runId}` },
+    body: JSON.stringify({ sourceAccountId: destinationAccount.id, externalReference: `QR-DEBT-MIS-${runId}`, amount: '9.00' }),
+  }), 422);
+  assert.equal(debtMismatch.error.code, 'qr_amount_mismatch');
+  const debtPaid = await json(await request(`/api/v1/payment-qrs/${debtCreated.debt.paymentQrId}/pay`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-debt-pay-${runId}` },
+    body: JSON.stringify({ sourceAccountId: destinationAccount.id, externalReference: `QR-DEBT-${runId}` }),
+  }), 201);
+  assert.equal(debtPaid.transfer.status, 'settled');
+  assert.equal(debtPaid.transfer.amount, 6);
+  const paidDebt = await json(await request(`/api/v1/qr-debts/${debtCreated.debt.id}`), 200);
+  assert.equal(paidDebt.status, 'paid');
+  const listedAfterDebt = await json(await request('/api/v1/payment-qrs?limit=50'), 200);
+  assert.equal(listedAfterDebt.data.find((item) => item.id === debtCreated.debt.paymentQrId).status, 'paid');
+  const debtRepay = await json(await request(`/api/v1/payment-qrs/${debtCreated.debt.paymentQrId}/pay`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-debt-repay-${runId}` },
+    body: JSON.stringify({ sourceAccountId: destinationAccount.id, externalReference: `QR-DEBT-2-${runId}` }),
+  }), 409);
+  assert.equal(debtRepay.error.code, 'qr_not_active');
+  const debtCancelPayload = {
+    accountId: account.id, externalReference: `DEUDA-DEL-${runId}`, description: 'Eliminar', amount: '2.00', currency: 'ARS',
+  };
+  const debtToCancel = await json(await request('/api/v1/qr-debts', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-debt-del-create-${runId}` },
+    body: JSON.stringify(debtCancelPayload),
+  }), 201);
+  const debtCancelKey = `qa-debt-del-${runId}`;
+  const debtCancelled = await json(await request(`/api/v1/qr-debts/${debtToCancel.debt.id}`, {
+    method: 'DELETE', headers: { 'Idempotency-Key': debtCancelKey },
+  }), 200);
+  assert.equal(debtCancelled.debt.status, 'cancelled');
+  const debtCancelledReplay = await json(await request(`/api/v1/qr-debts/${debtToCancel.debt.id}`, {
+    method: 'DELETE', headers: { 'Idempotency-Key': debtCancelKey },
+  }), 200);
+  assert.equal(debtCancelledReplay.replayed, true);
+  const payCancelledDebt = await json(await request(`/api/v1/payment-qrs/${debtToCancel.debt.paymentQrId}/pay`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-debt-pay-dead-${runId}` },
+    body: JSON.stringify({ sourceAccountId: destinationAccount.id, externalReference: `QR-DEBT-DEAD-${runId}` }),
+  }), 409);
+  assert.equal(payCancelledDebt.error.code, 'qr_not_active');
   const duplicateStatic = await json(await request('/api/v1/payment-qrs', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-qr-static-dup-${runId}` },
     body: JSON.stringify({ accountId: account.id, description: 'Caja duplicada', kind: 'static' }),
@@ -2113,6 +2185,7 @@ try {
   await json(await request('/api/v1/debit-requests'), 200);
   await json(await request('/api/v1/payment-qrs'), 200);
   await json(await request('/api/v1/qr-sale-orders'), 200);
+  await json(await request('/api/v1/qr-debts'), 200);
   await json(await request('/api/v1/payment-links'), 200);
   await json(await request('/api/v1/echeqs'), 200);
   await json(await request(`/api/v1/accounts/${account.id}/statement`), 200);
@@ -2148,6 +2221,13 @@ try {
     }),
   }), 403);
   assert.equal(viewerSaleOrderDenied.error.code, 'insufficient_role');
+  const viewerDebtDenied = await json(await request('/api/v1/qr-debts', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-viewer-debt-${runId}` },
+    body: JSON.stringify({
+      accountId: account.id, externalReference: `DEUDA-VIEWER-${runId}`, description: 'Viewer', amount: '1.00', currency: 'ARS',
+    }),
+  }), 403);
+  assert.equal(viewerDebtDenied.error.code, 'insufficient_role');
   const viewerCollectionDenied = await json(await request('/api/v1/payment-links', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-viewer-link-${runId}` },
     body: JSON.stringify({
@@ -2262,7 +2342,7 @@ try {
 
   console.log(JSON.stringify({
     ok: true,
-    checks: ['auth', 'landing-session-state', 'console-session-guard', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'viewer-read-only', 'member-invitations', 'dual-control', 'maker-checker', 'transfer-approval', 'book-transfer-approval', 'approval-replay', 'approval-fail-closed', 'payout-approval', 'risk-case-approval', 'risk-hold-bypass-guard', 'reconciliation-exception-approval', 'disputes', 'partial-dispute', 'dispute-ledger-credit', 'dispute-compensation', 'dispute-approval', 'dispute-evidence', 'dispute-rbac', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'book-transfers', 'account-statements', 'book-transfer-compensation', 'book-transfer-rbac', 'wallets', 'wallet-pockets', 'wallet-lifecycle', 'wallet-rbac', 'instant-payments', 'cvu-alias', 'alias-assign', 'cvu-revoke', 'holder-confirmation', 'internal-credit', 'sandbox-outbound', 'internal-debit', 'cimbra-qr', 'qr-sale-orders', 'instant-return', 'instant-rbac', 'collections', 'payment-links', 'collection-internal', 'collection-inbound', 'collection-refund', 'collection-cancel', 'collection-card-denied', 'collection-rbac', 'echeqs', 'echeq-accept', 'echeq-deposit', 'echeq-cancel', 'echeq-return', 'echeq-nsf', 'echeq-discount-denied', 'echeq-rbac', 'payout-beneficiaries', 'protected-payout-destination', 'payout-batches', 'payout-scheduling', 'payout-result-file', 'payout-compensation', 'payout-rbac', 'payout-s2s', 'billers', 'biller-obligations', 'protected-subscriber-reference', 'bill-payments', 'mobile-topups', 'gift-cards', 'recurring-mandates', 'mandate-consent', 'biller-rbac', 'biller-s2s', 'bill-payment-compensation', 'cdd-kyb', 'cdd-evidence', 'cdd-idempotency', 'cdd-maker-checker', 'cdd-s2s-orchestration', 'cdd-session-only-decision', 'cdd-expiry', 'cdd-rbac', 'card-programs', 'card-lifecycle', 'card-controls', 'card-terminal-state', 'card-rbac', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'risk-signals-privacy', 'risk-decision-lists', 'risk-step-up', 'risk-step-up-idempotency', 'risk-step-up-rbac', 'risk-decision-slo', 'risk-confirmed-outcomes', 'risk-supervised-metrics', 'risk-outcome-revisions', 'reconciliation', 'operations-work-queue', 'operations-idempotency', 'operations-evidence', 'operations-rbac', 'csv-import', 'settlement', 'private-evidence', 'audit'],
+    checks: ['auth', 'landing-session-state', 'console-session-guard', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'viewer-read-only', 'member-invitations', 'dual-control', 'maker-checker', 'transfer-approval', 'book-transfer-approval', 'approval-replay', 'approval-fail-closed', 'payout-approval', 'risk-case-approval', 'risk-hold-bypass-guard', 'reconciliation-exception-approval', 'disputes', 'partial-dispute', 'dispute-ledger-credit', 'dispute-compensation', 'dispute-approval', 'dispute-evidence', 'dispute-rbac', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'book-transfers', 'account-statements', 'book-transfer-compensation', 'book-transfer-rbac', 'wallets', 'wallet-pockets', 'wallet-lifecycle', 'wallet-rbac', 'instant-payments', 'cvu-alias', 'alias-assign', 'cvu-revoke', 'holder-confirmation', 'internal-credit', 'sandbox-outbound', 'internal-debit', 'cimbra-qr', 'qr-sale-orders', 'qr-debts', 'instant-return', 'instant-rbac', 'collections', 'payment-links', 'collection-internal', 'collection-inbound', 'collection-refund', 'collection-cancel', 'collection-card-denied', 'collection-rbac', 'echeqs', 'echeq-accept', 'echeq-deposit', 'echeq-cancel', 'echeq-return', 'echeq-nsf', 'echeq-discount-denied', 'echeq-rbac', 'payout-beneficiaries', 'protected-payout-destination', 'payout-batches', 'payout-scheduling', 'payout-result-file', 'payout-compensation', 'payout-rbac', 'payout-s2s', 'billers', 'biller-obligations', 'protected-subscriber-reference', 'bill-payments', 'mobile-topups', 'gift-cards', 'recurring-mandates', 'mandate-consent', 'biller-rbac', 'biller-s2s', 'bill-payment-compensation', 'cdd-kyb', 'cdd-evidence', 'cdd-idempotency', 'cdd-maker-checker', 'cdd-s2s-orchestration', 'cdd-session-only-decision', 'cdd-expiry', 'cdd-rbac', 'card-programs', 'card-lifecycle', 'card-controls', 'card-terminal-state', 'card-rbac', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'risk-signals-privacy', 'risk-decision-lists', 'risk-step-up', 'risk-step-up-idempotency', 'risk-step-up-rbac', 'risk-decision-slo', 'risk-confirmed-outcomes', 'risk-supervised-metrics', 'risk-outcome-revisions', 'reconciliation', 'operations-work-queue', 'operations-idempotency', 'operations-evidence', 'operations-rbac', 'csv-import', 'settlement', 'private-evidence', 'audit'],
   }));
 } finally {
   await cleanup();
