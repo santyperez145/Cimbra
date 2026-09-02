@@ -9,6 +9,7 @@ import { authenticatedFetch } from '@/app/lib/platform/client-http';
 import AccessPanel from './access-panel';
 import AccountsPanel from './accounts-panel';
 import ApprovalsPanel from './approvals-panel';
+import AuditPanel from './audit-panel';
 import BillersPanel from './billers-panel';
 import BookTransfersPanel from './book-transfers-panel';
 import CardsPanel from './cards-panel';
@@ -35,7 +36,7 @@ const nav: Array<{ icon: string; label: string; capability?: AccessCapability }>
   { icon: '◍', label: 'Clientes' }, { icon: '◉', label: 'Cuentas' }, { icon: '▣', label: 'Wallets' }, { icon: '⚡', label: 'Pagos AR' }, { icon: '◎', label: 'Cobranzas' }, { icon: '▭', label: 'ECHEQ' }, { icon: '▰', label: 'Tarjetas' }, { icon: '◇', label: 'Riesgo' },
   { icon: '◫', label: 'Disputas', capability: 'disputes.read' }, { icon: '≋', label: 'Conciliación' }, { icon: '☷', label: 'Operaciones' }, { icon: '⚖', label: 'Aprobaciones' }, { icon: '✓', label: 'Compliance' }, { icon: '⌘', label: 'Plataforma' },
   { icon: '⌁', label: 'Developers', capability: 'credentials.manage' }, { icon: '♙', label: 'Accesos', capability: 'organization.manage' },
-  { icon: '⌂', label: 'Organización' }, { icon: '☎', label: 'Soporte' }, { icon: '⌾', label: 'Seguridad' },
+  { icon: '⌂', label: 'Organización' }, { icon: '☎', label: 'Soporte' }, { icon: '☰', label: 'Auditoría' }, { icon: '⌾', label: 'Seguridad' },
 ];
 
 function money(value: number, currency = 'ARS') {
@@ -159,7 +160,7 @@ export default function ConsoleClient({ data, user, platformOperator = false }: 
         <header className="app-topbar"><div><small>CONSOLA /</small><strong>{active}</strong><span className={`role-posture role-${user.role}`}>{ROLE_PROFILES[user.role].posture}</span></div><div className="app-top-actions"><span className="live-pill"><i /> Base y ledger operativos</span>{canOperate && <button className="app-primary" onClick={() => setTransferOpen(true)}>+ Nueva transferencia</button>}</div></header>
         <div className="app-content">
           {shellFeedback && <div className="form-feedback ledger-feedback" role="alert">{shellFeedback}</div>}
-          {active === 'Clientes' ? <CustomersPanel role={user.role} /> : active === 'Vista general' ? <>
+          {active === 'Auditoría' ? <AuditPanel /> : active === 'Clientes' ? <CustomersPanel role={user.role} /> : active === 'Vista general' ? <>
           <div className="app-welcome"><div><p suppressHydrationWarning>{new Date().toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'America/Argentina/Buenos_Aires' }).toUpperCase()}</p><h1>Todo en orden, {user.displayName.split(' ')[0]}.</h1><span>Tu operación está funcionando con normalidad.</span></div><select aria-label="Período" value={overviewPeriod} onChange={(event) => setOverviewPeriod(event.target.value as '7d' | '30d')}><option value="30d">Últimos 30 días</option><option value="7d">Últimos 7 días</option></select></div>
           <div className="app-kpis">
             <article className="kpi-balance"><div><small>SALDO DISPONIBLE · {primaryBalance?.currency ?? 'ARS'}</small><span>Calculado desde postings</span></div><strong>{money(primaryBalance?.available ?? data.balance, primaryBalance?.currency ?? 'ARS')}</strong><small className="ledger-caption">Contable {money(primaryBalance?.current ?? data.balance, primaryBalance?.currency ?? 'ARS')} · Reservado {money(primaryBalance?.held ?? 0, primaryBalance?.currency ?? 'ARS')}</small><div className="balance-actions">{canOperate && <button onClick={() => setTransferOpen(true)}>↗ Transferir</button>}<button onClick={() => setActive('Cuentas')}>◎ Ver ledger</button></div></article>

@@ -24,6 +24,12 @@ export const HELP_ARTICLES = [
     body: 'Desde Cuentas abrís una cuenta de producto para un cliente activo. El saldo sale de postings. El disponible resta holds. No es CBU, CVU ni una cuenta bancaria: el riel oficial exige Coelsa o un sponsor. Las correcciones se hacen con reversas, nunca mutando un asiento.',
   },
   {
+    id: 'audit',
+    title: 'Registro de auditoría',
+    summary: 'Eventos append-only del tenant. Se consultan; no se editan.',
+    body: 'Auditoría lista GET /api/v1/events: acción, recurso, timestamp y payload. El log es inmutable y queda aislado por organización. No es un SIEM, no se presenta ante un regulador y no sustituye el historial de webhooks de Developers.',
+  },
+  {
     id: 'support',
     title: 'Cómo abrir un caso de soporte',
     summary: 'Los tickets viven en el tenant y también los ve la superadministración de Cimbra.',

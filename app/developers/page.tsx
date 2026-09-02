@@ -29,6 +29,11 @@ const errorResponses = [
 const changelog = [
   {
     date: '02 SEP 2026',
+    title: 'Auditoría del tenant en la consola',
+    detail: 'La consola opera GET /api/v1/events: log append-only, paginado, filtrable por recurso y exportable. Todos los roles leen; no hay mutación. No es un SIEM. OpenAPI permanece en 192 operaciones.',
+  },
+  {
+    date: '02 SEP 2026',
     title: 'Cuentas de producto en la consola',
     detail: 'La consola opera GET/POST /api/v1/accounts y el statement de 30 días. Alta idempotente sobre un cliente del tenant, una moneda por cuenta y saldo derivado del ledger. Viewer lee; operator/admin/owner abren. No es CBU/CVU. OpenAPI permanece en 192 operaciones.',
   },
