@@ -7,9 +7,9 @@ import { authenticatedFetch } from '@/app/lib/platform/client-http';
 type Account = { id: string; accountReference: string; currency: string; status: string };
 type PaymentLink = {
   id: string; accountId: string; accountReference: string; customerName: string;
-  amount: number; currency: string; description: string; externalReference: string;
+  amount: number; collectedAmount: number; remainingAmount: number; currency: string; description: string; externalReference: string;
   allowedMethods: string[]; payload: string; qrDebtId: string | null; collectionTillId: string | null;
-  qrPayload: string | null; cvu: string | null; status: string; expiresAt: string;
+  qrPayload: string | null; cvu: string | null; checkoutUrl: string; status: string; expiresAt: string;
   paidMethod: string | null; payerAccountReference: string | null; createdAt: string;
 };
 type CollectionTill = {
@@ -112,11 +112,13 @@ export default function CollectionsPanel({ role, accounts }: { role: Organizatio
     const linkId = String(data.get('linkId') ?? '');
     const method = String(data.get('method') ?? 'internal');
     setBusy(true); setFeedback('');
+    const amount = String(data.get('amount') ?? '').trim();
     const response = await authenticatedFetch(`/api/v1/payment-links/${encodeURIComponent(linkId)}/pay`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
       body: JSON.stringify({
         method, payerAccountId: method === 'sandbox_inbound' ? undefined : data.get('payerAccountId') || undefined,
+        amount: method === 'cimbra_cvu' && amount ? amount : undefined,
       }),
     });
     const result = await response.json() as { error?: unknown };
@@ -207,11 +209,11 @@ export default function CollectionsPanel({ role, accounts }: { role: Organizatio
       <article><span>Devueltos</span><strong>{refundedCount}</strong></article>
       <article><span>Puntos activos</span><strong>{activeTills}</strong></article>
     </div>
-    <p className="role-boundary-copy">El link sandbox se paga con una cuenta Cimbra, un inbound ledger, el QR de una deuda asociada o el CVU de un till. Un inbound suelto al till no cierra el link. No procesa tarjetas, POS, Tap to Phone, checkout hospedado ni QR interoperable.</p>
+    <p className="role-boundary-copy">El link sandbox se paga con una cuenta Cimbra, un inbound ledger, el QR de una deuda asociada o el CVU de un till. Sólo el medio cimbra_cvu admite parciales, varios créditos o un importe mayor al restante. Un inbound suelto al till no cierra el link. No procesa tarjetas, POS, Tap to Phone, checkout PCI ni QR interoperable.</p>
     {pendingCount > 0 && <p className="role-boundary-copy">{pendingCount} links en revisión, expirados o cancelados.</p>}
 
     {canOperate && <div className="compliance-grid wallets-grid">
-      <article className="integration-card"><div className="card-head"><div><h2>Crear link de cobro</h2><p>Cuenta ARS argentina · monto cerrado</p></div></div>
+      <article className="integration-card"><div className="card-head"><div><h2>Crear link de cobro</h2><p>Cuenta ARS argentina · checkout /pay</p></div></div>
         <form className="book-statement-body" onSubmit={create}>
           <label>Comercio<select name="accountId" required defaultValue=""><option value="" disabled>Seleccionar</option>{arsAccounts.map((account) => <option key={account.id} value={account.id}>{account.accountReference}</option>)}</select></label>
           <label>Referencia<input name="externalReference" required minLength={2} maxLength={100} placeholder="FAC-001" /></label>
@@ -232,9 +234,10 @@ export default function CollectionsPanel({ role, accounts }: { role: Organizatio
       </article>
       <article className="integration-card"><div className="card-head"><div><h2>Cobrar un link</h2><p>Internal exige pagador distinto</p></div></div>
         <form className="book-statement-body" onSubmit={pay}>
-          <label>Link<select name="linkId" required defaultValue=""><option value="" disabled>Seleccionar</option>{links.filter((link) => link.status === 'open').map((link) => <option key={link.id} value={link.id}>{link.externalReference} · {money(link.amount)}</option>)}</select></label>
+          <label>Link<select name="linkId" required defaultValue=""><option value="" disabled>Seleccionar</option>{links.filter((link) => link.status === 'open').map((link) => <option key={link.id} value={link.id}>{link.externalReference} · resta {money(link.remainingAmount ?? link.amount)}</option>)}</select></label>
           <label>Método<select name="method" defaultValue="internal"><option value="internal">Cuenta Cimbra</option><option value="sandbox_inbound">Inbound sandbox</option><option value="cimbra_qr">QR de deuda</option><option value="cimbra_cvu">CVU del till</option></select></label>
           <label>Pagador<select name="payerAccountId" defaultValue=""><option value="">Inbound o CVU sin pagador</option>{arsAccounts.map((account) => <option key={account.id} value={account.id}>{account.accountReference}</option>)}</select></label>
+          <label>Monto CVU opcional<input name="amount" type="number" min="0.01" step="0.01" placeholder="Vacío = restante" /></label>
           <button className="app-primary" disabled={busy}>{busy ? 'Cobrando…' : 'Cobrar'}</button>
         </form>
       </article>
@@ -288,9 +291,9 @@ export default function CollectionsPanel({ role, accounts }: { role: Organizatio
         <div className="movement">
           <strong>{link.externalReference}</strong>
           <span>{link.accountReference} · {link.customerName}</span>
-          <small>{link.payload} · {link.allowedMethods.join(' · ')}{link.qrPayload ? ` · ${link.qrPayload}` : ''}{link.cvu ? ` · ${link.cvu}` : ''}{link.paidMethod ? ` · cobrado ${link.paidMethod}` : ''}{link.payerAccountReference ? ` · pagador ${link.payerAccountReference}` : ''}</small>
+          <small>{link.payload} · {link.allowedMethods.join(' · ')}{link.qrPayload ? ` · ${link.qrPayload}` : ''}{link.cvu ? ` · ${link.cvu}` : ''}{link.checkoutUrl ? ` · ${link.checkoutUrl}` : ''}{link.paidMethod ? ` · cobrado ${link.paidMethod}` : ''}{link.payerAccountReference ? ` · pagador ${link.payerAccountReference}` : ''}</small>
         </div>
-        <strong>{money(link.amount, link.currency)}</strong>
+        <strong>{money(link.collectedAmount ?? 0, link.currency)} / {money(link.amount, link.currency)}</strong>
         <span>{STATUS_LABELS[link.status] ?? link.status}</span>
         {canOperate && link.status === 'open' && <button type="button" className="danger-link" disabled={busy} onClick={() => void mutate(`/api/v1/payment-links/${link.id}/cancel`, 'No pudimos cancelar el link.')}>Cancelar</button>}
         {canOperate && link.status === 'paid' && <button type="button" className="danger-link" disabled={busy} onClick={() => void mutate(`/api/v1/payment-links/${link.id}/refund`, 'No pudimos devolver el cobro.')}>Devolver</button>}

@@ -590,8 +590,15 @@ export async function reverseTransactionInTransaction(input: ReverseTransactionI
     const instantTransfer = await transaction.prepare(`SELECT id, status FROM instant_transfers
       WHERE organization_id = ? AND transaction_id = ? LIMIT 1 FOR UPDATE`)
       .bind(input.organizationId, original.id).first<{ id: string; status: string }>();
+    const paymentLink = await transaction.prepare(`SELECT id, status FROM payment_links
+      WHERE organization_id = ? AND transaction_id = ? LIMIT 1 FOR UPDATE`)
+      .bind(input.organizationId, original.id).first<{ id: string; status: string }>();
+    const collectionCredit = await transaction.prepare(
+      'SELECT id FROM payment_link_credits WHERE organization_id = ? AND transaction_id = ? LIMIT 1',
+    ).bind(input.organizationId, original.id).first<{ id: string }>();
     if (instantTransfer) {
-      if (input.auditAction !== 'instant_transfer.returned') {
+      const collectionRail = input.auditAction === 'collection.refunded' && Boolean(paymentLink || collectionCredit);
+      if (!collectionRail && input.auditAction !== 'instant_transfer.returned') {
         throw new LedgerError('La devolución de la transferencia instantánea debe usar su operación canónica.', 409, 'instant_transfer_return_required');
       }
       await transaction.prepare(`UPDATE instant_transfers SET status = 'returned', reversal_transaction_id = ?, updated_at = ? WHERE id = ?`)
@@ -601,9 +608,6 @@ export async function reverseTransactionInTransaction(input: ReverseTransactionI
         resourceType: 'instant_transfer', resourceId: instantTransfer.id, payload: { transactionId: original.id, reversalId: id },
       });
     }
-    const paymentLink = await transaction.prepare(`SELECT id, status FROM payment_links
-      WHERE organization_id = ? AND transaction_id = ? LIMIT 1 FOR UPDATE`)
-      .bind(input.organizationId, original.id).first<{ id: string; status: string }>();
     if (paymentLink) {
       if (input.auditAction !== 'collection.refunded') {
         throw new LedgerError('La devolución del cobro debe usar su operación canónica.', 409, 'collection_refund_required');
@@ -847,11 +851,33 @@ export async function resolveHold(input: {
             SELECT id FROM payment_qrs WHERE organization_id = ? AND payload = (SELECT qr_payload FROM instant_transfers WHERE id = ?)
           )`)
           .bind(pendingInstant.id, now, input.organizationId, input.organizationId, pendingInstant.id).run();
-        await transaction.prepare(`UPDATE payment_links SET status = 'paid', paid_method = 'cimbra_qr', updated_at = ?
+        await transaction.prepare(`UPDATE payment_links SET status = 'paid', paid_method = 'cimbra_qr',
+          collected_minor = amount_minor, updated_at = ?
           WHERE organization_id = ? AND status = 'pending' AND qr_debt_id IN (
             SELECT id FROM qr_debts WHERE organization_id = ? AND paid_transfer_id = ?
           )`)
           .bind(now, input.organizationId, input.organizationId, pendingInstant.id).run();
+        const credited = await transaction.prepare(
+          `SELECT payment_link_id AS "paymentLinkId", amount_minor::text AS "amountMinor"
+           FROM payment_link_credits WHERE organization_id = ? AND transaction_id = ? LIMIT 1`,
+        ).bind(input.organizationId, hold.transactionId).first<{ paymentLinkId: string; amountMinor: string }>();
+        if (credited && input.action === 'capture') {
+          await transaction.prepare(
+            `UPDATE payment_links SET collected_minor = collected_minor + ?, updated_at = ? WHERE id = ?`,
+          ).bind(credited.amountMinor, now, credited.paymentLinkId).run();
+          const completed = await transaction.prepare(`UPDATE payment_links SET status = 'paid', paid_method = 'cimbra_cvu',
+            transaction_id = COALESCE(transaction_id, ?), updated_at = ?
+            WHERE id = ? AND status IN ('open', 'pending') AND collected_minor >= amount_minor
+            RETURNING id`)
+            .bind(hold.transactionId, now, credited.paymentLinkId).first<{ id: string }>();
+          if (completed) {
+            await insertAudit(transaction, {
+              organizationId: input.organizationId, actorId: input.actor.userId, action: 'collection.link_paid',
+              resourceType: 'payment_link', resourceId: completed.id,
+              payload: { method: 'cimbra_cvu', status: 'paid', transactionId: hold.transactionId, via: 'hold_capture' },
+            });
+          }
+        }
       }
       await insertAudit(transaction, {
         organizationId: input.organizationId, actorId: input.actor.userId, action: `instant.transfer_${transferStatus}`,
@@ -864,8 +890,14 @@ export async function resolveHold(input: {
       .bind(input.organizationId, hold.transactionId).first<{ id: string; status: string }>();
     if (pendingCollection && pendingCollection.status === 'pending') {
       const linkStatus = input.action === 'capture' ? 'paid' : 'cancelled';
-      await transaction.prepare('UPDATE payment_links SET status = ?, updated_at = ? WHERE id = ?')
-        .bind(linkStatus, now, pendingCollection.id).run();
+      if (linkStatus === 'paid') {
+        await transaction.prepare(
+          "UPDATE payment_links SET status = 'paid', collected_minor = amount_minor, updated_at = ? WHERE id = ?",
+        ).bind(now, pendingCollection.id).run();
+      } else {
+        await transaction.prepare("UPDATE payment_links SET status = 'cancelled', updated_at = ? WHERE id = ?")
+          .bind(now, pendingCollection.id).run();
+      }
       await insertAudit(transaction, {
         organizationId: input.organizationId, actorId: input.actor.userId, action: `collection.link_${linkStatus === 'paid' ? 'paid' : 'cancelled'}`,
         resourceType: 'payment_link', resourceId: pendingCollection.id,

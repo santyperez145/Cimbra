@@ -318,7 +318,9 @@ export type QrDebt = {
 export type CollectionMethod = 'internal' | 'sandbox_inbound' | 'cimbra_qr' | 'cimbra_cvu';
 export type PaymentLink = {
   id: string; accountId: string; accountReference: string; customerName: string;
-  amountMinor: string; amount: number; currency: 'ARS'; description: string; externalReference: string;
+  amountMinor: string; amount: number; collectedMinor: string; collectedAmount: number;
+  remainingMinor: string; remainingAmount: number; checkoutUrl: string;
+  currency: 'ARS'; description: string; externalReference: string;
   allowedMethods: CollectionMethod[]; payload: string;
   qrDebtId: string | null; collectionTillId: string | null; qrPayload: string | null; cvu: string | null;
   status: 'open' | 'pending' | 'paid' | 'expired' | 'cancelled' | 'refunded'; expiresAt: string;
@@ -481,7 +483,7 @@ export type CreateCollectionTillInput = {
 export type CreditCollectionTillInput = {
   externalReference: string; description: string; amount: string; currency?: 'ARS'; signals?: RiskSignalsInput;
 };
-export type PayPaymentLinkInput = { method: CollectionMethod | 'card' | 'pos' | 'tap_to_phone' | 'qr_interoperable'; payerAccountId?: string; signals?: RiskSignalsInput };
+export type PayPaymentLinkInput = { method: CollectionMethod | 'card' | 'pos' | 'tap_to_phone' | 'qr_interoperable'; payerAccountId?: string; amount?: string; signals?: RiskSignalsInput };
 export type CreateEcheqInput = {
   drawerAccountId: string; externalReference: string; description: string; amount: string; currency?: 'ARS' | 'USD';
   beneficiaryName: string; beneficiaryTaxId: string; paymentDate?: string; toOrder?: boolean;

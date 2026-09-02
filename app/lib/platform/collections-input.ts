@@ -68,7 +68,7 @@ export function normalizePaymentLinkInput(value: unknown) {
 export function normalizePaymentLinkPayInput(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const body = value as Record<string, unknown>;
-  if (!hasOnlyKeys(body, ['method', 'payerAccountId', 'signals'])) return null;
+  if (!hasOnlyKeys(body, ['method', 'payerAccountId', 'amount', 'signals'])) return null;
   const method = typeof body.method === 'string' ? body.method : '';
   if ((UNSUPPORTED_COLLECTION_METHODS as readonly string[]).includes(method)) {
     return { unsupportedMethod: method as UnsupportedCollectionMethod };
@@ -81,7 +81,13 @@ export function normalizePaymentLinkPayInput(value: unknown) {
   if (method === 'sandbox_inbound' && payerAccountId) return null;
   if (method === 'cimbra_cvu' && payerAccountId && !uuid.test(payerAccountId)) return null;
   if (payerAccountId && !uuid.test(payerAccountId)) return null;
-  return { method: method as CollectionMethod, payerAccountId };
+  let amountMinor: bigint | null = null;
+  if (body.amount !== undefined && body.amount !== null && body.amount !== '') {
+    if (method !== 'cimbra_cvu') return null;
+    try { amountMinor = majorToMinor(body.amount, 'ARS'); } catch { return null; }
+    if (amountMinor <= 0n || amountMinor > majorToMinor('10000000', 'ARS')) return null;
+  }
+  return { method: method as CollectionMethod, payerAccountId, amountMinor };
 }
 
 export type NormalizedPaymentLinkInput = Exclude<ReturnType<typeof normalizePaymentLinkInput>, null | { unsupportedMethod: UnsupportedCollectionMethod }>;

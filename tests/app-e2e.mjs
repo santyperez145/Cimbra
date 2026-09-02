@@ -119,6 +119,7 @@ async function cleanup() {
       await transaction`DELETE FROM payout_batches WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM payout_beneficiaries WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM qr_sale_orders WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM payment_link_credits WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM payment_links WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM qr_debts WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM instant_transfers WHERE organization_id = ${organizationId}`;
@@ -1127,6 +1128,7 @@ try {
     body: JSON.stringify({ method: 'cimbra_cvu', payerAccountId: account.id }),
   }), 201);
   assert.equal(paidCvuLink.link.status, 'paid'); assert.equal(paidCvuLink.link.paidMethod, 'cimbra_cvu');
+  assert.equal(paidCvuLink.link.collectedAmount, 8); assert.equal(paidCvuLink.link.remainingAmount, 0);
   const inboundCvuLink = await json(await request('/api/v1/payment-links', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-link-cvu-in-${runId}` },
     body: JSON.stringify({
@@ -1139,6 +1141,48 @@ try {
     body: JSON.stringify({ method: 'cimbra_cvu' }),
   }), 201);
   assert.equal(inboundCvuPaid.link.status, 'paid'); assert.equal(inboundCvuPaid.link.paidMethod, 'cimbra_cvu');
+  const partialCvuLink = await json(await request('/api/v1/payment-links', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-link-cvu-part-${runId}` },
+    body: JSON.stringify({
+      accountId: destinationAccount.id, externalReference: `FAC-CVU-PART-${runId}`, description: 'Link parcial CVU',
+      amount: '8.00', currency: 'ARS', methods: ['cimbra_cvu'], collectionTillId: linkedTill.till.id,
+    }),
+  }), 201);
+  assert.equal(partialCvuLink.link.collectedAmount, 0); assert.equal(partialCvuLink.link.remainingAmount, 8);
+  assert.match(partialCvuLink.link.checkoutUrl, /\/pay\//);
+  const publicCheckout = await fetch(new URL(`/pay/${partialCvuLink.link.id}`, target), { redirect: 'manual' });
+  assert.equal(publicCheckout.status, 200);
+  const publicHtml = await publicCheckout.text();
+  assert.match(publicHtml, /CVU sandbox/);
+  assert.match(publicHtml, /no es un checkout de tarjeta/i);
+  assert.equal(publicCheckout.headers.get('set-cookie'), null);
+  const amountOnQr = await json(await request(`/api/v1/payment-links/${syncLink.link.id}/pay`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-link-amount-qr-${runId}` },
+    body: JSON.stringify({ method: 'cimbra_qr', payerAccountId: account.id, amount: '1.00' }),
+  }), 400);
+  assert.equal(amountOnQr.error.code, 'invalid_payment_link_pay');
+  const firstPartial = await json(await request(`/api/v1/payment-links/${partialCvuLink.link.id}/pay`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-link-cvu-part-a-${runId}` },
+    body: JSON.stringify({ method: 'cimbra_cvu', payerAccountId: account.id, amount: '3.00' }),
+  }), 201);
+  assert.equal(firstPartial.link.status, 'open');
+  assert.equal(firstPartial.link.collectedAmount, 3); assert.equal(firstPartial.link.remainingAmount, 5);
+  const replayPartial = await json(await request(`/api/v1/payment-links/${partialCvuLink.link.id}/pay`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-link-cvu-part-a-${runId}` },
+    body: JSON.stringify({ method: 'cimbra_cvu', payerAccountId: account.id, amount: '3.00' }),
+  }), 200);
+  assert.equal(replayPartial.replayed, true); assert.equal(replayPartial.link.collectedAmount, 3);
+  const secondPartial = await json(await request(`/api/v1/payment-links/${partialCvuLink.link.id}/pay`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-link-cvu-part-b-${runId}` },
+    body: JSON.stringify({ method: 'cimbra_cvu', payerAccountId: account.id, amount: '5.00' }),
+  }), 201);
+  assert.equal(secondPartial.link.status, 'paid');
+  assert.equal(secondPartial.link.paidMethod, 'cimbra_cvu');
+  assert.equal(secondPartial.link.collectedAmount, 8); assert.equal(secondPartial.link.remainingAmount, 0);
+  const refundedPartial = await json(await request(`/api/v1/payment-links/${partialCvuLink.link.id}/refund`, {
+    method: 'POST', headers: { 'Idempotency-Key': `qa-link-cvu-part-refund-${runId}` },
+  }), 201);
+  assert.equal(refundedPartial.link.status, 'refunded');
 
   const beneficiaryCuit = '30000075678';
   const echeqPayload = {

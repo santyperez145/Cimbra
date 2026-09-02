@@ -1039,7 +1039,7 @@ export async function payPaymentQr(input: {
       ).bind(input.organizationId, debt.id).first<{ id: string }>();
       if (linked) {
         await database.prepare(`UPDATE payment_links SET status = 'paid', paid_method = 'cimbra_qr',
-          payer_account_id = ?, transaction_id = ?, updated_at = ? WHERE id = ?`)
+          payer_account_id = ?, transaction_id = ?, collected_minor = amount_minor, updated_at = ? WHERE id = ?`)
           .bind(source.id, movement.transactionId, createdAt, linked.id).run();
         await insertAudit(database, {
           organizationId: input.organizationId, actorId: input.actor.userId, action: 'collection.link_paid',

@@ -197,6 +197,7 @@ test('los rieles oficiales son contrapartes reguladas y el adaptador falla cerra
   const collections = evaluateLiveReadiness().products.find((product) => product.id === 'collections');
   assert.match(collections?.sandboxCoverage ?? '', /cimbra_qr/);
   assert.match(collections?.sandboxCoverage ?? '', /cimbra_cvu/);
+  assert.match(collections?.sandboxCoverage ?? '', /parcial/);
   assert.throws(
     () => dispatchOfficialRail('coelsa_transfers', [{ id: 'coelsa_transfers', status: 'unwired' }]),
     (error: unknown) => error instanceof PlatformRailError && error.code === 'rail_not_wired',
@@ -427,17 +428,28 @@ test('cobranzas validan links de cobro, medios sandbox y rechazan adquirencia de
   }), null);
   const qrPay = normalizePaymentLinkPayInput({ method: 'cimbra_qr', payerAccountId: payerId });
   assert.ok(qrPay); assert.ok(!('unsupportedMethod' in qrPay));
-  if (!('unsupportedMethod' in qrPay)) assert.equal(qrPay.method, 'cimbra_qr');
+  if (!('unsupportedMethod' in qrPay)) {
+    assert.equal(qrPay.method, 'cimbra_qr'); assert.equal(qrPay.amountMinor, null);
+  }
   assert.equal(normalizePaymentLinkPayInput({ method: 'cimbra_qr' }), null);
-  assert.deepEqual(normalizePaymentLinkPayInput({ method: 'cimbra_cvu' }), { method: 'cimbra_cvu', payerAccountId: null });
+  assert.deepEqual(normalizePaymentLinkPayInput({ method: 'cimbra_cvu' }), {
+    method: 'cimbra_cvu', payerAccountId: null, amountMinor: null,
+  });
+  assert.deepEqual(normalizePaymentLinkPayInput({ method: 'cimbra_cvu', amount: '3.00' }), {
+    method: 'cimbra_cvu', payerAccountId: null, amountMinor: 300n,
+  });
+  assert.equal(normalizePaymentLinkPayInput({ method: 'internal', payerAccountId: payerId, amount: '1.00' }), null);
   const internalPay = normalizePaymentLinkPayInput({ method: 'internal', payerAccountId: payerId });
   assert.ok(internalPay); assert.ok(!('unsupportedMethod' in internalPay));
   if (!('unsupportedMethod' in internalPay)) {
     assert.equal(internalPay.method, 'internal'); assert.equal(internalPay.payerAccountId, payerId);
+    assert.equal(internalPay.amountMinor, null);
   }
   assert.equal(normalizePaymentLinkPayInput({ method: 'internal' }), null);
   assert.deepEqual(normalizePaymentLinkPayInput({ method: 'card' }), { unsupportedMethod: 'card' });
-  assert.deepEqual(normalizePaymentLinkPayInput({ method: 'sandbox_inbound' }), { method: 'sandbox_inbound', payerAccountId: null });
+  assert.deepEqual(normalizePaymentLinkPayInput({ method: 'sandbox_inbound' }), {
+    method: 'sandbox_inbound', payerAccountId: null, amountMinor: null,
+  });
   const till = normalizeCollectionTillInput({
     accountId, externalReference: 'TILL-001', name: ' Mostrador Sur ', alias: 'comercio.sur',
   });

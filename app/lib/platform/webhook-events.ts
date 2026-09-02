@@ -43,6 +43,7 @@ export const WEBHOOK_EVENT_TYPES = [
   'collection.link_created',
   'collection.link_cancelled',
   'collection.link_paid',
+  'collection.link_credited',
   'collection.link_refunded',
   'collection.till_created',
   'collection.till_alias_assigned',

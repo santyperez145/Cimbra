@@ -1151,7 +1151,7 @@ paths:
     post:
       operationId: createPaymentLink
       summary: Create a sandbox collection link against an Argentine ARS account
-      description: Payload format cimbra:link:v1 is not a card network checkout. Allowed methods are internal Cimbra accounts, sandbox inbound cash-in, Cimbra QR of an associated open debt (cimbra_qr) or the sandbox CVU of an associated collection till (cimbra_cvu). Card, POS, hosted checkout and interoperable QR return 422. The pay amount is closed; partial CVU overpayment is not simulated.
+      description: Payload format cimbra:link:v1 is not a card network checkout. Allowed methods are internal Cimbra accounts, sandbox inbound cash-in, Cimbra QR of an associated open debt (cimbra_qr) or the sandbox CVU of an associated collection till (cimbra_cvu). Card, POS, hosted PCI checkout and interoperable QR return 422. Only cimbra_cvu accepts partial credits, multiple credits or an amount above the remaining balance. QR and internal collection stay closed-amount.
       security: [{ session: [] }, { bearerApiKey: [] }]
       parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody:
@@ -1216,7 +1216,7 @@ paths:
     post:
       operationId: payPaymentLink
       summary: Collect a sandbox payment link
-      description: internal debits another Cimbra account in the tenant. sandbox_inbound posts a cash-in against settlement. cimbra_qr pays the associated closed QR debt. cimbra_cvu credits the associated till CVU for the closed link amount. Card acquiring is not supported.
+      description: internal debits another Cimbra account in the tenant. sandbox_inbound posts a cash-in against settlement. cimbra_qr pays the associated closed QR debt. cimbra_cvu credits the associated till CVU. amount is accepted only for cimbra_cvu; omit it to credit the remaining balance. Partial credits, several credits and overpayment are allowed until collectedMinor >= amountMinor. Card acquiring is not supported.
       security: [{ session: [] }, { bearerApiKey: [] }]
       parameters:
         - $ref: '#/components/parameters/ResourceId'
@@ -1232,6 +1232,10 @@ paths:
               properties:
                 method: { type: string, enum: [internal, sandbox_inbound, cimbra_qr, cimbra_cvu, card, pos, tap_to_phone, qr_interoperable] }
                 payerAccountId: { type: string, format: uuid }
+                amount:
+                  oneOf:
+                    - { type: string, pattern: '^\d+(?:\.\d+)?$' }
+                    - { type: number, exclusiveMinimum: 0, maximum: 10000000 }
                 signals: { $ref: '#/components/schemas/RiskSignalsInput' }
       responses:
         '201': { description: Payment link collected }
@@ -3893,7 +3897,7 @@ components:
         updatedAt: { type: string, format: date-time }
     PaymentLink:
       type: object
-      required: [id, accountId, accountReference, customerName, amountMinor, amount, currency, description, externalReference, allowedMethods, payload, qrDebtId, collectionTillId, qrPayload, cvu, status, expiresAt, paidMethod, payerAccountId, payerAccountReference, transactionId, reversalTransactionId, createdAt, updatedAt]
+      required: [id, accountId, accountReference, customerName, amountMinor, amount, collectedMinor, collectedAmount, remainingMinor, remainingAmount, checkoutUrl, currency, description, externalReference, allowedMethods, payload, qrDebtId, collectionTillId, qrPayload, cvu, status, expiresAt, paidMethod, payerAccountId, payerAccountReference, transactionId, reversalTransactionId, createdAt, updatedAt]
       additionalProperties: false
       properties:
         id: { type: string, format: uuid }
@@ -3902,6 +3906,11 @@ components:
         customerName: { type: string }
         amountMinor: { type: string }
         amount: { type: number }
+        collectedMinor: { type: string }
+        collectedAmount: { type: number }
+        remainingMinor: { type: string }
+        remainingAmount: { type: number }
+        checkoutUrl: { type: string }
         currency: { type: string, enum: [ARS] }
         description: { type: string }
         externalReference: { type: string }

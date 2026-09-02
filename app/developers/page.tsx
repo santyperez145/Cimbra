@@ -29,8 +29,13 @@ const errorResponses = [
 const changelog = [
   {
     date: '01 SEP 2026',
+    title: 'Créditos parciales CVU y checkout público',
+    detail: 'POST /api/v1/payment-links/{id}/pay acepta amount sólo con cimbra_cvu. Se puede acreditar el restante, un parcial, varios créditos o más del monto. checkoutUrl apunta a /pay/{id} sin formulario de tarjeta. QR e internal siguen monto cerrado. collection.link_credited se emite en cada crédito que no completa el link.',
+  },
+  {
+    date: '01 SEP 2026',
     title: 'Link de cobro asociado a deuda QR o till',
-    detail: 'POST /api/v1/payment-links acepta qrDebtId y collectionTillId. Los medios cimbra_qr y cimbra_cvu liquidan el QR de la deuda o el CVU del till al monto cerrado. Pagar el QR también cierra el link. No hay checkout hospedado, tarjeta ni QR de red.',
+    detail: 'POST /api/v1/payment-links acepta qrDebtId y collectionTillId. Los medios cimbra_qr y cimbra_cvu liquidan el QR de la deuda o el CVU del till. Pagar el QR también cierra el link. No hay checkout PCI, tarjeta ni QR de red.',
   },
   {
     date: '01 SEP 2026',
@@ -635,7 +640,7 @@ await cimbra.paymentLinks.pay(link.data.link.id, {
           <article><strong>Link</strong><p>Monto cerrado, vencimiento y payload <code>cimbra:link:v1</code>. Puede llevar <code>qrDebtId</code> o <code>collectionTillId</code>. Owner/Admin/Operator crean; Viewer sólo consulta.</p></article>
           <article><strong>Punto de recaudación</strong><p><code>collection_tills</code> emite un CVU <code>000+9999</code> del till. Transferencias internas e inbound quedan con <code>collectionTillId</code>. No es caja BIND.</p></article>
           <article><strong>Scopes</strong><p><code>payments:read/write</code> protege S2S. El cobro entra al motor de riesgo y puede quedar en hold.</p></article>
-          <article><strong>Límite real</strong><p>No hay checkout hospedado PCI, marcas, sucursales ni liquidación a un adquirente. El cobro por CVU es de monto cerrado: no se simulan pagos parciales de cámara. El CVU del till no viaja por Coelsa. BIND y el resto siguen como benchmarks, no conectores.</p></article>
+          <article><strong>Límite real</strong><p>No hay checkout PCI, marcas, sucursales ni liquidación a un adquirente. El cobro por CVU admite parciales y overpay; QR e internal siguen monto cerrado. Un inbound suelto al till no imputa el link. El CVU del till no viaja por Coelsa. BIND y el resto siguen como benchmarks, no conectores.</p></article>
         </div>
         <CodeBlock language="TYPESCRIPT · SDK REAL" value={collectionsExample} />
       </section>
