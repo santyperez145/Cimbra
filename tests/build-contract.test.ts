@@ -70,6 +70,16 @@ test('el estado de cuenta conserva layout de formulario y métricas responsive',
   assert.match(styles, /@media\(max-width:620px\).*\.book-transfers-console>\.module-list>div:not\(\.card-head\)\{[^}]*flex-direction:column/);
 });
 
+test('la landing publica capacidades reales del sandbox sin inventar rieles', () => {
+  const page = readFileSync(join(root, 'app', 'page.tsx'), 'utf8');
+  assert.match(page, /192 operaciones/);
+  assert.match(page, /Pagos AR y cobranzas/);
+  assert.match(page, /Live fail-closed/);
+  assert.match(page, /Sin Coelsa, DEBIN ni QR de red/);
+  assert.doesNotMatch(page, /QR interoperable/);
+  assert.doesNotMatch(page, /Tarjeta corporativa/);
+});
+
 test('la consola opera el padrón de clientes sobre la API v1', () => {
   const consoleClient = readFileSync(join(root, 'app', 'console', 'console-client.tsx'), 'utf8');
   const panel = readFileSync(join(root, 'app', 'console', 'customers-panel.tsx'), 'utf8');
