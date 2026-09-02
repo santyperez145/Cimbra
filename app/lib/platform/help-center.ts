@@ -30,6 +30,12 @@ export const HELP_ARTICLES = [
     body: 'Auditoría lista GET /api/v1/events: acción, recurso, timestamp y payload. El log es inmutable y queda aislado por organización. No es un SIEM, no se presenta ante un regulador y no sustituye el historial de webhooks de Developers.',
   },
   {
+    id: 'transfers',
+    title: 'Movimientos y transferencias',
+    summary: 'Listado paginado del API, alta idempotente y reversas compensatorias.',
+    body: 'Movimientos opera GET/POST /api/v1/transfers y la reversa compensatoria. No es un book transfer entre cuentas ni un pago Coelsa. Un monto alto puede exigir maker/checker en Aprobaciones. Viewer lee y exporta; no crea ni revierte.',
+  },
+  {
     id: 'support',
     title: 'Cómo abrir un caso de soporte',
     summary: 'Los tickets viven en el tenant y también los ve la superadministración de Cimbra.',

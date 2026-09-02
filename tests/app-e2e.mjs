@@ -289,6 +289,7 @@ try {
   assert.match(helpHtml, /Padrón de clientes/);
   assert.match(helpHtml, /Cuentas de producto/);
   assert.match(helpHtml, /Registro de auditoría/);
+  assert.match(helpHtml, /Movimientos y transferencias/);
   const statusPage = await request('/status');
   assert.equal(statusPage.status, 200);
   assert.match(await statusPage.text(), /STATUS PÚBLICO/);

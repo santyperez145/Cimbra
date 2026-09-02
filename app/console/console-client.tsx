@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { FormEvent, useMemo, useState, useSyncExternalStore } from 'react';
+import { FormEvent, useState, useSyncExternalStore } from 'react';
 import type { DashboardData } from '@/db/runtime';
 import { ROLE_PROFILES, roleCan, type AccessCapability, type OrganizationRole } from '@/app/lib/platform/access-policy';
 import { authenticatedFetch } from '@/app/lib/platform/client-http';
@@ -23,6 +23,7 @@ import ReconciliationPanel from './reconciliation-panel';
 import RiskPanel from './risk-panel';
 import SecurityPanel from './security-panel';
 import SupportPanel from './support-panel';
+import TransfersPanel from './transfers-panel';
 import OrganizationPanel from './organization-panel';
 import WalletsPanel from './wallets-panel';
 import InstantPaymentsPanel from './instant-payments-panel';
@@ -65,6 +66,7 @@ export default function ConsoleClient({ data, user, platformOperator = false }: 
   const [transferCurrency, setTransferCurrency] = useState('ARS');
   const [paymentDirection, setPaymentDirection] = useState<'cash_in' | 'cash_out'>('cash_in');
   const [overviewPeriod, setOverviewPeriod] = useState<'7d' | '30d'>('30d');
+  const [ledgerEpoch, setLedgerEpoch] = useState(0);
   const canOperate = roleCan(user.role, 'finance.write');
   const canManageOrganization = roleCan(user.role, 'organization.manage');
   const visibleNav = nav.filter((item) => !item.capability || roleCan(user.role, item.capability));
@@ -101,8 +103,8 @@ export default function ConsoleClient({ data, user, platformOperator = false }: 
     const result = await response.json() as { error?: string | { message?: string }; requiresApproval?: boolean; transaction?: { status: string } };
     const errorMessage = typeof result.error === 'string' ? result.error : result.error?.message;
     if (!response.ok) setFeedback(errorMessage ?? 'No pudimos crear la transferencia.');
-    else if (result.requiresApproval) setFeedback('Solicitud creada. Otro owner/admin con MFA debe aprobarla desde Aprobaciones.');
-    else { setFeedback(result.transaction?.status === 'review' ? 'Transferencia creada y enviada a revisión.' : 'Transferencia liquidada en sandbox.'); router.refresh(); }
+    else if (result.requiresApproval) { setFeedback('Solicitud creada. Otro owner/admin con MFA debe aprobarla desde Aprobaciones.'); setTransferOpen(false); setLedgerEpoch((value) => value + 1); }
+    else { setFeedback(result.transaction?.status === 'review' ? 'Transferencia creada y enviada a revisión.' : 'Transferencia liquidada en sandbox.'); setTransferOpen(false); setLedgerEpoch((value) => value + 1); router.refresh(); }
     setBusy(false);
   }
 
@@ -118,18 +120,8 @@ export default function ConsoleClient({ data, user, platformOperator = false }: 
     const result = await response.json() as { error?: { message?: string } | string; payment?: { status: string } };
     const error = typeof result.error === 'string' ? result.error : result.error?.message;
     if (!response.ok) setFeedback(error ?? 'No pudimos procesar el payment.');
-    else { setFeedback(result.payment?.status === 'review' ? 'Cash-out enviado a revisión.' : 'Payment contabilizado correctamente.'); setPaymentOpen(false); router.refresh(); }
+    else { setFeedback(result.payment?.status === 'review' ? 'Cash-out enviado a revisión.' : 'Payment contabilizado correctamente.'); setPaymentOpen(false); setLedgerEpoch((value) => value + 1); router.refresh(); }
     setBusy(false);
-  }
-
-  async function reverseTransaction(transactionId: string) {
-    setBusy(true); setFeedback('');
-    const response = await authenticatedFetch(`/api/v1/transfers/${transactionId}/reverse`, {
-      method: 'POST', headers: { 'Idempotency-Key': `reverse-${transactionId}` },
-    });
-    const result = await response.json() as { error?: string };
-    setFeedback(response.ok ? 'Transferencia revertida con un asiento compensatorio.' : result.error ?? 'No pudimos revertir la transferencia.');
-    setBusy(false); router.refresh();
   }
 
   async function resolveReview(holdId: string, action: 'capture' | 'release') {
@@ -176,7 +168,7 @@ export default function ConsoleClient({ data, user, platformOperator = false }: 
             </article>
             <aside className="risk-card"><div className="card-head"><div><h2>Control de riesgo</h2><p>Reservas persistidas del sandbox</p></div><span className="risk-live">● ACTIVO</span></div><div className="risk-score"><div><strong>{data.riskAlerts}</strong><span>reservas abiertas</span></div><div><strong>{data.journalCount}</strong><span>journals posteados</span></div></div>{data.holds.slice(0,1).map((hold)=><div className="risk-item" key={hold.id}><i className="coral-dot">!</i><span><strong>Fondos reservados</strong><small>{hold.counterparty} · {money(hold.amount,hold.currency)}</small></span><b>Revisar</b></div>)}<div className="risk-item"><i>✓</i><span><strong>Integridad del ledger</strong><small>Débitos y créditos validados en PostgreSQL</small></span><b className="normal">Activo</b></div><button className="risk-button" onClick={() => setActive('Riesgo')}>Abrir centro de riesgo →</button></aside>
           </div>
-          </> : active === 'Seguridad' ? <SecurityPanel user={user} /> : active === 'Payments' ? <BookTransfersPanel accounts={data.accounts} role={user.role} onCashMovement={() => setPaymentOpen(true)} /> : active === 'Payouts' ? <PayoutsPanel accounts={data.accounts} actorRole={user.role} /> : active === 'Servicios' ? <BillersPanel accounts={data.accounts} actorRole={user.role} /> : active === 'Disputas' ? <DisputesPanel readOnly={!roleCan(user.role, 'disputes.write')} /> : active === 'Operaciones' ? <OperationsPanel readOnly={!roleCan(user.role, 'operations.write')} /> : active === 'Aprobaciones' ? <ApprovalsPanel actorRole={user.role} mfaEnabled={user.mfaEnabled} /> : active === 'Compliance' ? <CompliancePanel actorRole={user.role} mfaEnabled={user.mfaEnabled} currentUserId={user.userId} /> : active === 'Accesos' && canManageOrganization ? <AccessPanel actorRole={user.role as Extract<Role, 'owner' | 'admin'>} /> : <SecondaryConsoleView active={active} data={data} role={user.role} busy={busy} feedback={feedback} onTransfer={() => setTransferOpen(true)} onPayment={() => setPaymentOpen(true)} onReverse={reverseTransaction} onHold={resolveReview} />}
+          </> : active === 'Seguridad' ? <SecurityPanel user={user} /> : active === 'Payments' ? <BookTransfersPanel accounts={data.accounts} role={user.role} onCashMovement={() => setPaymentOpen(true)} /> : active === 'Payouts' ? <PayoutsPanel accounts={data.accounts} actorRole={user.role} /> : active === 'Servicios' ? <BillersPanel accounts={data.accounts} actorRole={user.role} /> : active === 'Disputas' ? <DisputesPanel readOnly={!roleCan(user.role, 'disputes.write')} /> : active === 'Operaciones' ? <OperationsPanel readOnly={!roleCan(user.role, 'operations.write')} /> : active === 'Aprobaciones' ? <ApprovalsPanel actorRole={user.role} mfaEnabled={user.mfaEnabled} /> : active === 'Compliance' ? <CompliancePanel actorRole={user.role} mfaEnabled={user.mfaEnabled} currentUserId={user.userId} /> : active === 'Accesos' && canManageOrganization ? <AccessPanel actorRole={user.role as Extract<Role, 'owner' | 'admin'>} /> : <SecondaryConsoleView active={active} data={data} role={user.role} busy={busy} feedback={feedback} refreshKey={ledgerEpoch} onPayment={() => setPaymentOpen(true)} onHold={resolveReview} />}
         </div>
       </section>
 
@@ -186,29 +178,14 @@ export default function ConsoleClient({ data, user, platformOperator = false }: 
   );
 }
 
-function SecondaryConsoleView({ active, data, role, busy, feedback, onTransfer, onPayment, onReverse, onHold }: {
-  active: string; data: DashboardData; role: Role; busy: boolean; feedback: string; onTransfer: () => void;
+function SecondaryConsoleView({ active, data, role, busy, feedback, refreshKey, onPayment, onHold }: {
+  active: string; data: DashboardData; role: Role; busy: boolean; feedback: string; refreshKey: number;
   onPayment: () => void;
-  onReverse: (transactionId: string) => void; onHold: (holdId: string, action: 'capture' | 'release') => void;
+  onHold: (holdId: string, action: 'capture' | 'release') => void;
 }) {
-  const [movementQuery, setMovementQuery] = useState('');
-  const [movementFilter, setMovementFilter] = useState<'all' | 'in' | 'out'>('all');
   const canOperate = roleCan(role, 'finance.write');
-  const filteredTransactions = useMemo(() => data.transactions.filter((transaction) => {
-    const directionMatches = movementFilter === 'all' || (movementFilter === 'in' ? transaction.amount > 0 : transaction.amount < 0);
-    const query = movementQuery.trim().toLowerCase();
-    return directionMatches && (!query || `${transaction.counterparty} ${transaction.description} ${transaction.id}`.toLowerCase().includes(query));
-  }), [data.transactions, movementFilter, movementQuery]);
 
-  function exportTransactions() {
-    const escape = (value: unknown) => `"${String(value).replace(/"/g, '""')}"`;
-    const rows = [['id', 'counterparty', 'description', 'amount_minor', 'currency', 'status', 'created_at'],
-      ...filteredTransactions.map((item) => [item.id, item.counterparty, item.description, item.amountMinor, item.currency, item.status, item.createdAt])];
-    const blob = new Blob([rows.map((row) => row.map(escape).join(',')).join('\n')], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = 'cimbra-movimientos.csv'; link.click(); URL.revokeObjectURL(url);
-  }
-
-  if (active === 'Movimientos') return <div className="module-view"><div className="module-view-head"><div><p>OPERACIONES</p><h1>Movimientos</h1><span>Operaciones monetarias respaldadas por asientos inmutables.</span></div>{canOperate && <button className="app-primary" onClick={onTransfer}>+ Nueva transferencia</button>}</div>{feedback&&<div className="form-feedback ledger-feedback">{feedback}</div>}<article className="full-table"><div className="module-toolbar"><input aria-label="Buscar movimiento" placeholder="⌕ Buscar movimiento" value={movementQuery} onChange={(event) => setMovementQuery(event.target.value)} /><div><button className={movementFilter === 'all' ? 'active' : ''} onClick={() => setMovementFilter('all')}>Todos</button><button className={movementFilter === 'in' ? 'active' : ''} onClick={() => setMovementFilter('in')}>Ingresos</button><button className={movementFilter === 'out' ? 'active' : ''} onClick={() => setMovementFilter('out')}>Egresos</button><button disabled={filteredTransactions.length === 0} onClick={exportTransactions}>Exportar CSV ↓</button></div></div><div className="app-table-head"><span>MOVIMIENTO</span><span>FECHA</span><span>MONTO</span><span>ESTADO</span></div>{filteredTransactions.length === 0 ? <div className="table-empty">No hay movimientos para este filtro.</div> : filteredTransactions.map((transaction)=><div className="app-table-row" key={transaction.id}><span className="movement"><i>{transaction.amount < 0 ? '↗' : '↙'}</i><b>{transaction.counterparty}<small>{transaction.description}</small></b></span><span>{new Date(transaction.createdAt).toLocaleDateString('es-AR',{day:'2-digit',month:'short'})}<small>{new Date(transaction.createdAt).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</small></span><strong className={transaction.amount<0?'':'positive'}>{transaction.amount>0?'+':''}{money(transaction.amount,transaction.currency)}</strong><span className={`row-status ${transaction.status}`}><i />{statusLabel(transaction.status)}{canOperate&&transaction.amount<0&&transaction.status==='settled'&&!transaction.reversalOf&&<button className="ledger-row-action" disabled={busy} onClick={()=>onReverse(transaction.id)}>Revertir</button>}</span></div>)}</article></div>;
+  if (active === 'Movimientos') return <TransfersPanel role={role} refreshKey={refreshKey} />;
 
   if (active === 'Payments') return <div className="module-view"><div className="module-view-head"><div><p>PAYMENT ORCHESTRATION</p><h1>Cash-in y cash-out</h1><span>Ingresos y payouts aplicados a cuentas concretas, listos para adaptadores regionales.</span></div>{canOperate && <button className="app-primary" onClick={onPayment}>+ Nuevo payment</button>}</div>{feedback&&<div className="form-feedback ledger-feedback">{feedback}</div>}<div className="module-metrics"><article><strong>{data.accounts.length}</strong><span>cuentas operables</span></article><article><strong>{data.transactions.filter((item)=>item.amount>0).length}</strong><span>ingresos recientes</span></article><article><strong>{data.transactions.filter((item)=>item.amount<0).length}</strong><span>egresos recientes</span></article></div><article className="module-list"><div className="card-head"><div><h2>Cuentas de producto</h2><p>Saldo derivado de postings por cuenta</p></div><b>LEDGER-BACKED</b></div>{data.accounts.length===0?<div><span className="movement"><i>◉</i><b>Sin cuentas<small>{canOperate ? 'Creá una cuenta en Cuentas para comenzar' : 'No hay cuentas disponibles para consultar'}</small></b></span><strong>Vacío</strong></div>:data.accounts.map((account)=><div key={account.id}><span className="movement"><i>◉</i><b>{account.accountReference}<small>{account.country} · {account.currency} · {account.status}</small></b></span><strong>{money(account.balance,account.currency)}</strong></div>)}</article></div>;
 

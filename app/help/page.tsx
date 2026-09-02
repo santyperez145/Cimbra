@@ -3,7 +3,7 @@ import { HELP_ARTICLES, STATUS_SURFACES } from '@/app/lib/platform/help-center';
 
 export const metadata = {
   title: 'Ayuda — Cimbra',
-  description: 'Centro de ayuda de Cimbra: sandbox, roles, clientes, cuentas, auditoría, soporte, camino PSPCP y API keys. Sin SLA inventado ni rieles simulados.',
+  description: 'Centro de ayuda de Cimbra: sandbox, roles, clientes, cuentas, movimientos, auditoría, soporte, camino PSPCP y API keys. Sin SLA inventado ni rieles simulados.',
 };
 
 export default function HelpPage() {

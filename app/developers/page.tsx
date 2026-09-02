@@ -29,6 +29,11 @@ const errorResponses = [
 const changelog = [
   {
     date: '02 SEP 2026',
+    title: 'Movimientos sobre la API de transferencias',
+    detail: 'La consola deja el snapshot del dashboard y opera GET/POST /api/v1/transfers con detalle, paginación, export CSV y reversas compensatorias. Viewer lee; operator/admin/owner escriben. OpenAPI permanece en 192 operaciones.',
+  },
+  {
+    date: '02 SEP 2026',
     title: 'Auditoría del tenant en la consola',
     detail: 'La consola opera GET /api/v1/events: log append-only, paginado, filtrable por recurso y exportable. Todos los roles leen; no hay mutación. No es un SIEM. OpenAPI permanece en 192 operaciones.',
   },

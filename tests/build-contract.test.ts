@@ -80,6 +80,17 @@ test('la consola opera el padrón de clientes sobre la API v1', () => {
   assert.match(panel, /finance\.write/);
 });
 
+test('la consola opera movimientos sobre la API de transferencias', () => {
+  const consoleClient = readFileSync(join(root, 'app', 'console', 'console-client.tsx'), 'utf8');
+  const panel = readFileSync(join(root, 'app', 'console', 'transfers-panel.tsx'), 'utf8');
+  assert.match(consoleClient, /label: 'Movimientos'/);
+  assert.match(consoleClient, /<TransfersPanel role=\{role\} refreshKey=\{refreshKey\} \/>/);
+  assert.match(panel, /\/api\/v1\/transfers/);
+  assert.match(panel, /\/reverse/);
+  assert.match(panel, /Idempotency-Key/);
+  assert.match(panel, /cimbra-movimientos\.csv/);
+});
+
 test('la consola opera la auditoría del tenant sobre GET /api/v1/events', () => {
   const consoleClient = readFileSync(join(root, 'app', 'console', 'console-client.tsx'), 'utf8');
   const panel = readFileSync(join(root, 'app', 'console', 'audit-panel.tsx'), 'utf8');
