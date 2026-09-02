@@ -29,6 +29,11 @@ const errorResponses = [
 const changelog = [
   {
     date: '01 SEP 2026',
+    title: 'Data room público y presupuesto Gate 1',
+    detail: 'GET /api/v1/live-readiness publica capitalPlan (USD 500, gastado 0, liveReadyAfterSpend=false). /investors muestra evidencia del sandbox sin clientes ni volumen inventados. El envelope no autoriza AWS pago, Coelsa, banco patrocinante ni Go Live. OpenAPI sigue en 179 operaciones.',
+  },
+  {
+    date: '01 SEP 2026',
     title: 'QR estático del punto de recaudación',
     detail: 'Un collection_till emite su propio cimbra:qr:static:v1 (issueStaticQr o POST /api/v1/collection-tills/{id}/static-qr) sin gastar el QR estático de la cuenta. closedAmountOnly exige una orden de venta pendiente. El pago imputa collectionTillId. El payload no se cancela: se deshabilita el punto. OpenAPI pasa a 179 operaciones. No es QR interoperable, EMVCo ni POS.',
   },

@@ -170,6 +170,15 @@ export type LiveReadiness = {
     gates: Array<{ id: string; connectionId: string | null; name: string; summary: string; status: 'unwired' | 'contracted' | 'certified' | 'live'; met: boolean }>;
     metCount: number; gateCount: number;
   };
+  capitalPlan: {
+    currency: 'USD'; envelope: number; allocated: number; remaining: number; spent: number;
+    commercialGate: 'gate_1_design_partners'; liveReadyAfterSpend: boolean; summary: string;
+    officialSources: Array<{ name: string; url: string; surface: string }>;
+    allocations: Array<{ id: string; amount: number; status: 'authorized_unspent' | 'spent' | 'exhausted'; name: string; summary: string }>;
+    forbidden: Array<{ id: string; name: string; summary: string }>;
+    seedUses: string[];
+    raise: { instrument: 'pre_seed'; amountUsd: number | null; thesis: string };
+  };
   references: Array<{ benchmark: string; url: string; surface: string }>;
   summary: { integracion: number; homologacion: number; goLive: number; officialRailsLive: number; officialRailsTotal: number };
 };

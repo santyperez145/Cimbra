@@ -5,6 +5,8 @@ import { decodePageCursor, encodePageCursor, pageLimit, paginatedResponse } from
 import { isPrivateAddress, normalizeWebhookUrl } from '../app/lib/platform/webhook-url.ts';
 import { versionedApi } from '../app/lib/platform/versioned-api.ts';
 import { CAPABILITY_AVAILABILITY, PLATFORM_CAPABILITIES, PLATFORM_SUMMARY } from '../app/lib/platform/capabilities.ts';
+import { capitalPlanSnapshot, composeLeadMessage, isForbiddenCapitalSpend, normalizeDemoIntent } from '../app/lib/platform/capital-plan.ts';
+import { buildInvestorEvidence } from '../app/lib/platform/investor-evidence.ts';
 import { COMPETITOR_REFERENCES, evaluateLiveReadiness, PLATFORM_PRODUCTS, requireLiveApiKeysEnabled, requireSandboxLedgerOrCertifiedRail } from '../app/lib/platform/live-readiness.ts';
 import { dispatchOfficialRail, OFFICIAL_RAIL_ADAPTERS, OFFICIAL_RAIL_CONNECTIONS, requiredRailIdsForProduct } from '../app/lib/platform/official-rails.ts';
 import { PlatformRailError } from '../app/lib/platform/operating-mode.ts';
@@ -164,6 +166,11 @@ test('live permanece fail-closed y el catálogo cita productos públicos de BIND
     assert.equal(current.fintechPath.intendedFigure, 'PSPCP');
     assert.equal(current.fintechPath.metCount, 0);
     assert.equal(current.rails.every((rail) => rail.status === 'unwired' && rail.adapterRegistered === false), true);
+    assert.equal(current.capitalPlan.envelope, 500);
+    assert.equal(current.capitalPlan.spent, 0);
+    assert.equal(current.capitalPlan.liveReadyAfterSpend, false);
+    assert.equal(current.capitalPlan.allocated, 500);
+    assert.equal(current.capitalPlan.remaining, 0);
   } finally {
     if (previous === undefined) delete process.env.CIMBRA_OPERATING_MODE;
     else process.env.CIMBRA_OPERATING_MODE = previous;
@@ -210,6 +217,33 @@ test('los rieles oficiales son contrapartes reguladas y el adaptador falla cerra
     () => dispatchOfficialRail('coelsa_transfers', [{ id: 'coelsa_transfers', status: 'live' }]),
     (error: unknown) => error instanceof PlatformRailError && error.code === 'rail_adapter_missing',
   );
+});
+
+test('el envelope de USD 500 cubre Gate 1 y no habilita live ni rieles', () => {
+  const plan = capitalPlanSnapshot();
+  assert.equal(plan.envelope, 500);
+  assert.equal(plan.allocated, 500);
+  assert.equal(plan.remaining, 0);
+  assert.equal(plan.spent, 0);
+  assert.equal(plan.liveReadyAfterSpend, false);
+  assert.equal(plan.commercialGate, 'gate_1_design_partners');
+  assert.equal(plan.raise.amountUsd, null);
+  assert.equal(isForbiddenCapitalSpend('aws_paid'), true);
+  assert.equal(isForbiddenCapitalSpend('coelsa_membership'), true);
+  assert.equal(isForbiddenCapitalSpend('mark_go_live'), true);
+  assert.equal(isForbiddenCapitalSpend('competitor_connector'), true);
+  assert.equal(isForbiddenCapitalSpend('legal_consult'), false);
+  assert.equal(normalizeDemoIntent('investor'), 'investor');
+  assert.equal(normalizeDemoIntent('unknown'), 'design_session');
+  assert.match(composeLeadMessage('investor', 'hola'), /^\[intent:investor\] hola$/);
+  assert.equal(composeLeadMessage('design_session', 'hola'), 'hola');
+  const evidence = buildInvestorEvidence();
+  assert.equal(evidence.liveReady, false);
+  assert.equal(evidence.traction.payingCustomers, 0);
+  assert.equal(evidence.traction.monthlyVolumeUsd, 0);
+  assert.equal(evidence.traction.lettersOfIntent, 0);
+  assert.equal(evidence.product.productsGoLive, 0);
+  assert.ok(PLATFORM_CAPABILITIES.some((item) => item.id === 'capital-live-path' && item.availability === 'foundation'));
 });
 
 test('la jerarquía RBAC protege owner, admins y emails de invitación', () => {

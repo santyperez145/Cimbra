@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { composeLeadMessage, normalizeDemoIntent } from '@/app/lib/platform/capital-plan';
 import { ensureDatabase, getDatabase } from '@/db/runtime';
 import { mutationAllowed } from '@/app/lib/auth/http';
 
@@ -11,7 +12,8 @@ export async function POST(request: Request) {
   const company = typeof body?.company === 'string' ? body.company.trim().slice(0, 120) : '';
   const email = typeof body?.email === 'string' ? body.email.trim().toLowerCase().slice(0, 180) : '';
   const volume = typeof body?.volume === 'string' ? body.volume.trim().slice(0, 50) : '';
-  const message = typeof body?.message === 'string' ? body.message.trim().slice(0, 1000) : '';
+  const intent = normalizeDemoIntent(body?.intent);
+  const message = composeLeadMessage(intent, typeof body?.message === 'string' ? body.message.trim().slice(0, 1000) : '');
   if (name.length < 2 || company.length < 2 || !emailPattern.test(email) || !volume) {
     return NextResponse.json({ error: 'Revisá los campos requeridos.' }, { status: 400 });
   }

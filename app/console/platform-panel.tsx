@@ -30,6 +30,14 @@ type FintechPath = {
   gates: Array<{ id: string; name: string; summary: string; status: Rail['status']; met: boolean }>;
 };
 
+type CapitalPlan = {
+  envelope: number; allocated: number; remaining: number; spent: number; commercialGate: string; liveReadyAfterSpend: boolean; summary: string;
+  allocations: Array<{ id: string; amount: number; status: string; name: string; summary: string }>;
+  forbidden: Array<{ id: string; name: string; summary: string }>;
+  seedUses: string[];
+  raise: { instrument: string; amountUsd: number | null; thesis: string };
+};
+
 type Readiness = {
   effectiveMode: 'sandbox' | 'live'; liveReady: boolean; liveBlocked: boolean; blockReason: string | null;
   goLive: { benchmark: string; documentationUrl: string; current: string; stages: Array<{ id: string; name: string; summary: string }> };
@@ -37,6 +45,7 @@ type Readiness = {
   products: Product[];
   rails: Rail[];
   fintechPath: FintechPath;
+  capitalPlan: CapitalPlan;
   summary: { integracion: number; homologacion: number; goLive: number; officialRailsLive: number; officialRailsTotal: number };
 };
 
@@ -93,6 +102,7 @@ export default function PlatformPanel() {
       <article><strong>{readiness?.environments.find((item) => item.id === 'production')?.hostname ?? 'sin hostname'}</strong><span>production</span></article>
       <article><strong>{readiness?.summary.goLive ?? 0}</strong><span>productos en Go Live</span></article>
       <article><strong>{readiness?.fintechPath ? `${readiness.fintechPath.metCount}/${readiness.fintechPath.gateCount}` : '0/0'}</strong><span>gates fintech AR</span></article>
+      <article><strong>{readiness?.capitalPlan ? `USD ${readiness.capitalPlan.envelope}` : '—'}</strong><span>presupuesto Gate 1</span></article>
       <article><strong>{totals.sandbox}</strong><span>contratos ejecutables</span></article>
       <article><strong>{totals.live}</strong><span>declaradas live</span></article>
     </div>
@@ -105,6 +115,10 @@ export default function PlatformPanel() {
     <article className="module-list capability-list"><div className="card-head"><div><h2>Camino de aprobación fintech (PSPCP Argentina)</h2><p>{readiness?.fintechPath.summary ?? 'Gates públicos del BCRA para operar cuentas de pago. No hay inscripción ni cableado.'} {(readiness?.fintechPath.officialSources ?? []).map((source, index) => <span key={source.url}>{index > 0 ? ' · ' : ''}<a href={source.url} target="_blank" rel="noreferrer">{source.name}</a></span>)}</p></div><b>{readiness?.fintechPath ? `${readiness.fintechPath.metCount} de ${readiness.fintechPath.gateCount}` : 'Cargando…'}</b></div>
       {(readiness?.fintechPath.gates ?? []).map((gate) => <div key={gate.id}><span className="movement"><i>{gate.met ? '✓' : '○'}</i><b>{gate.name}<small>{gate.summary}</small></b></span><em className={`capability-status ${railStatusClass[gate.status]}`}>{railLabels[gate.status]}</em></div>)}
     </article>
+    <article className="module-list capability-list"><div className="card-head"><div><h2>Presupuesto Gate 1 (USD 500)</h2><p>{readiness?.capitalPlan?.summary ?? 'Envelope comercial para design partners, consulta legal, dominio y correo. No compra riel ni Go Live.'} Data room público: <a href="/investors">/investors</a>.</p></div><b>{readiness?.capitalPlan ? `USD ${readiness.capitalPlan.spent} gastados` : 'Cargando…'}</b></div>
+      {(readiness?.capitalPlan?.allocations ?? []).map((item) => <div key={item.id}><span className="movement"><i>○</i><b>{item.name}<small>USD {item.amount} · autorizado, no gastado</small><small>{item.summary}</small></b></span><em className="capability-status foundation">Sin gastar</em></div>)}
+      {(readiness?.capitalPlan?.forbidden ?? []).map((item) => <div key={item.id}><span className="movement"><i>○</i><b>{item.name}<small>{item.summary}</small></b></span><em className="capability-status roadmap">Prohibido</em></div>)}
+    </article>
     <article className="module-list capability-list"><div className="card-head"><div><h2>Rieles oficiales listos para cablear</h2><p>BCRA, Coelsa, banco patrocinante, PCI y originadores. El estado se persiste para cuando exista contrato y certificación; el adaptador Cimbra se registra fuera del ledger. Ningún competidor aparece como contraparte.</p></div><b>{loading ? 'Cargando…' : `${readiness?.summary.officialRailsLive ?? 0}/${readiness?.summary.officialRailsTotal ?? 0} live`}</b></div>
       {(readiness?.rails ?? []).map((rail) => <div key={rail.id}><span className="movement"><i>{rail.status === 'live' && rail.adapterRegistered ? '✓' : '○'}</i><b>{rail.name}<small>{rail.counterparty} · <a href={rail.officialUrl} target="_blank" rel="noreferrer">fuente oficial</a></small><small>{rail.summary}</small><small>Puerto: {rail.wiringContract}{rail.adapterRegistered ? ' · adaptador registrado' : ' · sin adaptador'}</small></b></span><em className={`capability-status ${railStatusClass[rail.status]}`}>{railLabels[rail.status]}</em></div>)}
     </article>
@@ -114,6 +128,6 @@ export default function PlatformPanel() {
     <article className="module-list capability-list"><div className="card-head"><div><h2>Catálogo de servicios Cimbra</h2><p>Producto propio; competidores usados sólo como benchmark</p></div><b>{loading ? 'Cargando…' : `${capabilities.length} dominios`}</b></div>
       {capabilities.map((item) => <div key={item.id}><span className="movement"><i>⌘</i><b>{item.name}<small>{item.summary}</small><small>{item.interfaces.join(' · ')} · {item.features.join(' · ')}</small></b></span><em className={`capability-status ${item.availability}`}>{labels[item.availability]}</em></div>)}
     </article>
-    <article className="launch-boundary"><div className="module-icon">✓</div><h2>Límite de lanzamiento</h2><p>No hay hostname de producción, producto en Go Live, riel oficial live ni adaptador de cámara. Marcar un producto como Go Live en base no habilita dinero: faltan inscripción PSP, sponsor, Coelsa y el adaptador Cimbra. Hasta entonces no hay claves <code>cim_sk_live_</code> ni movimiento de fondos. BIND, Dock, tapi, Pismo, Pomelo y Wibond no son conectores.</p></article>
+    <article className="launch-boundary"><div className="module-icon">✓</div><h2>Límite de lanzamiento</h2><p>No hay hostname de producción, producto en Go Live, riel oficial live ni adaptador de cámara. El envelope de USD 500 no autoriza AWS pago ni marca Go Live. Hasta entonces no hay claves <code>cim_sk_live_</code> ni movimiento de fondos. BIND, Dock, tapi, Pismo, Pomelo y Wibond no son conectores.</p></article>
   </div>;
 }

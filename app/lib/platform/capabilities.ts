@@ -125,6 +125,12 @@ export const PLATFORM_CAPABILITIES: readonly PlatformCapability[] = [
     features: ['REST API v1', 'TypeScript SDK', 'signed webhooks', 'sandbox and live environments', 'request tracing'],
     interfaces: ['rest_api', 'webhooks', 'sdk', 'console'], regulatoryBoundary: 'Disponible para integración técnica; los endpoints sandbox no autorizan ni liquidan fondos reales.',
   },
+  {
+    id: 'capital-live-path', name: 'Capital Plan & Investor Evidence', domain: 'platform', availability: 'foundation', delivery: 'cimbra_native',
+    summary: 'Envelope de USD 500 para Gate 1, data room público sin tracción inventada y camino PSPCP fail-closed.',
+    features: ['USD 500 Gate 1 envelope', 'forbidden AWS/Coelsa/Go Live spend', 'public /investors data room', 'live-readiness capitalPlan', 'zero invented traction'],
+    interfaces: ['rest_api', 'console'], regulatoryBoundary: 'El presupuesto no inscribe el PSP, no paga Coelsa ni un sponsor, no constituye SAS y no habilita dinero real. BIND, Dock, tapi, Pismo, Pomelo y Wibond no son un destino de gasto.',
+  },
 ] as const;
 
 export const PLATFORM_SUMMARY = {

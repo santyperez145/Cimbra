@@ -1,3 +1,4 @@
+import { capitalPlanSnapshot } from './capital-plan.ts';
 import {
   OPERATING_MODES, PlatformRailError, effectiveOperatingMode, requestedOperatingMode, type OperatingMode,
 } from './operating-mode.ts';
@@ -215,6 +216,7 @@ export function evaluateLiveReadiness(
     products,
     rails,
     fintechPath: evaluateFintechPath(rails, Boolean(hostnameProvisioned)),
+    capitalPlan: capitalPlanSnapshot(),
     references: COMPETITOR_REFERENCES,
     summary: {
       integracion: products.filter((product) => product.status === 'integracion').length,

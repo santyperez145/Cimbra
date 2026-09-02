@@ -5,7 +5,7 @@
 - marca y narrativa comercial orientada a compradores, con capacidades y límites verificables;
 - sitio responsive, sesión contextual y captación persistente;
 - portal developer conectado al OpenAPI real, con las 179 operaciones, parámetros, respuestas, búsqueda, quickstart ejecutable, límites del entorno sandbox y changelog;
-- `GET /api/v1/live-readiness` y `/api/health` exponen sandbox vs production, etapas Pomelo Integración → Homologación → Go Live, productos del catálogo público, rieles oficiales (BCRA, Coelsa, banco patrocinante, PCI) y el camino PSPCP; `liveReady=false` porque no hay hostname, inscripción, riel live ni adaptador;
+- `GET /api/v1/live-readiness` y `/api/health` exponen sandbox vs production, etapas Pomelo Integración → Homologación → Go Live, productos del catálogo público, rieles oficiales (BCRA, Coelsa, banco patrocinante, PCI), el camino PSPCP y el envelope de USD 500 de Gate 1 (`capitalPlan`, gastado 0); `liveReady=false` porque no hay hostname, inscripción, riel live ni adaptador. Gastar ese presupuesto no marca Go Live.
 - identidad y consola multi-tenant básica;
 - registro e inicio de sesión propio, sesiones revocables y OAuth Google/Apple;
 - sandbox persistente para customers, accounts, statements, book transfers, cards y transfers;
@@ -41,11 +41,15 @@
 
 ## Gate 1 — design partners
 
+Presupuesto autorizado: **USD 500**. Compra consulta legal del camino SAS/PSPCP, dominio y búsqueda marcaria, entrevistas a design partners y correo transaccional. No constituye sociedad, no inscribe el PSP (el trámite BCRA es gratuito pero exige persona jurídica), no paga Coelsa ni un banco patrocinante, no activa AWS pago y no marca Go Live.
+
+El data room público vive en `/investors` y se deriva de `live-readiness`, el catálogo y el envelope. No hay clientes, volumen ni LOIs inventados.
+
 - entrevistas con 15 compradores y 5 equipos técnicos;
 - tres cartas de intención con caso de uso, volumen y mercado;
 - pricing probado y modelo de margen por cliente;
 - selección de Argentina y México como secuencia, no lanzamiento simultáneo;
-- búsqueda marcaria, dominio y constitución societaria;
+- búsqueda marcaria, dominio y constitución societaria (esta última queda para el cheque siguiente);
 - proveedor de email transaccional con dominio verificado y política que exija MFA a owners/admins fuera de sandbox;
 - data room con deck, cap table, presupuesto, riesgos y arquitectura.
 

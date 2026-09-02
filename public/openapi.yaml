@@ -1995,8 +1995,8 @@ paths:
   /api/v1/live-readiness:
     get:
       operationId: getLiveReadiness
-      summary: Read sandbox vs production hosts, Pomelo go-live stages, catalog products, official rail connections and the AR PSPCP fintech path
-      description: liveReady is true only when a production hostname is provisioned, at least one product is in go_live, every required official rail of that product is live, and a Cimbra adapter is registered. CIMBRA_OPERATING_MODE=live does not move funds without that. Products homologate independently. Rails are BCRA, Coelsa, sponsor banks or schemes — never BIND, Dock, tapi, Pismo, Pomelo or Wibond.
+      summary: Read sandbox vs production hosts, Pomelo go-live stages, catalog products, official rail connections, the AR PSPCP fintech path and the USD 500 Gate 1 capital plan
+      description: liveReady is true only when a production hostname is provisioned, at least one product is in go_live, every required official rail of that product is live, and a Cimbra adapter is registered. CIMBRA_OPERATING_MODE=live does not move funds without that. Products homologate independently. Rails are BCRA, Coelsa, sponsor banks or schemes — never BIND, Dock, tapi, Pismo, Pomelo or Wibond. capitalPlan is the authorized USD 500 Gate 1 envelope; spending it does not set liveReady.
       security: [{ session: [] }, { bearerApiKey: [] }]
       responses:
         '200':
@@ -4387,7 +4387,7 @@ components:
         regulatoryBoundary: { type: string }
     LiveReadiness:
       type: object
-      required: [requestedMode, effectiveMode, liveReady, liveBlocked, blockReason, goLive, environments, products, rails, fintechPath, references, summary]
+      required: [requestedMode, effectiveMode, liveReady, liveBlocked, blockReason, goLive, environments, products, rails, fintechPath, capitalPlan, references, summary]
       properties:
         requestedMode: { type: string, enum: [sandbox, live] }
         effectiveMode: { type: string, enum: [sandbox, live] }
@@ -4488,6 +4488,55 @@ components:
                   met: { type: boolean }
             metCount: { type: integer }
             gateCount: { type: integer }
+        capitalPlan:
+          type: object
+          required: [currency, envelope, allocated, remaining, spent, commercialGate, liveReadyAfterSpend, summary, officialSources, allocations, forbidden, seedUses, raise]
+          properties:
+            currency: { type: string, const: USD }
+            envelope: { type: integer, const: 500 }
+            allocated: { type: integer }
+            remaining: { type: integer }
+            spent: { type: integer, const: 0 }
+            commercialGate: { type: string, const: gate_1_design_partners }
+            liveReadyAfterSpend: { type: boolean, const: false }
+            summary: { type: string }
+            officialSources:
+              type: array
+              items:
+                type: object
+                required: [name, url, surface]
+                properties:
+                  name: { type: string }
+                  url: { type: string, format: uri }
+                  surface: { type: string }
+            allocations:
+              type: array
+              items:
+                type: object
+                required: [id, amount, status, name, summary]
+                properties:
+                  id: { type: string }
+                  amount: { type: integer }
+                  status: { type: string, enum: [authorized_unspent, spent, exhausted] }
+                  name: { type: string }
+                  summary: { type: string }
+            forbidden:
+              type: array
+              items:
+                type: object
+                required: [id, name, summary]
+                properties:
+                  id: { type: string }
+                  name: { type: string }
+                  summary: { type: string }
+            seedUses: { type: array, items: { type: string } }
+            raise:
+              type: object
+              required: [instrument, amountUsd, thesis]
+              properties:
+                instrument: { type: string, const: pre_seed }
+                amountUsd: { type: ['integer', 'null'] }
+                thesis: { type: string }
         references:
           type: array
           items:

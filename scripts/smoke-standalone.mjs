@@ -101,6 +101,11 @@ try {
   if (!html) throw new Error('Standalone server did not become ready within 20 seconds.');
   if (!html.includes('Términos de uso')) throw new Error('The standalone response did not render the expected route.');
 
+  const investors = await fetchRequired('/investors');
+  if (!investors.includes('DATA ROOM PÚBLICO') || !investors.includes('USD 500')) {
+    throw new Error('The investors data room did not render the Gate 1 envelope.');
+  }
+
   const assetPath = html.match(/(?:src|href)="([^"]*\/_next\/static\/[^"]+)"/)?.[1];
   if (!assetPath) throw new Error('The standalone response did not reference a Next.js static asset.');
 

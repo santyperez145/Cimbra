@@ -9,6 +9,7 @@ La aplicación es un MVP lanzable para venta, discovery e integración. El contr
 Superficies disponibles:
 
 - `/` — propuesta comercial profesional, estado de sesión contextual, prueba técnica, casos de uso, modelo de acceso y captación persistente de leads.
+- `/investors` — data room público: evidencia de sandbox, presupuesto de USD 500 para Gate 1, camino PSPCP y captura de inversores. Sin tracción inventada. Live sigue fail-closed.
 - `/developers` — portal técnico generado desde OpenAPI con entornos, quickstart ejecutable, auth/RBAC/scopes, errores, rate limits, SDK descargable, webhooks, catálogo de eventos y las 179 operaciones publicadas.
 - `/login` — registro e inicio de sesión propio con usuario/email y contraseña; OAuth Google y Apple se activa al configurar sus credenciales.
 - `/forgot-password`, `/reset-password` y `/verify-email` — ciclo de vida de cuenta con tokens opacos, expiración, uso único y respuestas anti-enumeración.

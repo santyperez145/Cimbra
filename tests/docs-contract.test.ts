@@ -165,7 +165,7 @@ test('OpenAPI publica book transfers y statements como contratos completos', () 
   assert.equal(spec.paths['/api/v1/echeqs/{id}/deposit'].post.operationId, 'depositEcheq');
   assert.equal(spec.paths['/api/v1/echeqs/{id}/return'].post.operationId, 'returnEcheq');
   assert.equal(spec.paths['/api/v1/live-readiness'].get.operationId, 'getLiveReadiness');
-  assert.match(readFileSync(join(root, 'public', 'openapi.yaml'), 'utf8'), /required: \[requestedMode, effectiveMode, liveReady, liveBlocked, blockReason, goLive, environments, products, rails, fintechPath, references, summary\]/);
+  assert.match(readFileSync(join(root, 'public', 'openapi.yaml'), 'utf8'), /required: \[requestedMode, effectiveMode, liveReady, liveBlocked, blockReason, goLive, environments, products, rails, fintechPath, capitalPlan, references, summary\]/);
   assert.match(reference, /path\.includes\('\/instant-transfers'\) \|\| path\.includes\('\/rail-instruments'\)/);
   assert.match(reference, /return 'Instant payments'/);
   assert.match(reference, /path\.includes\('\/echeqs'\)\) return 'ECHEQ'/);
