@@ -29,6 +29,11 @@ const errorResponses = [
 const changelog = [
   {
     date: '02 SEP 2026',
+    title: 'Cuentas de producto en la consola',
+    detail: 'La consola opera GET/POST /api/v1/accounts y el statement de 30 días. Alta idempotente sobre un cliente del tenant, una moneda por cuenta y saldo derivado del ledger. Viewer lee; operator/admin/owner abren. No es CBU/CVU. OpenAPI permanece en 192 operaciones.',
+  },
+  {
+    date: '02 SEP 2026',
     title: 'Padrón de clientes en la consola',
     detail: 'La consola opera GET/POST /api/v1/customers con el mismo contrato del SDK: alta idempotente, last4 fiscal y detalle por id. Viewer lee; operator/admin/owner crean. El KYC/KYB sigue en Compliance. OpenAPI permanece en 192 operaciones.',
   },

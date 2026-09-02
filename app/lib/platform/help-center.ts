@@ -18,6 +18,12 @@ export const HELP_ARTICLES = [
     body: 'Desde Clientes das de alta personas o empresas con jurisdicción y un identificador fiscal. Cimbra guarda sólo el last4. El expediente KYC/KYB se abre en Compliance y no consulta AFIP ni un registro mercantil. Un cliente activo es el titular de cuentas, wallets y cobranzas del sandbox.',
   },
   {
+    id: 'accounts',
+    title: 'Cuentas de producto',
+    summary: 'Una moneda por cuenta, ledger de doble partida y estado de cuenta de 30 días.',
+    body: 'Desde Cuentas abrís una cuenta de producto para un cliente activo. El saldo sale de postings. El disponible resta holds. No es CBU, CVU ni una cuenta bancaria: el riel oficial exige Coelsa o un sponsor. Las correcciones se hacen con reversas, nunca mutando un asiento.',
+  },
+  {
     id: 'support',
     title: 'Cómo abrir un caso de soporte',
     summary: 'Los tickets viven en el tenant y también los ve la superadministración de Cimbra.',

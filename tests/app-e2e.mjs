@@ -284,8 +284,10 @@ try {
 
   const helpPage = await request('/help');
   assert.equal(helpPage.status, 200);
-  assert.match(await helpPage.text(), /CENTRO DE AYUDA/);
-  assert.match(await helpPage.text(), /Padrón de clientes/);
+  const helpHtml = await helpPage.text();
+  assert.match(helpHtml, /CENTRO DE AYUDA/);
+  assert.match(helpHtml, /Padrón de clientes/);
+  assert.match(helpHtml, /Cuentas de producto/);
   const statusPage = await request('/status');
   assert.equal(statusPage.status, 200);
   assert.match(await statusPage.text(), /STATUS PÚBLICO/);

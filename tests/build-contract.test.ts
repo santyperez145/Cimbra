@@ -79,3 +79,13 @@ test('la consola opera el padrón de clientes sobre la API v1', () => {
   assert.match(panel, /Idempotency-Key/);
   assert.match(panel, /finance\.write/);
 });
+
+test('la consola opera cuentas de producto sobre la API v1 y el statement', () => {
+  const consoleClient = readFileSync(join(root, 'app', 'console', 'console-client.tsx'), 'utf8');
+  const panel = readFileSync(join(root, 'app', 'console', 'accounts-panel.tsx'), 'utf8');
+  assert.match(consoleClient, /<AccountsPanel role=\{role\} balances=\{data\.balances\} \/>/);
+  assert.match(panel, /\/api\/v1\/accounts/);
+  assert.match(panel, /\/statement\?limit=50/);
+  assert.match(panel, /Idempotency-Key/);
+  assert.match(panel, /finance\.write/);
+});
