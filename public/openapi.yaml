@@ -1860,7 +1860,7 @@ paths:
     post:
       operationId: updateRecurringPaymentMandateStatus
       summary: Pause, resume or cancel a recurring mandate
-      description: Lifecycle actions are tenant-scoped, idempotent, audited and emitted as webhook events. Cancelled is terminal.
+      description: Lifecycle actions are tenant-scoped, idempotent, audited and emitted as webhook events. Cancelled is terminal. Pause and cancel execute immediately; when recurring_mandate.resume maker/checker is enabled, resume returns 202 with a pending approval instead of reactivating charges immediately.
       security: [{ session: [] }, { bearerApiKey: [] }]
       parameters:
         - $ref: '#/components/parameters/ResourceId'
@@ -1875,6 +1875,7 @@ paths:
               properties: { action: { type: string, enum: [pause, resume, cancel] } }
       responses:
         '200': { description: Mandate lifecycle updated or replayed }
+        '202': { description: Pending maker/checker approval for resume }
         '404': { description: Mandate not found in tenant }
         '409': { description: Invalid lifecycle transition or idempotency mismatch }
   /api/v1/payout-beneficiaries:
@@ -3163,7 +3164,7 @@ paths:
               type: object
               required: [enabled, expiresInMinutes]
               properties:
-                actionType: { type: string, enum: [settlement.execute, transfer.create, transfer.reverse, payment.create, payment.reverse, bill_payment.create, bill_payment.reverse, instant_transfer.create, instant_transfer.return, collection.refund, recurring_mandate.create, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve], default: settlement.execute }
+                actionType: { type: string, enum: [settlement.execute, transfer.create, transfer.reverse, payment.create, payment.reverse, bill_payment.create, bill_payment.reverse, instant_transfer.create, instant_transfer.return, collection.refund, recurring_mandate.create, recurring_mandate.resume, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve], default: settlement.execute }
                 enabled: { type: boolean }
                 expiresInMinutes: { type: integer, minimum: 15, maximum: 10080 }
       responses:
@@ -4510,7 +4511,7 @@ components:
       required: [id, actionType, resourceType, resourceId, status, requestPayload, requestedBy, requestedByName, expiresAt, createdAt, updatedAt]
       properties:
         id: { type: string, format: uuid }
-        actionType: { type: string, enum: [settlement.execute, transfer.create, transfer.reverse, payment.create, payment.reverse, bill_payment.create, bill_payment.reverse, instant_transfer.create, instant_transfer.return, collection.refund, recurring_mandate.create, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve] }
+        actionType: { type: string, enum: [settlement.execute, transfer.create, transfer.reverse, payment.create, payment.reverse, bill_payment.create, bill_payment.reverse, instant_transfer.create, instant_transfer.return, collection.refund, recurring_mandate.create, recurring_mandate.resume, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve] }
         resourceType: { type: string, enum: [settlement_cycle, transfer, book_transfer, payment, bill_payment, instant_transfer, payment_link, recurring_payment_mandate, payout_batch, risk_case, reconciliation_exception, dispute] }
         resourceId: { type: string, format: uuid }
         status: { type: string, enum: [pending, executed, rejected, cancelled, expired, failed] }

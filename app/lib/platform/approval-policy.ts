@@ -12,6 +12,7 @@ export const APPROVAL_ACTION_TYPES = [
   'instant_transfer.create',
   'collection.refund',
   'recurring_mandate.create',
+  'recurring_mandate.resume',
   'payout_batch.execute',
   'risk.case.resolve',
   'reconciliation.exception.resolve',

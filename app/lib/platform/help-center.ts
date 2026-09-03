@@ -69,7 +69,7 @@ export const HELP_ARTICLES = [
     id: 'bill-payments',
     title: 'Servicios, recargas y mandatos',
     summary: 'Catálogo propio, órdenes ledger-backed y standing orders sandbox.',
-    body: 'Servicios opera billers, obligaciones, POST /api/v1/bill-payments y mandatos en POST /api/v1/recurring-mandates. Con bill_payment.create / bill_payment.reverse o recurring_mandate.create activos, esas mutaciones pasan por Aprobaciones. Los cargos del worker del mandato no piden bill_payment.create: quedan auditados con approvalExemption standing_mandate. No es débito automático homologado ni consulta a agregadores: cada país exige contrato directo y riel certificado.',
+    body: 'Servicios opera billers, obligaciones, POST /api/v1/bill-payments y mandatos en POST /api/v1/recurring-mandates. Con bill_payment.create / bill_payment.reverse, recurring_mandate.create o recurring_mandate.resume activos, esas mutaciones pasan por Aprobaciones (pause/cancel siguen directos). Los cargos del worker del mandato no piden bill_payment.create: quedan auditados con approvalExemption standing_mandate. No es débito automático homologado ni consulta a agregadores: cada país exige contrato directo y riel certificado.',
   },
   {
     id: 'disputes',

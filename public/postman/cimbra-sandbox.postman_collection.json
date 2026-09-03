@@ -3851,7 +3851,7 @@
               }
             ],
             "url": "{{baseUrl}}/api/v1/recurring-mandates/:id/status",
-            "description": "Lifecycle actions are tenant-scoped, idempotent, audited and emitted as webhook events. Cancelled is terminal.\n\noperationId: updateRecurringPaymentMandateStatus\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "description": "Lifecycle actions are tenant-scoped, idempotent, audited and emitted as webhook events. Cancelled is terminal. Pause and cancel execute immediately; when recurring_mandate.resume maker/checker is enabled, resume returns 202 with a pending approval instead of reactivating charges immediately.\n\noperationId: updateRecurringPaymentMandateStatus\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \n}\n",

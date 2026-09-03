@@ -15,7 +15,7 @@ import { DisputeError, transitionDispute } from './disputes';
 import { authorizePayoutBatchInTransaction, closePayoutBatchApprovalInTransaction, PayoutError } from './payouts';
 import { bookTransferFingerprint, BookTransferError, createBookTransferInTransaction, findBookTransferByIdempotency,
   retrieveBookTransfer, reverseBookTransferInTransaction, type BookTransferInput } from './book-transfers';
-import { BillerError, createBillPaymentOrderInTransaction, createRecurringMandateInTransaction, reverseBillPaymentOrderInTransaction } from './billers';
+import { BillerError, createBillPaymentOrderInTransaction, createRecurringMandateInTransaction, reverseBillPaymentOrderInTransaction, updateRecurringMandateStatusInTransaction } from './billers';
 import type { RecurringFrequency } from '@/app/lib/platform/billers-input';
 import { CollectionError, refundPaymentLinkInTransaction } from './collections';
 import { InstantPaymentError, createInstantTransferInTransaction, returnInstantTransferInTransaction } from './instant-payments';
@@ -119,7 +119,7 @@ export async function getApprovalPolicies(organizationId: string) {
        WHERE m.organization_id = ? AND m.role IN ('owner', 'admin') AND u.mfa_enabled = 1`,
     ).bind(organizationId).first<{ count: number }>(),
   ]);
-  return (['settlement.execute', 'transfer.create', 'transfer.reverse', 'payment.create', 'payment.reverse', 'bill_payment.create', 'bill_payment.reverse', 'instant_transfer.create', 'instant_transfer.return', 'collection.refund', 'recurring_mandate.create', 'payout_batch.execute', 'risk.case.resolve', 'reconciliation.exception.resolve', 'dispute.resolve'] as const).map((actionType) => {
+  return (['settlement.execute', 'transfer.create', 'transfer.reverse', 'payment.create', 'payment.reverse', 'bill_payment.create', 'bill_payment.reverse', 'instant_transfer.create', 'instant_transfer.return', 'collection.refund', 'recurring_mandate.create', 'recurring_mandate.resume', 'payout_batch.execute', 'risk.case.resolve', 'reconciliation.exception.resolve', 'dispute.resolve'] as const).map((actionType) => {
     const policy = policies.results.find((item) => item.actionType === actionType);
     return { id: policy?.id ?? null, actionType, enabled: policy?.enabled === 1,
       expiresInMinutes: policy?.expiresInMinutes ?? 1440, eligibleApprovers: approvers?.count ?? 0,
@@ -1187,6 +1187,85 @@ export async function createRecurringMandateWithApprovalPolicy(input: {
   });
 }
 
+export async function updateRecurringMandateStatusWithApprovalPolicy(input: {
+  organizationId: string; actor: AuthUser; mandateId: string; idempotencyKey: string;
+  action: 'pause' | 'resume' | 'cancel';
+  authentication: 'session' | 'api_key'; apiKeyId: string | null;
+}) {
+  if (input.action !== 'resume') {
+    return getDatabaseClient().transaction(async (database) => {
+      const result = await updateRecurringMandateStatusInTransaction(input, database);
+      return { requiresApproval: false as const, ...result };
+    });
+  }
+  const fingerprint = await sha256(JSON.stringify({ actionType: 'recurring_mandate.resume', mandateId: input.mandateId }));
+  return getDatabaseClient().transaction(async (database) => {
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:mandate-status:${input.idempotencyKey}`).first();
+    const replay = await database.prepare(`SELECT resource_id AS id FROM audit_events WHERE organization_id = ?
+      AND resource_type = 'recurring_payment_mandate' AND action = 'recurring_mandate.resumed'
+      AND payload::jsonb->>'idempotencyKey' = ? LIMIT 1`).bind(input.organizationId, input.idempotencyKey).first<{ id: string }>();
+    if (replay) {
+      if (replay.id !== input.mandateId) throw new ApprovalError('La Idempotency-Key ya fue usada para otra transición.', 409, 'idempotency_mismatch');
+      const result = await updateRecurringMandateStatusInTransaction(input, database);
+      return { requiresApproval: false as const, ...result };
+    }
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:approval:${input.idempotencyKey}`).first();
+    const existingApproval = await database.prepare(
+      `${approvalSelect} WHERE ar.organization_id = ? AND ar.idempotency_key = ? LIMIT 1`,
+    ).bind(input.organizationId, input.idempotencyKey).first<ApprovalRow>();
+    if (existingApproval) {
+      if (existingApproval.requestFingerprint !== fingerprint || existingApproval.resourceType !== 'recurring_payment_mandate' ||
+        existingApproval.actionType !== 'recurring_mandate.resume') {
+        throw new ApprovalError('La Idempotency-Key ya fue usada para otra operación.', 409, 'idempotency_mismatch');
+      }
+      return { requiresApproval: true as const, approval: serializeApproval(existingApproval), replayed: true, deduplicated: false };
+    }
+    await database.prepare('SELECT pg_advisory_xact_lock_shared(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:approval-policy:recurring_mandate.resume`).first();
+    const policy = await database.prepare(
+      `SELECT expires_in_minutes AS "expiresInMinutes" FROM approval_policies
+       WHERE organization_id = ? AND action_type = 'recurring_mandate.resume' AND enabled = 1 LIMIT 1`,
+    ).bind(input.organizationId).first<{ expiresInMinutes: number }>();
+    if (!policy) {
+      const result = await updateRecurringMandateStatusInTransaction(input, database);
+      return { requiresApproval: false as const, ...result };
+    }
+    const mandate = await database.prepare(
+      `SELECT id, status, biller_id AS "billerId", frequency, amount_limit_minor::text AS "amountLimitMinor",
+        next_charge_at AS "nextChargeAt", subscriber_reference_last4 AS "subscriberReferenceLast4"
+       FROM recurring_payment_mandates WHERE organization_id = ? AND id = ? FOR UPDATE`,
+    ).bind(input.organizationId, input.mandateId).first<{
+      id: string; status: string; billerId: string; frequency: string; amountLimitMinor: string;
+      nextChargeAt: string; subscriberReferenceLast4: string;
+    }>();
+    if (!mandate) throw new ApprovalError('Mandato no encontrado.', 404, 'mandate_not_found');
+    if (mandate.status !== 'paused') throw new ApprovalError('Sólo un mandato pausado puede reanudarse.', 409, 'mandate_transition_invalid');
+    const id = crypto.randomUUID(); const now = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + policy.expiresInMinutes * 60_000).toISOString();
+    const payload = {
+      mandateId: mandate.id, billerId: mandate.billerId, frequency: mandate.frequency,
+      amountLimitMinor: mandate.amountLimitMinor, nextChargeAt: mandate.nextChargeAt,
+      subscriberReferenceLast4: mandate.subscriberReferenceLast4,
+      origin: input.authentication, apiKeyId: input.apiKeyId, sandbox: true,
+    };
+    await database.prepare(
+      `INSERT INTO approval_requests
+        (id, organization_id, action_type, resource_type, resource_id, idempotency_key, request_fingerprint, status,
+         request_payload, requested_by, expires_at, created_at, updated_at)
+       VALUES (?, ?, 'recurring_mandate.resume', 'recurring_payment_mandate', ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
+    ).bind(id, input.organizationId, mandate.id, input.idempotencyKey, fingerprint, JSON.stringify(payload), input.actor.userId,
+      expiresAt, now, now).run();
+    await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId, action: 'approval.request_created',
+      resourceType: 'approval_request', resourceId: id, payload: { actionType: 'recurring_mandate.resume',
+        resourceType: 'recurring_payment_mandate', resourceId: mandate.id, expiresAt, ...payload } });
+    const approval = await approvalById(database, input.organizationId, id);
+    if (!approval) throw new ApprovalError('No pudimos recuperar la solicitud.', 500, 'approval_create_failed');
+    return { requiresApproval: true as const, approval, replayed: false, deduplicated: false };
+  });
+}
+
 function transferPayload(row: ApprovalRow) {
   try {
     const payload = JSON.parse(row.requestPayload) as Record<string, unknown>;
@@ -1741,6 +1820,18 @@ export async function decideApprovalRequest(input: {
           const execution = await createRecurringMandateInTransaction({
             organizationId: input.organizationId, actor: input.actor, idempotencyKey: `approval:${row.id}`,
             mandateId: row.resourceId, approvalContext: { requestId: row.id, requestedBy: row.requestedBy }, ...payload,
+          }, database);
+          executedMandate = execution.mandate;
+        } catch (error) {
+          if (error instanceof BillerError && error.status < 500) failure = { message: error.message, code: error.code, status: error.status };
+          else throw error;
+        }
+      } else if (row.actionType === 'recurring_mandate.resume') {
+        try {
+          const execution = await updateRecurringMandateStatusInTransaction({
+            organizationId: input.organizationId, actor: input.actor, mandateId: row.resourceId,
+            idempotencyKey: `approval:${row.id}`, action: 'resume',
+            approvalContext: { requestId: row.id, requestedBy: row.requestedBy },
           }, database);
           executedMandate = execution.mandate;
         } catch (error) {

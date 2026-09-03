@@ -19,7 +19,7 @@ import type {
   UpdateOperationalWorkItemInput, WorkItemType,
   ReconciliationException, ReconciliationExceptionResolutionResult, ReconciliationRun, RequestOptions, RiskCase,
   ReportRiskOutcomeInput, RiskCaseResolutionResult, RiskEvaluation, RiskListEntry, RiskMetrics, RiskOutcome, RiskRule, RiskSimulation,
-  RecurringPaymentExecution, RecurringPaymentMandate, RecurringPaymentMandateCreationResult, RiskStepUpAttempt, RiskStepUpChallenge, SettlementCycle, SettlementExecutionResult, VerifyRiskStepUpChallengeInput,
+  RecurringPaymentExecution, RecurringPaymentMandate, RecurringPaymentMandateCreationResult, RecurringPaymentMandateStatusResult, RiskStepUpAttempt, RiskStepUpChallenge, SettlementCycle, SettlementExecutionResult, VerifyRiskStepUpChallengeInput,
   Organization, OpenSupportCaseInput, ServiceTopology, SupportCase, SupportCaseResult, SupportCaseStatus, SupportCaseThread, UpdateOrganizationInput,
   PaymentCreationResult, PaymentReversalResult, RecordDueDiligenceCheckInput, Transaction, TransferCreationResult, TransferReversalResult, Wallet, WalletLifecycleEvent, WalletPocket, WalletPocketTransferCreationResult, WalletProgram, WebhookOperationalState,
 } from './types.ts';
@@ -471,11 +471,11 @@ export class Cimbra {
       ),
     create: (input: CreateRecurringPaymentMandateInput, options?: RequestOptions) =>
       this.post<RecurringPaymentMandateCreationResult>('/api/v1/recurring-mandates', input, options, true),
-    pause: (id: string, options?: RequestOptions) => this.post<{ ok: true; mandate: RecurringPaymentMandate; replayed: boolean }>(
+    pause: (id: string, options?: RequestOptions) => this.post<RecurringPaymentMandateStatusResult>(
       `/api/v1/recurring-mandates/${encodeURIComponent(id)}/status`, { action: 'pause' }, options, true),
-    resume: (id: string, options?: RequestOptions) => this.post<{ ok: true; mandate: RecurringPaymentMandate; replayed: boolean }>(
+    resume: (id: string, options?: RequestOptions) => this.post<RecurringPaymentMandateStatusResult>(
       `/api/v1/recurring-mandates/${encodeURIComponent(id)}/status`, { action: 'resume' }, options, true),
-    cancel: (id: string, options?: RequestOptions) => this.post<{ ok: true; mandate: RecurringPaymentMandate; replayed: boolean }>(
+    cancel: (id: string, options?: RequestOptions) => this.post<RecurringPaymentMandateStatusResult>(
       `/api/v1/recurring-mandates/${encodeURIComponent(id)}/status`, { action: 'cancel' }, options, true),
   };
 

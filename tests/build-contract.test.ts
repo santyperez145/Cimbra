@@ -248,15 +248,22 @@ test('recurring mandates usan maker/checker opt-in recurring_mandate.create y ex
   const help = readFileSync(join(root, 'app', 'lib', 'platform', 'help-center.ts'), 'utf8');
   const migration = readFileSync(join(root, 'drizzle-postgres', '0054_recurring_mandate_approval.sql'), 'utf8');
   assert.match(approvals, /createRecurringMandateWithApprovalPolicy/);
+  assert.match(approvals, /updateRecurringMandateStatusWithApprovalPolicy/);
   assert.match(approvals, /recurring_mandate\.create/);
+  assert.match(approvals, /recurring_mandate\.resume/);
   assert.match(route, /createRecurringMandateWithApprovalPolicy/);
+  const statusRoute = readFileSync(join(root, 'app', 'api', 'v1', 'recurring-mandates', '[id]', 'status', 'route.ts'), 'utf8');
+  assert.match(statusRoute, /updateRecurringMandateStatusWithApprovalPolicy/);
   assert.match(panel, /recurring_mandate\.create/);
+  assert.match(panel, /recurring_mandate\.resume/);
   assert.match(billersPanel, /standing_mandate/);
   assert.match(billers, /approvalExemption: 'standing_mandate'/);
   assert.match(billers, /bypassedPolicy: 'bill_payment\.create'/);
   assert.match(help, /id: 'bill-payments'/);
   assert.match(help, /standing_mandate/);
   assert.match(migration, /recurring_mandate\.create/);
+  const resumeMigration = readFileSync(join(root, 'drizzle-postgres', '0056_recurring_mandate_resume_approval.sql'), 'utf8');
+  assert.match(resumeMigration, /recurring_mandate\.resume/);
 });
 
 test('help-center documenta Compliance, Aprobaciones y Disputas con límites honestos', () => {

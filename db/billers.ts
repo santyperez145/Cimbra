@@ -459,35 +459,44 @@ export async function createRecurringMandateInTransaction(input: { organizationI
 }
 
 export async function updateRecurringMandateStatus(input: { organizationId: string; actor: AuthUser; mandateId: string; idempotencyKey: string;
-  action: 'pause' | 'resume' | 'cancel' }) {
-  return getDatabaseClient().transaction(async (database) => {
-    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))').bind(`${input.organizationId}:mandate-status:${input.idempotencyKey}`).first();
-    const event = `recurring_mandate.${input.action === 'cancel' ? 'cancelled' : input.action === 'pause' ? 'paused' : 'resumed'}`;
-    const replay = await database.prepare(`SELECT resource_id AS id, action FROM audit_events WHERE organization_id = ?
-      AND resource_type = 'recurring_payment_mandate'
-      AND action IN ('recurring_mandate.paused', 'recurring_mandate.resumed', 'recurring_mandate.cancelled')
-      AND payload::jsonb->>'idempotencyKey' = ? LIMIT 1`).bind(input.organizationId, input.idempotencyKey).first<{ id: string; action: string }>();
-    if (replay) {
-      if (replay.id !== input.mandateId || replay.action !== event) throw new BillerError('La Idempotency-Key ya fue usada con otra transición de mandato.', 409, 'idempotency_mismatch');
-      const prior = await database.prepare(`${mandateSelect} WHERE m.organization_id = ? AND m.id = ?`).bind(input.organizationId, input.mandateId).first<MandateRow>();
-      return { mandate: publicMandate(prior!), replayed: true };
-    }
-    const current = await database.prepare('SELECT status, next_charge_at AS "nextChargeAt", retry_count AS "retryCount" FROM recurring_payment_mandates WHERE organization_id = ? AND id = ? FOR UPDATE')
-      .bind(input.organizationId, input.mandateId).first<{ status: string; nextChargeAt: string; retryCount: number }>();
-    if (!current) throw new BillerError('Mandato no encontrado.', 404, 'mandate_not_found');
-    if (['cancelled', 'expired'].includes(current.status)) throw new BillerError('El mandato está en estado terminal.', 409, 'mandate_terminal');
-    if (input.action === 'pause' && current.status !== 'active' || input.action === 'resume' && current.status !== 'paused') {
-      throw new BillerError('La transición del mandato no es válida.', 409, 'mandate_transition_invalid');
-    }
-    const status = input.action === 'cancel' ? 'cancelled' : input.action === 'pause' ? 'paused' : 'active'; const now = new Date().toISOString();
-    const nextChargeAt = input.action === 'resume' && Date.parse(current.nextChargeAt) < Date.now() ? now : current.nextChargeAt;
-    await database.prepare('UPDATE recurring_payment_mandates SET status = ?, next_charge_at = ?, retry_count = ?, cancelled_at = ?, updated_at = ? WHERE id = ?')
-      .bind(status, nextChargeAt, input.action === 'resume' ? 0 : current.retryCount, input.action === 'cancel' ? now : null, now, input.mandateId).run();
-    await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId, action: event,
-      resourceType: 'recurring_payment_mandate', resourceId: input.mandateId, payload: { idempotencyKey: input.idempotencyKey, status, nextChargeAt } });
-    const updated = await database.prepare(`${mandateSelect} WHERE m.organization_id = ? AND m.id = ?`).bind(input.organizationId, input.mandateId).first<MandateRow>();
-    return { mandate: publicMandate(updated!), replayed: false };
-  });
+  action: 'pause' | 'resume' | 'cancel'; approvalContext?: { requestId: string; requestedBy: string };
+}) {
+  return getDatabaseClient().transaction((database) => updateRecurringMandateStatusInTransaction(input, database));
+}
+
+export async function updateRecurringMandateStatusInTransaction(input: { organizationId: string; actor: AuthUser; mandateId: string; idempotencyKey: string;
+  action: 'pause' | 'resume' | 'cancel'; approvalContext?: { requestId: string; requestedBy: string };
+}, database: DatabaseClient) {
+  await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))').bind(`${input.organizationId}:mandate-status:${input.idempotencyKey}`).first();
+  const event = `recurring_mandate.${input.action === 'cancel' ? 'cancelled' : input.action === 'pause' ? 'paused' : 'resumed'}`;
+  const replay = await database.prepare(`SELECT resource_id AS id, action FROM audit_events WHERE organization_id = ?
+    AND resource_type = 'recurring_payment_mandate'
+    AND action IN ('recurring_mandate.paused', 'recurring_mandate.resumed', 'recurring_mandate.cancelled')
+    AND payload::jsonb->>'idempotencyKey' = ? LIMIT 1`).bind(input.organizationId, input.idempotencyKey).first<{ id: string; action: string }>();
+  if (replay) {
+    if (replay.id !== input.mandateId || replay.action !== event) throw new BillerError('La Idempotency-Key ya fue usada con otra transición de mandato.', 409, 'idempotency_mismatch');
+    const prior = await database.prepare(`${mandateSelect} WHERE m.organization_id = ? AND m.id = ?`).bind(input.organizationId, input.mandateId).first<MandateRow>();
+    return { mandate: publicMandate(prior!), replayed: true };
+  }
+  const current = await database.prepare('SELECT status, next_charge_at AS "nextChargeAt", retry_count AS "retryCount" FROM recurring_payment_mandates WHERE organization_id = ? AND id = ? FOR UPDATE')
+    .bind(input.organizationId, input.mandateId).first<{ status: string; nextChargeAt: string; retryCount: number }>();
+  if (!current) throw new BillerError('Mandato no encontrado.', 404, 'mandate_not_found');
+  if (['cancelled', 'expired'].includes(current.status)) throw new BillerError('El mandato está en estado terminal.', 409, 'mandate_terminal');
+  if (input.action === 'pause' && current.status !== 'active' || input.action === 'resume' && current.status !== 'paused') {
+    throw new BillerError('La transición del mandato no es válida.', 409, 'mandate_transition_invalid');
+  }
+  const status = input.action === 'cancel' ? 'cancelled' : input.action === 'pause' ? 'paused' : 'active'; const now = new Date().toISOString();
+  const nextChargeAt = input.action === 'resume' && Date.parse(current.nextChargeAt) < Date.now() ? now : current.nextChargeAt;
+  await database.prepare('UPDATE recurring_payment_mandates SET status = ?, next_charge_at = ?, retry_count = ?, cancelled_at = ?, updated_at = ? WHERE id = ?')
+    .bind(status, nextChargeAt, input.action === 'resume' ? 0 : current.retryCount, input.action === 'cancel' ? now : null, now, input.mandateId).run();
+  await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId, action: event,
+    resourceType: 'recurring_payment_mandate', resourceId: input.mandateId, payload: {
+      idempotencyKey: input.idempotencyKey, status, nextChargeAt,
+      approvalRequestId: input.approvalContext?.requestId ?? null,
+      requestedBy: input.approvalContext?.requestedBy ?? null,
+    } });
+  const updated = await database.prepare(`${mandateSelect} WHERE m.organization_id = ? AND m.id = ?`).bind(input.organizationId, input.mandateId).first<MandateRow>();
+  return { mandate: publicMandate(updated!), replayed: false };
 }
 
 function nextOccurrence(value: string, frequency: RecurringFrequency) {
