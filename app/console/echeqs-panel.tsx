@@ -108,9 +108,12 @@ export default function EcheqsPanel({ role, accounts }: { role: OrganizationRole
       headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
       body: JSON.stringify({ accountId: data.get('accountId'), taxId: data.get('taxId') }),
     });
-    const result = await response.json() as { error?: unknown };
+    const result = await response.json() as { requiresApproval?: boolean; error?: unknown };
     setBusy(false);
     if (!response.ok) { setFeedback(apiError(result, 'No pudimos depositar el ECHEQ.')); return; }
+    setFeedback(result.requiresApproval
+      ? 'Depósito enviado a Aprobaciones (maker/checker).'
+      : 'ECHEQ depositado en ledger sandbox.');
     form.reset();
     await load().catch((error: Error) => setFeedback(error.message));
   }

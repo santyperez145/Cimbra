@@ -1769,7 +1769,7 @@
               }
             ],
             "url": "{{baseUrl}}/api/v1/echeqs/:id/deposit",
-            "description": "Settles immediately on the Cimbra ledger. Deposit to CBU/CVU/Coelsa returns 422. Insufficient drawer funds mark the ECHEQ rejected.\n\noperationId: depositEcheq\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "description": "Settles on the Cimbra ledger. When echeq.deposit maker/checker is enabled, returns 202 with a pending approval instead of settling immediately. Deposit to CBU/CVU/Coelsa returns 422. Insufficient drawer funds mark the ECHEQ rejected.\n\noperationId: depositEcheq\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \n}\n",

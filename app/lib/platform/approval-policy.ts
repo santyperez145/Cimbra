@@ -15,6 +15,7 @@ export const APPROVAL_ACTION_TYPES = [
   'recurring_mandate.resume',
   'debit_request.accept',
   'payment_qr.pay',
+  'echeq.deposit',
   'payout_batch.execute',
   'risk.case.resolve',
   'reconciliation.exception.resolve',

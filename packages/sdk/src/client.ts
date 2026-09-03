@@ -10,7 +10,7 @@ import type {
   CreatePayoutBatchInput, CreatePayoutBeneficiaryInput, CreateWalletInput, CreateWalletPocketTransferInput, CreateWalletProgramInput,
   AssignRailAliasInput, CreateDebitRequestInput, CreateInstantTransferInput, CreatePaymentQrInput, CreateQrDebtInput, CreateQrSaleOrderInput, IssueRailInstrumentInput, PayPaymentQrInput,
   CreatePaymentLinkInput, PayPaymentLinkInput, RefundPaymentLinkInput, InstantTransferCreationResult, InstantTransferReturnResult, DebitRequestRespondResult, PaymentQrPayResult, PaymentLinkRefundResult, PaymentLink, CollectionTill, CreateCollectionTillInput, CreditCollectionTillInput,
-  CreateEcheqInput, AcceptEcheqInput, EndorseEcheqInput, DepositEcheqInput, Echeq,
+  CreateEcheqInput, AcceptEcheqInput, EndorseEcheqInput, DepositEcheqInput, EcheqDepositResult, Echeq,
   InstantTransfer, PaymentQr, QrDebt, QrSaleOrder, RailDirectoryPreview, RailInstrument,
   PayoutBatch, PayoutBeneficiary,
   Customer, DueDiligenceCase, DueDiligenceCheck, DueDiligenceParty, DueDiligenceState,
@@ -427,7 +427,7 @@ export class Cimbra {
       this.post<{ ok: true; echeq: Echeq; replayed: boolean }>(
         `/api/v1/echeqs/${encodeURIComponent(id)}/endorse`, input, options, true),
     deposit: (id: string, input: DepositEcheqInput, options?: RequestOptions) =>
-      this.post<{ ok: true; echeq: Echeq; replayed: boolean }>(
+      this.post<EcheqDepositResult>(
         `/api/v1/echeqs/${encodeURIComponent(id)}/deposit`, input, options, true),
     cancel: (id: string, options?: RequestOptions) =>
       this.post<{ ok: true; echeq: Echeq; replayed: boolean }>(

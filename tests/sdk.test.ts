@@ -368,6 +368,17 @@ test('paymentQrs.pay tipa maker/checker opt-in', async () => {
   if (result.data.requiresApproval) assert.equal(result.data.approval.actionType, 'payment_qr.pay');
 });
 
+test('echeqs.deposit tipa maker/checker opt-in', async () => {
+  const client = new Cimbra({ baseUrl: 'https://api.test', apiKey: 'cim_test', fetch: async () =>
+    Response.json({
+      ok: true, requiresApproval: true, replayed: false, deduplicated: false,
+      approval: { id: 'approval_echeq_1', actionType: 'echeq.deposit', resourceType: 'echeq', resourceId: 'echeq_1', status: 'pending' },
+    }, { status: 202 }) });
+  const result = await client.echeqs.deposit('echeq_1', { accountId: 'account_2', taxId: '30000075678' });
+  assert.equal(result.data.requiresApproval, true);
+  if (result.data.requiresApproval) assert.equal(result.data.approval.actionType, 'echeq.deposit');
+});
+
 test('el SDK cablea links de cobro, eco cerrado, inbound sandbox y devoluciones', async () => {
   const calls: string[] = [];
   const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async (input, init) => {

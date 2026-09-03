@@ -2704,6 +2704,46 @@ try {
     body: JSON.stringify({ actionType: 'payment_qr.pay', enabled: false, expiresInMinutes: 1440 }),
   }), 200);
 
+  const echeqDepositPolicy = await json(await request('/api/platform/approval-policy', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actionType: 'echeq.deposit', enabled: true, expiresInMinutes: 1440 }),
+  }), 200);
+  assert.equal(echeqDepositPolicy.policy.actionType, 'echeq.deposit');
+  const protectedEcheq = await json(await request('/api/v1/echeqs', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-echeq-mc-create-${runId}` },
+    body: JSON.stringify({
+      drawerAccountId: account.id, externalReference: `CHQ-MC-${runId}`, description: 'ECHEQ MC',
+      amount: '7.50', currency: 'ARS', beneficiaryName: 'QA Company', beneficiaryTaxId: '30000075678', toOrder: true,
+    }),
+  }), 201);
+  await json(await request(`/api/v1/echeqs/${protectedEcheq.echeq.id}/accept`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-echeq-mc-accept-${runId}` },
+    body: JSON.stringify({ accountId: destinationAccount.id, taxId: '30000075678' }),
+  }), 201);
+  const protectedEcheqDeposit = await json(await request(`/api/v1/echeqs/${protectedEcheq.echeq.id}/deposit`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-protected-echeq-deposit-${runId}` },
+    body: JSON.stringify({ accountId: destinationAccount.id, taxId: '30000075678' }),
+  }), 202);
+  assert.equal(protectedEcheqDeposit.requiresApproval, true);
+  assert.equal(protectedEcheqDeposit.approval.actionType, 'echeq.deposit');
+  assert.equal(protectedEcheqDeposit.approval.resourceType, 'echeq');
+  assert.equal(protectedEcheqDeposit.approval.resourceId, protectedEcheq.echeq.id);
+  assert.equal(protectedEcheqDeposit.approval.requestPayload.taxId, undefined);
+  assert.equal(protectedEcheqDeposit.approval.requestPayload.taxIdLast4, '5678');
+  cookie = checkerCookie;
+  const protectedEcheqExecution = await json(await request(`/api/v1/approvals/${protectedEcheqDeposit.approval.id}/approve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-echeq-deposit-checker-${runId}` },
+    body: JSON.stringify({ reason: 'Independent echeq deposit checker' }),
+  }), 200);
+  assert.equal(protectedEcheqExecution.approval.status, 'executed');
+  assert.equal(protectedEcheqExecution.echeq.status, 'deposited');
+  assert.equal(protectedEcheqExecution.echeq.id, protectedEcheq.echeq.id);
+  cookie = ownerCookieAfterRequest;
+  await json(await request('/api/platform/approval-policy', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actionType: 'echeq.deposit', enabled: false, expiresInMinutes: 1440 }),
+  }), 200);
+
   await json(await request('/api/platform/approval-policy', {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ actionType: 'transfer.create', enabled: true, expiresInMinutes: 1440 }),

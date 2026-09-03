@@ -63,7 +63,7 @@ export const HELP_ARTICLES = [
     id: 'approvals',
     title: 'Aprobaciones maker/checker',
     summary: 'Cola de operaciones que exigen otro actor privilegiado.',
-    body: 'Aprobaciones lista solicitudes pendientes (transferencias y book transfers, sus reversas, cash-in/out y sus reversas, pagos de servicios y sus reversas, altas y devoluciones de transferencias instantáneas, aceptación de débitos internos, pago de QR Cimbra, altas y reanudación de mandatos recurrentes, devoluciones de cobranzas, payouts, settlements y políticas). Approve/reject exige otro usuario con MFA cuando la política lo pide. No es un workflow externo: vive en el tenant y deja auditoría. Viewer no aprueba.',
+    body: 'Aprobaciones lista solicitudes pendientes (transferencias y book transfers, sus reversas, cash-in/out y sus reversas, pagos de servicios y sus reversas, altas y devoluciones de transferencias instantáneas, aceptación de débitos internos, pago de QR Cimbra, depósito de ECHEQ, altas y reanudación de mandatos recurrentes, devoluciones de cobranzas, payouts, settlements y políticas). Approve/reject exige otro usuario con MFA cuando la política lo pide. No es un workflow externo: vive en el tenant y deja auditoría. Viewer no aprueba.',
   },
   {
     id: 'bill-payments',
@@ -99,7 +99,7 @@ export const HELP_ARTICLES = [
     id: 'echeq',
     title: 'ECHEQ sandbox',
     summary: 'Ciclo de emisión, aceptación y depósito interno.',
-    body: 'ECHEQ en consola es payload cimbra:echeq:v1. No hay CMC7 ni compensación de cámara. Cesión y descuento quedan fuera hasta el riel Coelsa.',
+    body: 'ECHEQ en consola es payload cimbra:echeq:v1. Con echeq.deposit activo, el depósito en cuenta Cimbra queda pendiente de maker/checker. No hay CMC7 ni compensación de cámara. Cesión y descuento quedan fuera hasta el riel Coelsa.',
   },
   {
     id: 'payouts',

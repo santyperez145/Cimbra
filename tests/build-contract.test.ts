@@ -289,6 +289,22 @@ test('debit accept y payment QR pay usan maker/checker opt-in', () => {
   assert.match(migration, /payment_qr\.pay/);
 });
 
+test('echeq deposit usa maker/checker opt-in echeq.deposit', () => {
+  const approvals = readFileSync(join(root, 'db', 'approvals.ts'), 'utf8');
+  const depositRoute = readFileSync(join(root, 'app', 'api', 'v1', 'echeqs', '[id]', 'deposit', 'route.ts'), 'utf8');
+  const panel = readFileSync(join(root, 'app', 'console', 'approvals-panel.tsx'), 'utf8');
+  const echeqsPanel = readFileSync(join(root, 'app', 'console', 'echeqs-panel.tsx'), 'utf8');
+  const help = readFileSync(join(root, 'app', 'lib', 'platform', 'help-center.ts'), 'utf8');
+  const migration = readFileSync(join(root, 'drizzle-postgres', '0058_echeq_deposit_approval.sql'), 'utf8');
+  assert.match(approvals, /depositEcheqWithApprovalPolicy/);
+  assert.match(approvals, /echeq\.deposit/);
+  assert.match(depositRoute, /depositEcheqWithApprovalPolicy/);
+  assert.match(panel, /echeq\.deposit/);
+  assert.match(echeqsPanel, /maker\/checker/);
+  assert.match(help, /echeq\.deposit/);
+  assert.match(migration, /echeq\.deposit/);
+});
+
 test('help-center documenta Compliance, Aprobaciones y Disputas con límites honestos', () => {
   const help = readFileSync(join(root, 'app', 'lib', 'platform', 'help-center.ts'), 'utf8');
   assert.match(help, /id: 'compliance-kyc'/);

@@ -407,6 +407,13 @@
       "when": 1788399600000,
       "tag": "0057_debit_qr_pay_approval",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1788400800000,
+      "tag": "0058_echeq_deposit_approval",
+      "breakpoints": true
     }
   ]
 }

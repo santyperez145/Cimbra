@@ -3,6 +3,7 @@ import type { AuthUser } from '@/app/lib/auth/types';
 import { canDecideApproval, type ApprovalActionType, type ApprovalStatus } from '@/app/lib/platform/approval-policy';
 import type { OrganizationRole } from '@/app/lib/platform/access-policy';
 import type { Currency } from '@/app/lib/ledger/money';
+import { cuitLast4 } from '@/app/lib/platform/cuit';
 import type { DisputeEvent, DisputeStatus } from '@/app/lib/platform/disputes';
 import { parseProtectedRiskSignals, publicRiskSignals } from '@/app/lib/platform/risk-signals';
 import { type DatabaseClient, getDatabaseClient } from './client';
@@ -19,7 +20,9 @@ import { BillerError, createBillPaymentOrderInTransaction, createRecurringMandat
 import type { RecurringFrequency } from '@/app/lib/platform/billers-input';
 import { CollectionError, refundPaymentLinkInTransaction } from './collections';
 import { InstantPaymentError, createInstantTransferInTransaction, payPaymentQrInTransaction, respondDebitRequestInTransaction, returnInstantTransferInTransaction } from './instant-payments';
+import { depositEcheqInTransaction, EcheqError } from './echeqs';
 import type { NormalizedInstantTransferInput, NormalizedDebitResponse, NormalizedQrPayInput } from '@/app/lib/platform/instant-payments-input';
+import type { NormalizedEcheqDepositInput } from '@/app/lib/platform/echeqs-input';
 import type { ProtectedRiskSignals } from '@/app/lib/platform/risk-signals';
 import { assertSandboxLedgerOrCertifiedRail } from './platform-rails';
 import type { NormalizedPaymentLinkRefundInput } from '@/app/lib/platform/collections-input';
@@ -30,7 +33,7 @@ export class ApprovalError extends Error {
 
 type ApprovalRow = {
   id: string; actionType: ApprovalActionType;
-  resourceType: 'settlement_cycle' | 'transfer' | 'book_transfer' | 'payment' | 'bill_payment' | 'instant_transfer' | 'payment_link' | 'payment_qr' | 'recurring_payment_mandate' | 'payout_batch' | 'risk_case' | 'reconciliation_exception' | 'dispute'; resourceId: string;
+  resourceType: 'settlement_cycle' | 'transfer' | 'book_transfer' | 'payment' | 'bill_payment' | 'instant_transfer' | 'payment_link' | 'payment_qr' | 'echeq' | 'recurring_payment_mandate' | 'payout_batch' | 'risk_case' | 'reconciliation_exception' | 'dispute'; resourceId: string;
   status: ApprovalStatus; requestFingerprint: string; requestPayload: string; requestedBy: string; requestedByName: string;
   resolvedBy: string | null; resolvedByName: string | null; resolutionReason: string | null;
   expiresAt: string; resolvedAt: string | null; executedAt: string | null; createdAt: string; updatedAt: string;
@@ -46,11 +49,17 @@ const approvalSelect = `SELECT ar.id, ar.action_type AS "actionType", ar.resourc
   LEFT JOIN users resolver ON resolver.id = ar.resolved_by`;
 
 function publicApprovalPayload(payload: Record<string, unknown>) {
-  if (!('signals' in payload)) return payload;
-  const signals = parseProtectedRiskSignals(payload.signals);
   const publicPayload = { ...payload };
-  delete publicPayload.signals;
-  return { ...publicPayload, signals: publicRiskSignals(signals ?? {}) };
+  if ('signals' in publicPayload) {
+    const signals = parseProtectedRiskSignals(publicPayload.signals);
+    delete publicPayload.signals;
+    Object.assign(publicPayload, { signals: publicRiskSignals(signals ?? {}) });
+  }
+  if (typeof publicPayload.taxId === 'string') {
+    publicPayload.taxIdLast4 = cuitLast4(publicPayload.taxId);
+    delete publicPayload.taxId;
+  }
+  return publicPayload;
 }
 
 function serializeApproval(row: ApprovalRow) {
@@ -119,7 +128,7 @@ export async function getApprovalPolicies(organizationId: string) {
        WHERE m.organization_id = ? AND m.role IN ('owner', 'admin') AND u.mfa_enabled = 1`,
     ).bind(organizationId).first<{ count: number }>(),
   ]);
-  return (['settlement.execute', 'transfer.create', 'transfer.reverse', 'payment.create', 'payment.reverse', 'bill_payment.create', 'bill_payment.reverse', 'instant_transfer.create', 'instant_transfer.return', 'collection.refund', 'recurring_mandate.create', 'recurring_mandate.resume', 'debit_request.accept', 'payment_qr.pay', 'payout_batch.execute', 'risk.case.resolve', 'reconciliation.exception.resolve', 'dispute.resolve'] as const).map((actionType) => {
+  return (['settlement.execute', 'transfer.create', 'transfer.reverse', 'payment.create', 'payment.reverse', 'bill_payment.create', 'bill_payment.reverse', 'instant_transfer.create', 'instant_transfer.return', 'collection.refund', 'recurring_mandate.create', 'recurring_mandate.resume', 'debit_request.accept', 'payment_qr.pay', 'echeq.deposit', 'payout_batch.execute', 'risk.case.resolve', 'reconciliation.exception.resolve', 'dispute.resolve'] as const).map((actionType) => {
     const policy = policies.results.find((item) => item.actionType === actionType);
     return { id: policy?.id ?? null, actionType, enabled: policy?.enabled === 1,
       expiresInMinutes: policy?.expiresInMinutes ?? 1440, eligibleApprovers: approvers?.count ?? 0,
@@ -1426,6 +1435,85 @@ export async function payPaymentQrWithApprovalPolicy(input: {
   });
 }
 
+export async function depositEcheqWithApprovalPolicy(input: {
+  organizationId: string; actor: AuthUser; echeqId: string; idempotencyKey: string;
+  deposit: NormalizedEcheqDepositInput; signals?: ProtectedRiskSignals;
+  authentication: 'session' | 'api_key'; apiKeyId: string | null;
+}) {
+  const fingerprint = await sha256(JSON.stringify({
+    actionType: 'echeq.deposit', echeqId: input.echeqId, accountId: input.deposit.accountId,
+    taxId: input.deposit.taxId, signals: input.signals ?? {},
+  }));
+  return getDatabaseClient().transaction(async (database) => {
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:echeq-deposit:${input.echeqId}`).first();
+    const settled = await database.prepare(
+      `SELECT id, status, deposit_fingerprint AS "depositFingerprint" FROM echeqs
+       WHERE organization_id = ? AND id = ? LIMIT 1`,
+    ).bind(input.organizationId, input.echeqId).first<{ id: string; status: string; depositFingerprint: string | null }>();
+    if (settled && ['deposited', 'pending', 'rejected'].includes(settled.status)) {
+      const result = await depositEcheqInTransaction(input, database);
+      return { requiresApproval: false as const, ...result };
+    }
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:approval:${input.idempotencyKey}`).first();
+    const existingApproval = await database.prepare(
+      `${approvalSelect} WHERE ar.organization_id = ? AND ar.idempotency_key = ? LIMIT 1`,
+    ).bind(input.organizationId, input.idempotencyKey).first<ApprovalRow>();
+    if (existingApproval) {
+      if (existingApproval.requestFingerprint !== fingerprint || existingApproval.resourceType !== 'echeq' ||
+        existingApproval.actionType !== 'echeq.deposit') {
+        throw new ApprovalError('La Idempotency-Key ya fue usada para otra operación.', 409, 'idempotency_mismatch');
+      }
+      return { requiresApproval: true as const, approval: serializeApproval(existingApproval), replayed: true, deduplicated: false };
+    }
+    await database.prepare('SELECT pg_advisory_xact_lock_shared(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:approval-policy:echeq.deposit`).first();
+    const policy = await database.prepare(
+      `SELECT expires_in_minutes AS "expiresInMinutes" FROM approval_policies
+       WHERE organization_id = ? AND action_type = 'echeq.deposit' AND enabled = 1 LIMIT 1`,
+    ).bind(input.organizationId).first<{ expiresInMinutes: number }>();
+    if (!policy) {
+      const result = await depositEcheqInTransaction(input, database);
+      return { requiresApproval: false as const, ...result };
+    }
+    const echeq = await database.prepare(
+      `SELECT id, status, amount_minor::text AS "amountMinor", currency, description, external_reference AS "externalReference",
+        payment_date AS "paymentDate", beneficiary_name AS "beneficiaryName", beneficiary_tax_last4 AS "beneficiaryTaxLast4"
+       FROM echeqs WHERE organization_id = ? AND id = ? FOR UPDATE`,
+    ).bind(input.organizationId, input.echeqId).first<{
+      id: string; status: string; amountMinor: string; currency: Currency; description: string;
+      externalReference: string; paymentDate: string; beneficiaryName: string; beneficiaryTaxLast4: string;
+    }>();
+    if (!echeq) throw new ApprovalError('ECHEQ no encontrado.', 404, 'echeq_not_found');
+    if (echeq.status !== 'accepted') throw new ApprovalError('El ECHEQ debe estar aceptado para depositarse.', 409, 'echeq_not_depositable');
+    const id = crypto.randomUUID(); const now = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + policy.expiresInMinutes * 60_000).toISOString();
+    const payload = {
+      echeqId: echeq.id, accountId: input.deposit.accountId, taxId: input.deposit.taxId,
+      amountMinor: echeq.amountMinor, currency: echeq.currency, description: echeq.description,
+      externalReference: echeq.externalReference, paymentDate: echeq.paymentDate,
+      beneficiaryName: echeq.beneficiaryName, beneficiaryTaxLast4: echeq.beneficiaryTaxLast4,
+      signals: input.signals ?? {}, origin: input.authentication, apiKeyId: input.apiKeyId, sandbox: true,
+    };
+    await database.prepare(
+      `INSERT INTO approval_requests
+        (id, organization_id, action_type, resource_type, resource_id, idempotency_key, request_fingerprint, status,
+         request_payload, requested_by, expires_at, created_at, updated_at)
+       VALUES (?, ?, 'echeq.deposit', 'echeq', ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
+    ).bind(id, input.organizationId, echeq.id, input.idempotencyKey, fingerprint, JSON.stringify(payload), input.actor.userId,
+      expiresAt, now, now).run();
+    await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId, action: 'approval.request_created',
+      resourceType: 'approval_request', resourceId: id, payload: { actionType: 'echeq.deposit', resourceType: 'echeq',
+        resourceId: echeq.id, expiresAt, amountMinor: payload.amountMinor, currency: payload.currency,
+        externalReference: payload.externalReference, taxIdLast4: cuitLast4(input.deposit.taxId),
+        origin: payload.origin, sandbox: true } });
+    const approval = await approvalById(database, input.organizationId, id);
+    if (!approval) throw new ApprovalError('No pudimos recuperar la solicitud.', 500, 'approval_create_failed');
+    return { requiresApproval: true as const, approval, replayed: false, deduplicated: false };
+  });
+}
+
 function transferPayload(row: ApprovalRow) {
   try {
     const payload = JSON.parse(row.requestPayload) as Record<string, unknown>;
@@ -1591,6 +1679,18 @@ function paymentQrPayPayload(row: ApprovalRow): {
       payment: { sourceAccountId: payload.sourceAccountId, externalReference: payload.externalReference, amountMinor },
       signals,
     };
+  } catch { return null; }
+}
+
+function echeqDepositPayload(row: ApprovalRow): {
+  deposit: NormalizedEcheqDepositInput; signals: ProtectedRiskSignals | undefined;
+} | null {
+  try {
+    const payload = JSON.parse(row.requestPayload) as Record<string, unknown>;
+    if (typeof payload.accountId !== 'string' || typeof payload.taxId !== 'string') return null;
+    const signals = parseProtectedRiskSignals(payload.signals);
+    if (!signals) return null;
+    return { deposit: { accountId: payload.accountId, taxId: payload.taxId }, signals };
   } catch { return null; }
 }
 
@@ -1811,6 +1911,7 @@ export async function decideApprovalRequest(input: {
     let executedInstantTransfer: Awaited<ReturnType<typeof returnInstantTransferInTransaction>>['transfer'] | undefined;
     let executedPaymentLink: Awaited<ReturnType<typeof refundPaymentLinkInTransaction>>['link'] | undefined;
     let executedMandate: Awaited<ReturnType<typeof createRecurringMandateInTransaction>>['mandate'] | undefined;
+    let executedEcheq: Awaited<ReturnType<typeof depositEcheqInTransaction>>['echeq'] | undefined;
     let executedPayoutBatch: Awaited<ReturnType<typeof authorizePayoutBatchInTransaction>> | undefined;
     let executedRiskCase: Awaited<ReturnType<typeof resolveRiskCase>> | undefined;
     let executedException: Awaited<ReturnType<typeof resolveReconciliationException>> | undefined;
@@ -2058,6 +2159,25 @@ export async function decideApprovalRequest(input: {
             failure = { message: error.message, code: error.code, status: error.status };
           } else throw error;
         }
+      } else if (row.actionType === 'echeq.deposit') {
+        const payload = echeqDepositPayload(row);
+        if (!payload) throw new ApprovalError('El payload protegido del depósito ECHEQ es inválido.', 500, 'approval_payload_invalid');
+        try {
+          const execution = await depositEcheqInTransaction({
+            organizationId: input.organizationId, actor: input.actor, echeqId: row.resourceId,
+            idempotencyKey: `approval:${row.id}`, deposit: payload.deposit, signals: payload.signals,
+            approvalContext: { requestId: row.id, requestedBy: row.requestedBy },
+          }, database);
+          if ('declined' in execution) {
+            failure = { message: 'La política de riesgo rechazó el depósito ECHEQ aprobado.', code: 'risk_declined', status: 422 };
+          } else executedEcheq = execution.echeq;
+        } catch (error) {
+          if (error instanceof EcheqError && error.status < 500) {
+            failure = { message: error.message, code: error.code, status: error.status };
+          } else if (error instanceof LedgerError && error.status < 500) {
+            failure = { message: error.message, code: error.code, status: error.status };
+          } else throw error;
+        }
       } else if (row.actionType === 'payout_batch.execute') {
         try {
           executedPayoutBatch = await authorizePayoutBatchInTransaction(database, { organizationId: input.organizationId,
@@ -2133,7 +2253,7 @@ export async function decideApprovalRequest(input: {
     if (!approval) throw new ApprovalError('No pudimos recuperar la decisión.', 500, 'approval_decision_failed');
     return { approval, cycle: executedCycle, transaction: executedTransfer, bookTransfer: executedBookTransfer,
       payment: executedPayment, reversal: executedReversal, billPayment: executedBillPayment,
-      transfer: executedInstantTransfer, link: executedPaymentLink, mandate: executedMandate,
+      transfer: executedInstantTransfer, link: executedPaymentLink, mandate: executedMandate, echeq: executedEcheq,
       payoutBatch: executedPayoutBatch, case: executedRiskCase,
       exception: executedException, dispute: executedDispute, failed: failure, replayed: false, expired: false };
   });

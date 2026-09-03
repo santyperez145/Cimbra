@@ -369,70 +369,81 @@ export async function returnEcheq(input: {
 export async function depositEcheq(input: {
   organizationId: string; actor: AuthUser; echeqId: string; idempotencyKey: string;
   deposit: NormalizedEcheqDepositInput; signals?: ProtectedRiskSignals;
+  approvalContext?: { requestId: string; requestedBy: string };
 }) {
+  return getDatabaseClient().transaction((database) => depositEcheqInTransaction(input, database));
+}
+
+export async function depositEcheqInTransaction(input: {
+  organizationId: string; actor: AuthUser; echeqId: string; idempotencyKey: string;
+  deposit: NormalizedEcheqDepositInput; signals?: ProtectedRiskSignals;
+  approvalContext?: { requestId: string; requestedBy: string };
+}, database: DatabaseClient) {
   const fingerprint = await sha256(JSON.stringify({
     accountId: input.deposit.accountId, taxId: input.deposit.taxId, signals: input.signals ?? {},
   }));
-  return getDatabaseClient().transaction(async (database) => {
-    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
-      .bind(`${input.organizationId}:echeq-deposit:${input.echeqId}`).first();
-    const row = await database.prepare(`${echeqSelect} WHERE e.organization_id = ? AND e.id = ? LIMIT 1 FOR UPDATE OF e`)
-      .bind(input.organizationId, input.echeqId).first<EcheqRow>();
-    if (!row) throw new EcheqError('ECHEQ no encontrado.', 404, 'echeq_not_found');
-    const current = await expireIfNeeded(database, row);
-    if (current.depositFingerprint === fingerprint && (current.status === 'deposited' || current.status === 'pending' || current.status === 'rejected')) {
-      return { echeq: serializeEcheq(current), replayed: true };
-    }
-    if (current.status === 'deposited' || current.status === 'pending') {
-      throw new EcheqError('El ECHEQ ya fue depositado.', 409, 'echeq_already_deposited');
-    }
-    if (current.status === 'rejected') {
-      throw new EcheqError('El ECHEQ ya fue rechazado por falta de fondos.', 409, 'echeq_already_rejected');
-    }
-    if (current.status !== 'accepted') {
-      throw new EcheqError('El ECHEQ debe estar aceptado para depositarse en una cuenta Cimbra.', 409, 'echeq_not_depositable');
-    }
-    if (current.paymentDate > argentinaToday()) {
-      throw new EcheqError('El ECHEQ todavía no está en fecha de pago.', 422, 'echeq_not_due');
-    }
-    await assertCurrentBeneficiary(database, input.organizationId, current.id, input.deposit.taxId);
-    const holder = await loadAccount(database, input.organizationId, input.deposit.accountId, true);
-    assertArgentineAccount(holder, 'Cuenta depositaria');
-    if (current.holderAccountId && current.holderAccountId !== holder.id) {
-      throw new EcheqError('La cuenta depositaria debe ser la del tenedor que aceptó el ECHEQ.', 422, 'holder_account_mismatch');
-    }
-    if (holder.id === current.drawerAccountId) {
-      throw new EcheqError('No se puede depositar el ECHEQ en la cuenta libradora.', 422, 'same_account');
-    }
-    assertHolderTax(holder, input.deposit.taxId);
-    const drawer = await loadAccount(database, input.organizationId, current.drawerAccountId, true);
-    assertArgentineAccount(drawer, 'Cuenta libradora');
-    const now = new Date().toISOString();
-    const movement = await postDeposit(database, {
-      organizationId: input.organizationId, actor: input.actor, operationKey: `echeq-deposit:${input.idempotencyKey}`,
-      source: drawer, destination: holder, amountMinor: BigInt(current.amountMinor), description: current.description,
-      counterparty: `echeq:${current.payload}`, signals: input.signals,
-    });
-    if ('rejected' in movement && movement.rejected) {
-      await database.prepare(`UPDATE echeqs SET status = 'rejected', reject_reason = ?, deposit_idempotency_key = ?,
-        deposit_fingerprint = ?, updated_at = ? WHERE id = ?`)
-        .bind(movement.reason, input.idempotencyKey, fingerprint, now, current.id).run();
-      await insertAudit(database, {
-        organizationId: input.organizationId, actorId: input.actor.userId, action: 'echeq.rejected',
-        resourceType: 'echeq', resourceId: current.id, payload: { reason: movement.reason },
-      });
-      return { echeq: serializeEcheq((await retrieveEcheqRow(input.organizationId, current.id, database))!), replayed: false };
-    }
-    if ('declined' in movement) return { declined: movement.declined, replayed: movement.replayed };
-    await database.prepare(`UPDATE echeqs SET status = ?, holder_account_id = ?, transaction_id = ?,
-      deposit_idempotency_key = ?, deposit_fingerprint = ?, updated_at = ? WHERE id = ?`)
-      .bind(movement.status, holder.id, movement.transactionId, input.idempotencyKey, fingerprint, now, current.id).run();
+  await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+    .bind(`${input.organizationId}:echeq-deposit:${input.echeqId}`).first();
+  const row = await database.prepare(`${echeqSelect} WHERE e.organization_id = ? AND e.id = ? LIMIT 1 FOR UPDATE OF e`)
+    .bind(input.organizationId, input.echeqId).first<EcheqRow>();
+  if (!row) throw new EcheqError('ECHEQ no encontrado.', 404, 'echeq_not_found');
+  const current = await expireIfNeeded(database, row);
+  if (current.depositFingerprint === fingerprint && (current.status === 'deposited' || current.status === 'pending' || current.status === 'rejected')) {
+    return { echeq: serializeEcheq(current), replayed: true };
+  }
+  if (current.status === 'deposited' || current.status === 'pending') {
+    throw new EcheqError('El ECHEQ ya fue depositado.', 409, 'echeq_already_deposited');
+  }
+  if (current.status === 'rejected') {
+    throw new EcheqError('El ECHEQ ya fue rechazado por falta de fondos.', 409, 'echeq_already_rejected');
+  }
+  if (current.status !== 'accepted') {
+    throw new EcheqError('El ECHEQ debe estar aceptado para depositarse en una cuenta Cimbra.', 409, 'echeq_not_depositable');
+  }
+  if (current.paymentDate > argentinaToday()) {
+    throw new EcheqError('El ECHEQ todavía no está en fecha de pago.', 422, 'echeq_not_due');
+  }
+  await assertCurrentBeneficiary(database, input.organizationId, current.id, input.deposit.taxId);
+  const holder = await loadAccount(database, input.organizationId, input.deposit.accountId, true);
+  assertArgentineAccount(holder, 'Cuenta depositaria');
+  if (current.holderAccountId && current.holderAccountId !== holder.id) {
+    throw new EcheqError('La cuenta depositaria debe ser la del tenedor que aceptó el ECHEQ.', 422, 'holder_account_mismatch');
+  }
+  if (holder.id === current.drawerAccountId) {
+    throw new EcheqError('No se puede depositar el ECHEQ en la cuenta libradora.', 422, 'same_account');
+  }
+  assertHolderTax(holder, input.deposit.taxId);
+  const drawer = await loadAccount(database, input.organizationId, current.drawerAccountId, true);
+  assertArgentineAccount(drawer, 'Cuenta libradora');
+  const now = new Date().toISOString();
+  const approvalAudit = {
+    approvalRequestId: input.approvalContext?.requestId ?? null,
+    requestedBy: input.approvalContext?.requestedBy ?? null,
+  };
+  const movement = await postDeposit(database, {
+    organizationId: input.organizationId, actor: input.actor, operationKey: `echeq-deposit:${input.idempotencyKey}`,
+    source: drawer, destination: holder, amountMinor: BigInt(current.amountMinor), description: current.description,
+    counterparty: `echeq:${current.payload}`, signals: input.signals,
+  });
+  if ('rejected' in movement && movement.rejected) {
+    await database.prepare(`UPDATE echeqs SET status = 'rejected', reject_reason = ?, deposit_idempotency_key = ?,
+      deposit_fingerprint = ?, updated_at = ? WHERE id = ?`)
+      .bind(movement.reason, input.idempotencyKey, fingerprint, now, current.id).run();
     await insertAudit(database, {
-      organizationId: input.organizationId, actorId: input.actor.userId,
-      action: movement.status === 'pending' ? 'echeq.deposited' : 'echeq.deposited',
-      resourceType: 'echeq', resourceId: current.id,
-      payload: { status: movement.status, transactionId: movement.transactionId },
+      organizationId: input.organizationId, actorId: input.actor.userId, action: 'echeq.rejected',
+      resourceType: 'echeq', resourceId: current.id, payload: { reason: movement.reason, ...approvalAudit },
     });
     return { echeq: serializeEcheq((await retrieveEcheqRow(input.organizationId, current.id, database))!), replayed: false };
+  }
+  if ('declined' in movement) return { declined: movement.declined, replayed: movement.replayed };
+  await database.prepare(`UPDATE echeqs SET status = ?, holder_account_id = ?, transaction_id = ?,
+    deposit_idempotency_key = ?, deposit_fingerprint = ?, updated_at = ? WHERE id = ?`)
+    .bind(movement.status, holder.id, movement.transactionId, input.idempotencyKey, fingerprint, now, current.id).run();
+  await insertAudit(database, {
+    organizationId: input.organizationId, actorId: input.actor.userId,
+    action: 'echeq.deposited',
+    resourceType: 'echeq', resourceId: current.id,
+    payload: { status: movement.status, transactionId: movement.transactionId, ...approvalAudit },
   });
+  return { echeq: serializeEcheq((await retrieveEcheqRow(input.organizationId, current.id, database))!), replayed: false };
 }

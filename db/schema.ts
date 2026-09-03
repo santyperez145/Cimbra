@@ -866,7 +866,7 @@ export const approvalPolicies = pgTable('approval_policies', {
   createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
 }, (table) => [
   uniqueIndex('idx_approval_policies_org_action').on(table.organizationId, table.actionType),
-  check('approval_policies_action', sql`${table.actionType} IN ('settlement.execute', 'transfer.create', 'transfer.reverse', 'payment.create', 'payment.reverse', 'bill_payment.create', 'bill_payment.reverse', 'instant_transfer.create', 'instant_transfer.return', 'collection.refund', 'recurring_mandate.create', 'recurring_mandate.resume', 'debit_request.accept', 'payment_qr.pay', 'payout_batch.execute', 'risk.case.resolve', 'reconciliation.exception.resolve', 'dispute.resolve')`),
+  check('approval_policies_action', sql`${table.actionType} IN ('settlement.execute', 'transfer.create', 'transfer.reverse', 'payment.create', 'payment.reverse', 'bill_payment.create', 'bill_payment.reverse', 'instant_transfer.create', 'instant_transfer.return', 'collection.refund', 'recurring_mandate.create', 'recurring_mandate.resume', 'debit_request.accept', 'payment_qr.pay', 'echeq.deposit', 'payout_batch.execute', 'risk.case.resolve', 'reconciliation.exception.resolve', 'dispute.resolve')`),
   check('approval_policies_enabled', sql`${table.enabled} IN (0, 1)`),
   check('approval_policies_expiry', sql`${table.expiresInMinutes} BETWEEN 15 AND 10080`),
 ]);
@@ -900,6 +900,7 @@ export const approvalRequests = pgTable('approval_requests', {
     (${table.actionType} = 'recurring_mandate.resume' AND ${table.resourceType} = 'recurring_payment_mandate') OR
     (${table.actionType} = 'debit_request.accept' AND ${table.resourceType} = 'instant_transfer') OR
     (${table.actionType} = 'payment_qr.pay' AND ${table.resourceType} = 'payment_qr') OR
+    (${table.actionType} = 'echeq.deposit' AND ${table.resourceType} = 'echeq') OR
     (${table.actionType} = 'payout_batch.execute' AND ${table.resourceType} = 'payout_batch') OR
     (${table.actionType} = 'risk.case.resolve' AND ${table.resourceType} = 'risk_case') OR
     (${table.actionType} = 'reconciliation.exception.resolve' AND ${table.resourceType} = 'reconciliation_exception') OR
