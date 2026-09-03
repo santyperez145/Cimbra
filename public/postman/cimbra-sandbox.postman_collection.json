@@ -349,7 +349,7 @@
               }
             ],
             "url": "{{baseUrl}}/api/v1/bill-payments",
-            "description": "Uses the canonical account, double-entry ledger, risk evaluation, holds and settlement path. A review response remains pending until its hold is captured or released.\n\noperationId: createBillPaymentOrder\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "description": "Uses the canonical account, double-entry ledger, risk evaluation, holds and settlement path. When bill_payment.create maker/checker is enabled, returns 202 with a pending approval instead of settling immediately. A review response remains pending until its hold is captured or released.\n\noperationId: createBillPaymentOrder\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \n}\n",
@@ -398,7 +398,7 @@
               }
             ],
             "url": "{{baseUrl}}/api/v1/bill-payments/:id/reverse",
-            "description": "Creates a compensating ledger transaction and reopens a linked obligation; financial postings are never destructively mutated.\n\noperationId: reverseBillPaymentOrder\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+            "description": "Creates a compensating ledger transaction and reopens a linked obligation; financial postings are never destructively mutated. When bill_payment.reverse maker/checker is enabled, returns 202 with a pending approval.\n\noperationId: reverseBillPaymentOrder\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
           }
         }
       ]

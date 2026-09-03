@@ -2,7 +2,7 @@ import { CimbraApiError, CimbraConnectionError, CimbraTimeoutError } from './err
 import type {
   Account, AccountStatement, AccountStatementOptions, ApprovalRequest, AuditEvent, Biller, BillerObligation, BillPaymentOrder, BookTransfer,
   BookTransferCreationResult, BookTransferReversalResult, Card, CardControls, CardLifecycleEvent, CardProgram, CimbraResult, CreateAccountInput,
-  CreateBillerInput, CreateBillerObligationInput, CreateBillPaymentInput, CreateCardInput, CreateCardProgramInput, CreateCustomerInput, CreateDisputeInput, CreatePaymentInput,
+  CreateBillerInput, CreateBillerObligationInput, CreateBillPaymentInput, BillPaymentCreationResult, BillPaymentReversalResult, CreateCardInput, CreateCardProgramInput, CreateCustomerInput, CreateDisputeInput, CreatePaymentInput,
   CreateDueDiligenceCaseInput, CreateDueDiligencePartyInput,
   CreateReconciliationCsvImportInput, CreateReconciliationRunInput, CreateRiskEvaluationInput, CreateRiskListEntryInput, CreateRiskRuleInput, CreateRiskSimulationInput,
   CreateRiskStepUpChallengeInput,
@@ -454,9 +454,9 @@ export class Cimbra {
     list: (options?: RequestOptions) => this.request<{ data: BillPaymentOrder[] }>('GET', '/api/v1/bill-payments', undefined, options),
     retrieve: (id: string, options?: RequestOptions) => this.request<{ data: BillPaymentOrder }>('GET', `/api/v1/bill-payments/${encodeURIComponent(id)}`, undefined, options),
     create: (input: CreateBillPaymentInput, options?: RequestOptions) =>
-      this.post<{ ok: true; order: BillPaymentOrder; replayed: boolean }>('/api/v1/bill-payments', input, options, true),
+      this.post<BillPaymentCreationResult>('/api/v1/bill-payments', input, options, true),
     reverse: (id: string, options?: RequestOptions) =>
-      this.post<{ ok: true; order: BillPaymentOrder; replayed: boolean }>(`/api/v1/bill-payments/${encodeURIComponent(id)}/reverse`, undefined, options, true),
+      this.post<BillPaymentReversalResult>(`/api/v1/bill-payments/${encodeURIComponent(id)}/reverse`, undefined, options, true),
   };
 
   readonly recurringMandates = {

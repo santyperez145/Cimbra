@@ -198,6 +198,22 @@ test('transfers y book transfers usan maker/checker opt-in transfer.reverse', ()
   assert.match(migration, /transfer\.reverse/);
 });
 
+test('bill payments usan maker/checker opt-in bill_payment.create y bill_payment.reverse', () => {
+  const approvals = readFileSync(join(root, 'db', 'approvals.ts'), 'utf8');
+  const createRoute = readFileSync(join(root, 'app', 'api', 'v1', 'bill-payments', 'route.ts'), 'utf8');
+  const reverseRoute = readFileSync(join(root, 'app', 'api', 'v1', 'bill-payments', '[id]', 'reverse', 'route.ts'), 'utf8');
+  const panel = readFileSync(join(root, 'app', 'console', 'approvals-panel.tsx'), 'utf8');
+  const migration = readFileSync(join(root, 'drizzle-postgres', '0052_bill_payment_approval.sql'), 'utf8');
+  assert.match(approvals, /createBillPaymentOrderWithApprovalPolicy/);
+  assert.match(approvals, /reverseBillPaymentOrderWithApprovalPolicy/);
+  assert.match(createRoute, /createBillPaymentOrderWithApprovalPolicy/);
+  assert.match(reverseRoute, /reverseBillPaymentOrderWithApprovalPolicy/);
+  assert.match(panel, /bill_payment\.create/);
+  assert.match(panel, /bill_payment\.reverse/);
+  assert.match(migration, /bill_payment\.create/);
+  assert.match(migration, /bill_payment\.reverse/);
+});
+
 test('help-center documenta Compliance, Aprobaciones y Disputas con límites honestos', () => {
   const help = readFileSync(join(root, 'app', 'lib', 'platform', 'help-center.ts'), 'utf8');
   assert.match(help, /id: 'compliance-kyc'/);

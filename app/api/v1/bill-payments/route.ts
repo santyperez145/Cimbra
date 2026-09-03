@@ -5,7 +5,8 @@ import { normalizeBillPaymentInput } from '@/app/lib/platform/billers-input';
 import { scheduleWebhookDispatch } from '@/app/lib/platform/dispatch';
 import { requestIdempotencyKey } from '@/app/lib/platform/idempotency';
 import { versionedApi } from '@/app/lib/platform/versioned-api';
-import { createBillPaymentOrder, listBillPaymentOrders } from '@/db/billers';
+import { createBillPaymentOrderWithApprovalPolicy } from '@/db/approvals';
+import { listBillPaymentOrders } from '@/db/billers';
 
 async function list(request: Request) {
   try {
@@ -20,12 +21,28 @@ async function create(request: Request) {
     const idempotencyKey = requestIdempotencyKey(request, principal)!;
     const input = normalizeBillPaymentInput(await request.json().catch(() => null));
     if (!input) return NextResponse.json({ error: 'Orden de pago inválida.', code: 'invalid_bill_payment' }, { status: 400 });
-    const result = await createBillPaymentOrder({ organizationId: principal.organizationId, actor: principal.user, idempotencyKey, ...input });
+    const result = await createBillPaymentOrderWithApprovalPolicy({
+      organizationId: principal.organizationId, actor: principal.user, idempotencyKey, ...input,
+      authentication: principal.authentication, apiKeyId: principal.apiKeyId,
+    });
     if (!result.replayed) scheduleWebhookDispatch(principal.organizationId);
+    if (result.requiresApproval) {
+      if (result.approval.status === 'failed') {
+        return NextResponse.json({ error: 'La ejecución aprobada falló.', code: 'approval_execution_failed' },
+          { status: 422, headers: rateLimitHeaders(principal) });
+      }
+      if (['rejected', 'cancelled', 'expired'].includes(result.approval.status)) {
+        return NextResponse.json({ error: `La solicitud está ${result.approval.status}.`, code: 'approval_not_pending' },
+          { status: 409, headers: rateLimitHeaders(principal) });
+      }
+      return NextResponse.json({ ok: true, ...result }, {
+        status: result.approval.status === 'executed' ? 200 : 202,
+        headers: rateLimitHeaders(principal),
+      });
+    }
     return NextResponse.json({ ok: true, ...result }, { status: result.replayed ? 200 : 201, headers: rateLimitHeaders(principal) });
   } catch (error) { const response = billerApiErrorResponse(error); if (response) return response; throw error; }
 }
 
 export function GET(request: Request) { return versionedApi(request, () => list(request)); }
 export function POST(request: Request) { return versionedApi(request, () => create(request)); }
-

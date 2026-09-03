@@ -239,8 +239,8 @@ export type SettlementCycle = {
   status: 'ready' | 'scheduled' | 'settled'; scheduledFor: string | null; settledAt: string | null; createdAt: string; updatedAt: string;
 };
 export type ApprovalRequest = {
-  id: string; actionType: 'settlement.execute' | 'transfer.create' | 'transfer.reverse' | 'payment.create' | 'payment.reverse' | 'payout_batch.execute' | 'risk.case.resolve' | 'reconciliation.exception.resolve' | 'dispute.resolve';
-  resourceType: 'settlement_cycle' | 'transfer' | 'book_transfer' | 'payment' | 'payout_batch' | 'risk_case' | 'reconciliation_exception' | 'dispute'; resourceId: string;
+  id: string; actionType: 'settlement.execute' | 'transfer.create' | 'transfer.reverse' | 'payment.create' | 'payment.reverse' | 'bill_payment.create' | 'bill_payment.reverse' | 'payout_batch.execute' | 'risk.case.resolve' | 'reconciliation.exception.resolve' | 'dispute.resolve';
+  resourceType: 'settlement_cycle' | 'transfer' | 'book_transfer' | 'payment' | 'bill_payment' | 'payout_batch' | 'risk_case' | 'reconciliation_exception' | 'dispute'; resourceId: string;
   status: 'pending' | 'executed' | 'rejected' | 'cancelled' | 'expired' | 'failed'; requestPayload: {
     name?: string; rail?: ReconciliationRun['source']; currency?: Currency; netMinor?: string; differenceMinor?: string;
     scheduledFor?: string | null; executionMode?: 'manual' | 'scheduled'; counterparty?: string; description?: string;
@@ -550,6 +550,12 @@ export type CreateBillerObligationInput = {
 export type CreateBillPaymentInput = {
   accountId: string; billerId: string; obligationId?: string; destinationReference?: string; amount?: string;
 };
+export type BillPaymentCreationResult =
+  | { ok: true; requiresApproval?: false; order: BillPaymentOrder; replayed: boolean }
+  | { ok: true; requiresApproval: true; approval: ApprovalRequest; replayed: boolean; deduplicated: boolean };
+export type BillPaymentReversalResult =
+  | { ok: true; requiresApproval?: false; order: BillPaymentOrder; replayed: boolean }
+  | { ok: true; requiresApproval: true; approval: ApprovalRequest; replayed: boolean; deduplicated: boolean };
 export type CreateRecurringPaymentMandateInput = {
   accountId: string; billerId: string; subscriberReference: string; frequency: RecurringPaymentMandate['frequency'];
   amount?: string; amountLimit: string; consentReference: string; consentedAt: string; nextChargeAt: string; maxRetries?: number;

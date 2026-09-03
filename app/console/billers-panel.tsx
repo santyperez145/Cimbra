@@ -67,8 +67,10 @@ export default function BillersPanel({ accounts, actorRole }: { accounts: Dashbo
     setBusy(true); setFeedback('');
     try {
       const response = await authenticatedFetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify(body) });
-      const result = await response.json() as { error?: string | { message?: string } };
-      setFeedback(response.ok ? 'Operación registrada con idempotencia, auditoría y eventos.' : apiError(result));
+      const result = await response.json() as { requiresApproval?: boolean; error?: string | { message?: string } };
+      if (!response.ok) setFeedback(apiError(result));
+      else if (result.requiresApproval) setFeedback('Solicitud enviada a Aprobaciones (maker/checker).');
+      else setFeedback('Operación registrada con idempotencia, auditoría y eventos.');
       if (response.ok) { await load(); await loadObligations(selected?.id ?? ''); }
       return response.ok;
     } catch {

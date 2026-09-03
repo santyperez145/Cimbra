@@ -243,9 +243,10 @@ export async function retrieveBillPaymentOrder(organizationId: string, id: strin
 type CreateOrderInput = {
   organizationId: string; actor: AuthUser; idempotencyKey: string; accountId: string; billerId: string; obligationId: string | null;
   destinationReference?: string | null; protectedDestination?: { hash: string; last4: string } | null; amount?: unknown; mandateId?: string | null;
+  orderId?: string; approvalContext?: { requestId: string; requestedBy: string };
 };
 
-async function createBillPaymentOrderInTransaction(input: CreateOrderInput, database: DatabaseClient) {
+export async function createBillPaymentOrderInTransaction(input: CreateOrderInput, database: DatabaseClient) {
   await assertSandboxLedgerOrCertifiedRail('bill_payments', BillerError);
   const fingerprint = await requestFingerprint({ accountId: input.accountId, billerId: input.billerId, obligationId: input.obligationId,
     destinationReference: input.destinationReference ?? null, protectedDestination: input.protectedDestination ?? null,
@@ -290,8 +291,8 @@ async function createBillPaymentOrderInTransaction(input: CreateOrderInput, data
   const payment = await createAccountPaymentInTransaction({ organizationId: input.organizationId, actor: input.actor,
     idempotencyKey: `bill-order:${input.idempotencyKey}`, accountId: input.accountId, direction: 'cash_out', counterparty: biller.name,
     description: `${biller.serviceType === 'bill_payment' ? 'Pago de servicio' : biller.serviceType === 'mobile_topup' ? 'Recarga' : 'Gift card'} · ${destination.last4}`,
-    amountMinor, currency: biller.currency }, database);
-  const id = crypto.randomUUID(); const now = new Date().toISOString();
+    amountMinor, currency: biller.currency, approvalContext: input.approvalContext }, database);
+  const id = input.orderId ?? crypto.randomUUID(); const now = new Date().toISOString();
   const declined = 'declined' in payment; const transactionId = declined ? null : payment.payment.id;
   const status: OrderRow['status'] = declined ? 'declined' : payment.payment.status === 'review' ? 'review' : 'settled';
   await database.prepare(`INSERT INTO bill_payment_orders (id, organization_id, biller_id, account_id, obligation_id, mandate_id,
@@ -305,7 +306,8 @@ async function createBillPaymentOrderInTransaction(input: CreateOrderInput, data
     .bind(now, now, obligation.id).run();
   await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId, action: 'bill_payment.created',
     resourceType: 'bill_payment_order', resourceId: id, payload: { billerId: input.billerId, accountId: input.accountId,
-      obligationId: obligation?.id ?? null, mandateId: input.mandateId ?? null, amountMinor: amountMinor.toString(), currency: biller.currency, status } });
+      obligationId: obligation?.id ?? null, mandateId: input.mandateId ?? null, amountMinor: amountMinor.toString(), currency: biller.currency, status,
+      approvalRequestId: input.approvalContext?.requestId ?? null, requestedBy: input.approvalContext?.requestedBy ?? null } });
   await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId, action: `bill_payment.${status}`,
     resourceType: 'bill_payment_order', resourceId: id, payload: { transactionId, obligationId: obligation?.id ?? null, status } });
   const created = await database.prepare(`${orderSelect} WHERE p.organization_id = ? AND p.id = ?`).bind(input.organizationId, id).first<OrderRow>();
@@ -316,8 +318,17 @@ export function createBillPaymentOrder(input: CreateOrderInput) {
   return getDatabaseClient().transaction((database) => createBillPaymentOrderInTransaction(input, database));
 }
 
-export async function reverseBillPaymentOrder(input: { organizationId: string; actor: AuthUser; orderId: string; idempotencyKey: string }) {
-  return getDatabaseClient().transaction(async (database) => {
+export async function reverseBillPaymentOrder(input: {
+  organizationId: string; actor: AuthUser; orderId: string; idempotencyKey: string;
+  approvalContext?: { requestId: string; requestedBy: string };
+}) {
+  return getDatabaseClient().transaction((database) => reverseBillPaymentOrderInTransaction(input, database));
+}
+
+export async function reverseBillPaymentOrderInTransaction(input: {
+  organizationId: string; actor: AuthUser; orderId: string; idempotencyKey: string;
+  approvalContext?: { requestId: string; requestedBy: string };
+}, database: DatabaseClient) {
     await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))').bind(`${input.organizationId}:bill-payment-reverse:${input.idempotencyKey}`).first();
     const replay = await database.prepare(`SELECT resource_id AS id FROM audit_events WHERE organization_id = ? AND action = 'bill_payment.order_reversed'
       AND payload::jsonb->>'idempotencyKey' = ? LIMIT 1`).bind(input.organizationId, input.idempotencyKey).first<{ id: string }>();
@@ -333,7 +344,8 @@ export async function reverseBillPaymentOrder(input: { organizationId: string; a
     if (row.status !== 'settled' || !row.transactionId) throw new BillerError('Sólo una orden liquidada puede revertirse.', 409, 'bill_payment_not_reversible');
     let reversed;
     try { reversed = await reverseTransactionInTransaction({ organizationId: input.organizationId, actor: input.actor,
-      transactionId: row.transactionId, idempotencyKey: `bill-order:${input.idempotencyKey}`, auditAction: 'bill_payment.reversed' }, database); }
+      transactionId: row.transactionId, idempotencyKey: `bill-order:${input.idempotencyKey}`, auditAction: 'bill_payment.reversed',
+      approvalContext: input.approvalContext }, database); }
     catch (error) { if (error instanceof LedgerError) throw new BillerError(error.message, error.status, error.code); throw error; }
     const now = new Date().toISOString();
     await database.prepare("UPDATE bill_payment_orders SET status = 'reversed', reversal_transaction_id = ?, reversed_at = ?, updated_at = ? WHERE id = ?")
@@ -344,10 +356,12 @@ export async function reverseBillPaymentOrder(input: { organizationId: string; a
         resourceType: 'biller_obligation', resourceId: row.obligationId, payload: { orderId: row.id, reversalTransactionId: reversed.transaction.id } });
     }
     await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId, action: 'bill_payment.order_reversed',
-      resourceType: 'bill_payment_order', resourceId: row.id, payload: { idempotencyKey: input.idempotencyKey, reversalTransactionId: reversed.transaction.id } });
+      resourceType: 'bill_payment_order', resourceId: row.id, payload: {
+        idempotencyKey: input.idempotencyKey, reversalTransactionId: reversed.transaction.id,
+        approvalRequestId: input.approvalContext?.requestId ?? null, requestedBy: input.approvalContext?.requestedBy ?? null,
+      } });
     const updated = await database.prepare(`${orderSelect} WHERE p.organization_id = ? AND p.id = ?`).bind(input.organizationId, row.id).first<OrderRow>();
     return { order: publicOrder(updated!), replayed: false };
-  });
 }
 
 export async function listRecurringMandates(organizationId: string) {

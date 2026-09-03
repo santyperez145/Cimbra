@@ -63,7 +63,7 @@ export const HELP_ARTICLES = [
     id: 'approvals',
     title: 'Aprobaciones maker/checker',
     summary: 'Cola de operaciones que exigen otro actor privilegiado.',
-    body: 'Aprobaciones lista solicitudes pendientes (transferencias y book transfers, sus reversas, cash-in/out y sus reversas, payouts, settlements y políticas). Approve/reject exige otro usuario con MFA cuando la política lo pide. No es un workflow externo: vive en el tenant y deja auditoría. Viewer no aprueba.',
+    body: 'Aprobaciones lista solicitudes pendientes (transferencias y book transfers, sus reversas, cash-in/out y sus reversas, pagos de servicios y sus reversas, payouts, settlements y políticas). Approve/reject exige otro usuario con MFA cuando la política lo pide. No es un workflow externo: vive en el tenant y deja auditoría. Viewer no aprueba.',
   },
   {
     id: 'disputes',

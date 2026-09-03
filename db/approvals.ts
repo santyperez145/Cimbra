@@ -15,6 +15,7 @@ import { DisputeError, transitionDispute } from './disputes';
 import { authorizePayoutBatchInTransaction, closePayoutBatchApprovalInTransaction, PayoutError } from './payouts';
 import { bookTransferFingerprint, BookTransferError, createBookTransferInTransaction, findBookTransferByIdempotency,
   retrieveBookTransfer, reverseBookTransferInTransaction, type BookTransferInput } from './book-transfers';
+import { BillerError, createBillPaymentOrderInTransaction, reverseBillPaymentOrderInTransaction } from './billers';
 
 export class ApprovalError extends Error {
   constructor(message: string, readonly status = 400, readonly code = 'approval_error') { super(message); }
@@ -22,7 +23,7 @@ export class ApprovalError extends Error {
 
 type ApprovalRow = {
   id: string; actionType: ApprovalActionType;
-  resourceType: 'settlement_cycle' | 'transfer' | 'book_transfer' | 'payment' | 'payout_batch' | 'risk_case' | 'reconciliation_exception' | 'dispute'; resourceId: string;
+  resourceType: 'settlement_cycle' | 'transfer' | 'book_transfer' | 'payment' | 'bill_payment' | 'payout_batch' | 'risk_case' | 'reconciliation_exception' | 'dispute'; resourceId: string;
   status: ApprovalStatus; requestFingerprint: string; requestPayload: string; requestedBy: string; requestedByName: string;
   resolvedBy: string | null; resolvedByName: string | null; resolutionReason: string | null;
   expiresAt: string; resolvedAt: string | null; executedAt: string | null; createdAt: string; updatedAt: string;
@@ -111,7 +112,7 @@ export async function getApprovalPolicies(organizationId: string) {
        WHERE m.organization_id = ? AND m.role IN ('owner', 'admin') AND u.mfa_enabled = 1`,
     ).bind(organizationId).first<{ count: number }>(),
   ]);
-  return (['settlement.execute', 'transfer.create', 'transfer.reverse', 'payment.create', 'payment.reverse', 'payout_batch.execute', 'risk.case.resolve', 'reconciliation.exception.resolve', 'dispute.resolve'] as const).map((actionType) => {
+  return (['settlement.execute', 'transfer.create', 'transfer.reverse', 'payment.create', 'payment.reverse', 'bill_payment.create', 'bill_payment.reverse', 'payout_batch.execute', 'risk.case.resolve', 'reconciliation.exception.resolve', 'dispute.resolve'] as const).map((actionType) => {
     const policy = policies.results.find((item) => item.actionType === actionType);
     return { id: policy?.id ?? null, actionType, enabled: policy?.enabled === 1,
       expiresInMinutes: policy?.expiresInMinutes ?? 1440, eligibleApprovers: approvers?.count ?? 0,
@@ -716,6 +717,143 @@ export async function reverseAccountPaymentWithApprovalPolicy(input: {
   });
 }
 
+export async function createBillPaymentOrderWithApprovalPolicy(input: {
+  organizationId: string; actor: AuthUser; idempotencyKey: string; accountId: string; billerId: string; obligationId: string | null;
+  destinationReference?: string | null; protectedDestination?: { hash: string; last4: string } | null; amount?: unknown;
+  authentication: 'session' | 'api_key'; apiKeyId: string | null;
+}) {
+  const fingerprint = await sha256(JSON.stringify({
+    actionType: 'bill_payment.create', accountId: input.accountId, billerId: input.billerId, obligationId: input.obligationId,
+    destinationReference: input.destinationReference ?? null, protectedDestination: input.protectedDestination ?? null,
+    amount: input.amount === undefined ? null : String(input.amount),
+  }));
+  return getDatabaseClient().transaction(async (database) => {
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:bill-payment:${input.idempotencyKey}`).first();
+    const existing = await database.prepare(
+      `SELECT id FROM bill_payment_orders WHERE organization_id = ? AND idempotency_key = ? LIMIT 1`,
+    ).bind(input.organizationId, input.idempotencyKey).first<{ id: string }>();
+    if (existing) {
+      const result = await createBillPaymentOrderInTransaction(input, database);
+      return { requiresApproval: false as const, ...result };
+    }
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:approval:${input.idempotencyKey}`).first();
+    const existingApproval = await database.prepare(
+      `${approvalSelect} WHERE ar.organization_id = ? AND ar.idempotency_key = ? LIMIT 1`,
+    ).bind(input.organizationId, input.idempotencyKey).first<ApprovalRow>();
+    if (existingApproval) {
+      if (existingApproval.requestFingerprint !== fingerprint || existingApproval.resourceType !== 'bill_payment' ||
+        existingApproval.actionType !== 'bill_payment.create') {
+        throw new ApprovalError('La Idempotency-Key ya fue usada para otra operación.', 409, 'idempotency_mismatch');
+      }
+      return { requiresApproval: true as const, approval: serializeApproval(existingApproval), replayed: true, deduplicated: false };
+    }
+    await database.prepare('SELECT pg_advisory_xact_lock_shared(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:approval-policy:bill_payment.create`).first();
+    const policy = await database.prepare(
+      `SELECT expires_in_minutes AS "expiresInMinutes" FROM approval_policies
+       WHERE organization_id = ? AND action_type = 'bill_payment.create' AND enabled = 1 LIMIT 1`,
+    ).bind(input.organizationId).first<{ expiresInMinutes: number }>();
+    if (!policy) {
+      const result = await createBillPaymentOrderInTransaction(input, database);
+      return { requiresApproval: false as const, ...result };
+    }
+    const id = crypto.randomUUID(); const resourceId = crypto.randomUUID(); const now = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + policy.expiresInMinutes * 60_000).toISOString();
+    const payload = {
+      accountId: input.accountId, billerId: input.billerId, obligationId: input.obligationId,
+      destinationReference: input.destinationReference ?? null, protectedDestination: input.protectedDestination ?? null,
+      amount: input.amount === undefined ? null : String(input.amount),
+      origin: input.authentication, apiKeyId: input.apiKeyId, sandbox: true,
+    };
+    await database.prepare(
+      `INSERT INTO approval_requests
+        (id, organization_id, action_type, resource_type, resource_id, idempotency_key, request_fingerprint, status,
+         request_payload, requested_by, expires_at, created_at, updated_at)
+       VALUES (?, ?, 'bill_payment.create', 'bill_payment', ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
+    ).bind(id, input.organizationId, resourceId, input.idempotencyKey, fingerprint, JSON.stringify(payload), input.actor.userId,
+      expiresAt, now, now).run();
+    await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId, action: 'approval.request_created',
+      resourceType: 'approval_request', resourceId: id, payload: { actionType: 'bill_payment.create', resourceType: 'bill_payment',
+        resourceId, expiresAt, accountId: payload.accountId, billerId: payload.billerId, obligationId: payload.obligationId,
+        amount: payload.amount, origin: payload.origin, sandbox: true } });
+    const approval = await approvalById(database, input.organizationId, id);
+    if (!approval) throw new ApprovalError('No pudimos recuperar la solicitud.', 500, 'approval_create_failed');
+    return { requiresApproval: true as const, approval, replayed: false, deduplicated: false };
+  });
+}
+
+export async function reverseBillPaymentOrderWithApprovalPolicy(input: {
+  organizationId: string; actor: AuthUser; orderId: string; idempotencyKey: string;
+  authentication: 'session' | 'api_key'; apiKeyId: string | null;
+}) {
+  const fingerprint = await sha256(JSON.stringify({ actionType: 'bill_payment.reverse', orderId: input.orderId }));
+  return getDatabaseClient().transaction(async (database) => {
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:bill-payment-reverse:${input.idempotencyKey}`).first();
+    const replay = await database.prepare(`SELECT resource_id AS id FROM audit_events WHERE organization_id = ? AND action = 'bill_payment.order_reversed'
+      AND payload::jsonb->>'idempotencyKey' = ? LIMIT 1`).bind(input.organizationId, input.idempotencyKey).first<{ id: string }>();
+    if (replay) {
+      if (replay.id !== input.orderId) throw new ApprovalError('La Idempotency-Key ya fue usada para otra reversa.', 409, 'idempotency_mismatch');
+      const result = await reverseBillPaymentOrderInTransaction(input, database);
+      return { requiresApproval: false as const, ...result };
+    }
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:approval:${input.idempotencyKey}`).first();
+    const existingApproval = await database.prepare(
+      `${approvalSelect} WHERE ar.organization_id = ? AND ar.idempotency_key = ? LIMIT 1`,
+    ).bind(input.organizationId, input.idempotencyKey).first<ApprovalRow>();
+    if (existingApproval) {
+      if (existingApproval.requestFingerprint !== fingerprint || existingApproval.resourceType !== 'bill_payment' ||
+        existingApproval.actionType !== 'bill_payment.reverse') {
+        throw new ApprovalError('La Idempotency-Key ya fue usada para otra operación.', 409, 'idempotency_mismatch');
+      }
+      return { requiresApproval: true as const, approval: serializeApproval(existingApproval), replayed: true, deduplicated: false };
+    }
+    await database.prepare('SELECT pg_advisory_xact_lock_shared(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:approval-policy:bill_payment.reverse`).first();
+    const policy = await database.prepare(
+      `SELECT expires_in_minutes AS "expiresInMinutes" FROM approval_policies
+       WHERE organization_id = ? AND action_type = 'bill_payment.reverse' AND enabled = 1 LIMIT 1`,
+    ).bind(input.organizationId).first<{ expiresInMinutes: number }>();
+    if (!policy) {
+      const result = await reverseBillPaymentOrderInTransaction(input, database);
+      return { requiresApproval: false as const, ...result };
+    }
+    const order = await database.prepare(
+      `SELECT id, biller_id AS "billerId", account_id AS "accountId", amount_minor::text AS "amountMinor", currency, status,
+        destination_reference_last4 AS "destinationReferenceLast4"
+       FROM bill_payment_orders WHERE organization_id = ? AND id = ? FOR UPDATE`,
+    ).bind(input.organizationId, input.orderId).first<{
+      id: string; billerId: string; accountId: string; amountMinor: string; currency: Currency; status: string;
+      destinationReferenceLast4: string;
+    }>();
+    if (!order) throw new ApprovalError('Orden de pago no encontrada.', 404, 'bill_payment_not_found');
+    if (order.status !== 'settled') throw new ApprovalError('Sólo una orden liquidada puede revertirse.', 409, 'bill_payment_not_reversible');
+    const id = crypto.randomUUID(); const now = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + policy.expiresInMinutes * 60_000).toISOString();
+    const payload = {
+      orderId: order.id, billerId: order.billerId, accountId: order.accountId, amountMinor: order.amountMinor,
+      currency: order.currency, destinationReferenceLast4: order.destinationReferenceLast4,
+      origin: input.authentication, apiKeyId: input.apiKeyId, sandbox: true,
+    };
+    await database.prepare(
+      `INSERT INTO approval_requests
+        (id, organization_id, action_type, resource_type, resource_id, idempotency_key, request_fingerprint, status,
+         request_payload, requested_by, expires_at, created_at, updated_at)
+       VALUES (?, ?, 'bill_payment.reverse', 'bill_payment', ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
+    ).bind(id, input.organizationId, order.id, input.idempotencyKey, fingerprint, JSON.stringify(payload), input.actor.userId,
+      expiresAt, now, now).run();
+    await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId, action: 'approval.request_created',
+      resourceType: 'approval_request', resourceId: id, payload: { actionType: 'bill_payment.reverse', resourceType: 'bill_payment',
+        resourceId: order.id, expiresAt, ...payload } });
+    const approval = await approvalById(database, input.organizationId, id);
+    if (!approval) throw new ApprovalError('No pudimos recuperar la solicitud.', 500, 'approval_create_failed');
+    return { requiresApproval: true as const, approval, replayed: false, deduplicated: false };
+  });
+}
+
 function transferPayload(row: ApprovalRow) {
   try {
     const payload = JSON.parse(row.requestPayload) as Record<string, unknown>;
@@ -776,6 +914,23 @@ function paymentPayload(row: ApprovalRow) {
       accountId: payload.accountId, direction: payload.direction as 'cash_in' | 'cash_out',
       counterparty: payload.counterparty, description: payload.description, amountMinor,
       currency: payload.currency as Currency, signals,
+    };
+  } catch { return null; }
+}
+
+function billPaymentPayload(row: ApprovalRow) {
+  try {
+    const payload = JSON.parse(row.requestPayload) as Record<string, unknown>;
+    if (typeof payload.accountId !== 'string' || typeof payload.billerId !== 'string') return null;
+    const obligationId = payload.obligationId === undefined || payload.obligationId === null || payload.obligationId === ''
+      ? null : String(payload.obligationId);
+    const destinationReference = typeof payload.destinationReference === 'string' ? payload.destinationReference : null;
+    const protectedDestination = payload.protectedDestination && typeof payload.protectedDestination === 'object'
+      ? payload.protectedDestination as { hash: string; last4: string }
+      : null;
+    return {
+      accountId: payload.accountId, billerId: payload.billerId, obligationId,
+      destinationReference, protectedDestination, amount: payload.amount ?? undefined,
     };
   } catch { return null; }
 }
@@ -993,6 +1148,7 @@ export async function decideApprovalRequest(input: {
     let executedBookTransfer: Awaited<ReturnType<typeof findBookTransferByIdempotency>> | undefined;
     let executedPayment: Awaited<ReturnType<typeof findPaymentByIdempotency>> | undefined;
     let executedReversal: Awaited<ReturnType<typeof findPaymentByIdempotency>> | undefined;
+    let executedBillPayment: Awaited<ReturnType<typeof createBillPaymentOrderInTransaction>>['order'] | undefined;
     let executedPayoutBatch: Awaited<ReturnType<typeof authorizePayoutBatchInTransaction>> | undefined;
     let executedRiskCase: Awaited<ReturnType<typeof resolveRiskCase>> | undefined;
     let executedException: Awaited<ReturnType<typeof resolveReconciliationException>> | undefined;
@@ -1098,6 +1254,33 @@ export async function decideApprovalRequest(input: {
           if (error instanceof LedgerError && error.status < 500) failure = { message: error.message, code: error.code, status: error.status };
           else throw error;
         }
+      } else if (row.actionType === 'bill_payment.create') {
+        const payload = billPaymentPayload(row);
+        if (!payload) throw new ApprovalError('El payload protegido del bill payment es inválido.', 500, 'approval_payload_invalid');
+        try {
+          const execution = await createBillPaymentOrderInTransaction({
+            organizationId: input.organizationId, actor: input.actor, idempotencyKey: `approval:${row.id}`,
+            orderId: row.resourceId, approvalContext: { requestId: row.id, requestedBy: row.requestedBy }, ...payload,
+          }, database);
+          executedBillPayment = execution.order;
+        } catch (error) {
+          if (error instanceof BillerError && error.status < 500) failure = { message: error.message, code: error.code, status: error.status };
+          else if (error instanceof LedgerError && error.status < 500) failure = { message: error.message, code: error.code, status: error.status };
+          else throw error;
+        }
+      } else if (row.actionType === 'bill_payment.reverse') {
+        try {
+          const execution = await reverseBillPaymentOrderInTransaction({
+            organizationId: input.organizationId, actor: input.actor, orderId: row.resourceId,
+            idempotencyKey: `approval:${row.id}`,
+            approvalContext: { requestId: row.id, requestedBy: row.requestedBy },
+          }, database);
+          executedBillPayment = execution.order;
+        } catch (error) {
+          if (error instanceof BillerError && error.status < 500) failure = { message: error.message, code: error.code, status: error.status };
+          else if (error instanceof LedgerError && error.status < 500) failure = { message: error.message, code: error.code, status: error.status };
+          else throw error;
+        }
       } else if (row.actionType === 'payout_batch.execute') {
         try {
           executedPayoutBatch = await authorizePayoutBatchInTransaction(database, { organizationId: input.organizationId,
@@ -1172,7 +1355,7 @@ export async function decideApprovalRequest(input: {
     const approval = await approvalById(database, input.organizationId, row.id);
     if (!approval) throw new ApprovalError('No pudimos recuperar la decisión.', 500, 'approval_decision_failed');
     return { approval, cycle: executedCycle, transaction: executedTransfer, bookTransfer: executedBookTransfer,
-      payment: executedPayment, reversal: executedReversal, payoutBatch: executedPayoutBatch, case: executedRiskCase,
+      payment: executedPayment, reversal: executedReversal, billPayment: executedBillPayment, payoutBatch: executedPayoutBatch, case: executedRiskCase,
       exception: executedException, dispute: executedDispute, failed: failure, replayed: false, expired: false };
   });
 }

@@ -1763,7 +1763,7 @@ paths:
     post:
       operationId: createBillPaymentOrder
       summary: Pay an obligation or execute a top-up
-      description: Uses the canonical account, double-entry ledger, risk evaluation, holds and settlement path. A review response remains pending until its hold is captured or released.
+      description: Uses the canonical account, double-entry ledger, risk evaluation, holds and settlement path. When bill_payment.create maker/checker is enabled, returns 202 with a pending approval instead of settling immediately. A review response remains pending until its hold is captured or released.
       security: [{ session: [] }, { bearerApiKey: [] }]
       parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody:
@@ -1771,6 +1771,7 @@ paths:
         content: { application/json: { schema: { $ref: '#/components/schemas/CreateBillPaymentInput' } } }
       responses:
         '201': { description: Order created }
+        '202': { description: Pending maker/checker approval }
         '200': { description: Idempotent replay }
         '403': { description: Missing payments:write scope or finance.write permission }
         '409': { description: Currency, obligation state or idempotency conflict }
@@ -1788,13 +1789,14 @@ paths:
     post:
       operationId: reverseBillPaymentOrder
       summary: Reverse a settled bill-payment or top-up order
-      description: Creates a compensating ledger transaction and reopens a linked obligation; financial postings are never destructively mutated.
+      description: Creates a compensating ledger transaction and reopens a linked obligation; financial postings are never destructively mutated. When bill_payment.reverse maker/checker is enabled, returns 202 with a pending approval.
       security: [{ session: [] }, { bearerApiKey: [] }]
       parameters:
         - $ref: '#/components/parameters/ResourceId'
         - $ref: '#/components/parameters/IdempotencyKey'
       responses:
         '200': { description: Order reversed or idempotently replayed }
+        '202': { description: Pending maker/checker approval }
         '404': { description: Order not found in tenant }
         '409': { description: Order state or idempotency conflict }
   /api/v1/recurring-mandates:
@@ -3156,7 +3158,7 @@ paths:
               type: object
               required: [enabled, expiresInMinutes]
               properties:
-                actionType: { type: string, enum: [settlement.execute, transfer.create, transfer.reverse, payment.create, payment.reverse, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve], default: settlement.execute }
+                actionType: { type: string, enum: [settlement.execute, transfer.create, transfer.reverse, payment.create, payment.reverse, bill_payment.create, bill_payment.reverse, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve], default: settlement.execute }
                 enabled: { type: boolean }
                 expiresInMinutes: { type: integer, minimum: 15, maximum: 10080 }
       responses:
@@ -4503,8 +4505,8 @@ components:
       required: [id, actionType, resourceType, resourceId, status, requestPayload, requestedBy, requestedByName, expiresAt, createdAt, updatedAt]
       properties:
         id: { type: string, format: uuid }
-        actionType: { type: string, enum: [settlement.execute, transfer.create, transfer.reverse, payment.create, payment.reverse, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve] }
-        resourceType: { type: string, enum: [settlement_cycle, transfer, book_transfer, payment, payout_batch, risk_case, reconciliation_exception, dispute] }
+        actionType: { type: string, enum: [settlement.execute, transfer.create, transfer.reverse, payment.create, payment.reverse, bill_payment.create, bill_payment.reverse, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve] }
+        resourceType: { type: string, enum: [settlement_cycle, transfer, book_transfer, payment, bill_payment, payout_batch, risk_case, reconciliation_exception, dispute] }
         resourceId: { type: string, format: uuid }
         status: { type: string, enum: [pending, executed, rejected, cancelled, expired, failed] }
         requestPayload: { type: object, additionalProperties: true }

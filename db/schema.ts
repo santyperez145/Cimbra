@@ -866,7 +866,7 @@ export const approvalPolicies = pgTable('approval_policies', {
   createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
 }, (table) => [
   uniqueIndex('idx_approval_policies_org_action').on(table.organizationId, table.actionType),
-  check('approval_policies_action', sql`${table.actionType} IN ('settlement.execute', 'transfer.create', 'transfer.reverse', 'payment.create', 'payment.reverse', 'payout_batch.execute', 'risk.case.resolve', 'reconciliation.exception.resolve', 'dispute.resolve')`),
+  check('approval_policies_action', sql`${table.actionType} IN ('settlement.execute', 'transfer.create', 'transfer.reverse', 'payment.create', 'payment.reverse', 'bill_payment.create', 'bill_payment.reverse', 'payout_batch.execute', 'risk.case.resolve', 'reconciliation.exception.resolve', 'dispute.resolve')`),
   check('approval_policies_enabled', sql`${table.enabled} IN (0, 1)`),
   check('approval_policies_expiry', sql`${table.expiresInMinutes} BETWEEN 15 AND 10080`),
 ]);
@@ -891,6 +891,8 @@ export const approvalRequests = pgTable('approval_requests', {
     (${table.actionType} = 'transfer.reverse' AND ${table.resourceType} IN ('transfer', 'book_transfer')) OR
     (${table.actionType} = 'payment.create' AND ${table.resourceType} = 'payment') OR
     (${table.actionType} = 'payment.reverse' AND ${table.resourceType} = 'payment') OR
+    (${table.actionType} = 'bill_payment.create' AND ${table.resourceType} = 'bill_payment') OR
+    (${table.actionType} = 'bill_payment.reverse' AND ${table.resourceType} = 'bill_payment') OR
     (${table.actionType} = 'payout_batch.execute' AND ${table.resourceType} = 'payout_batch') OR
     (${table.actionType} = 'risk.case.resolve' AND ${table.resourceType} = 'risk_case') OR
     (${table.actionType} = 'reconciliation.exception.resolve' AND ${table.resourceType} = 'reconciliation_exception') OR

@@ -653,7 +653,7 @@ test('el SDK cablea billers, obligaciones, pagos, reversas y mandatos con rutas 
   const debt = await client.billers.createObligation(biller.data.biller.id, { externalReference: 'INV-001', subscriberReference: 'CLIENTE-001234',
     amount: '100.00', dueAt: '2026-09-10T12:00:00.000Z', description: 'Servicio' });
   const paid = await client.billPayments.create({ accountId: 'account_1', billerId: biller.data.biller.id, obligationId: debt.data.obligation.id });
-  await client.billPayments.reverse(paid.data.order.id);
+  if (!paid.data.requiresApproval) await client.billPayments.reverse(paid.data.order.id);
   const mandate = await client.recurringMandates.create({ accountId: 'account_1', billerId: biller.data.biller.id,
     subscriberReference: 'CLIENTE-001234', frequency: 'monthly', amountLimit: '500.00', consentReference: 'CONSENT-001',
     consentedAt: '2026-08-30T12:00:00.000Z', nextChargeAt: '2026-09-30T12:00:00.000Z' });

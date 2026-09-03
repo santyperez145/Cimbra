@@ -2406,6 +2406,61 @@ try {
   }), 200);
   assert.equal(disabledTransferReversePolicy.policy.enabled, false);
 
+  const billCreatePolicy = await json(await request('/api/platform/approval-policy', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actionType: 'bill_payment.create', enabled: true, expiresInMinutes: 1440 }),
+  }), 200);
+  assert.equal(billCreatePolicy.policy.actionType, 'bill_payment.create');
+  const topupBiller = await json(await request('/api/v1/billers', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-bill-mc-biller-${runId}` },
+    body: JSON.stringify({
+      code: `QA-MC-${runId.slice(0, 8)}`, name: 'QA MC Topup', country: 'AR', category: 'telecom',
+      serviceType: 'mobile_topup', currency: 'ARS', amountMode: 'open', minAmount: '1.00', maxAmount: '500.00',
+    }),
+  }), 201);
+  const protectedBillPayment = await json(await request('/api/v1/bill-payments', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-protected-bill-${runId}` },
+    body: JSON.stringify({
+      accountId: account.id, billerId: topupBiller.biller.id, destinationReference: '111122223333', amount: '7.00',
+    }),
+  }), 202);
+  assert.equal(protectedBillPayment.requiresApproval, true);
+  assert.equal(protectedBillPayment.approval.actionType, 'bill_payment.create');
+  cookie = checkerCookie;
+  const protectedBillExecution = await json(await request(`/api/v1/approvals/${protectedBillPayment.approval.id}/approve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-bill-checker-${runId}` },
+    body: JSON.stringify({ reason: 'Independent bill payment checker' }),
+  }), 200);
+  assert.equal(protectedBillExecution.approval.status, 'executed');
+  assert.equal(protectedBillExecution.billPayment.status, 'settled');
+  cookie = ownerCookieAfterRequest;
+  await json(await request('/api/platform/approval-policy', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actionType: 'bill_payment.create', enabled: false, expiresInMinutes: 1440 }),
+  }), 200);
+  const billReversePolicy = await json(await request('/api/platform/approval-policy', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actionType: 'bill_payment.reverse', enabled: true, expiresInMinutes: 1440 }),
+  }), 200);
+  assert.equal(billReversePolicy.policy.enabled, true);
+  const protectedBillReverse = await json(await request(`/api/v1/bill-payments/${protectedBillExecution.billPayment.id}/reverse`, {
+    method: 'POST', headers: { 'Idempotency-Key': `qa-protected-bill-reverse-${runId}` },
+  }), 202);
+  assert.equal(protectedBillReverse.requiresApproval, true);
+  assert.equal(protectedBillReverse.approval.actionType, 'bill_payment.reverse');
+  cookie = checkerCookie;
+  const protectedBillReverseExecution = await json(await request(`/api/v1/approvals/${protectedBillReverse.approval.id}/approve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-bill-reverse-checker-${runId}` },
+    body: JSON.stringify({ reason: 'Independent bill reverse checker' }),
+  }), 200);
+  assert.equal(protectedBillReverseExecution.approval.status, 'executed');
+  assert.equal(protectedBillReverseExecution.billPayment.status, 'reversed');
+  cookie = ownerCookieAfterRequest;
+  await json(await request('/api/platform/approval-policy', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actionType: 'bill_payment.reverse', enabled: false, expiresInMinutes: 1440 }),
+  }), 200);
+
   const unfundedTransfer = await json(await request('/api/v1/transfers', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-protected-unfunded-${runId}` },
     body: JSON.stringify({ counterparty: 'QA Protected Supplier', description: 'Approval-time balance recheck', amount: '9000000', currency: 'ARS' }),
