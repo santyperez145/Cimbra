@@ -2,6 +2,8 @@ import type { AuthUser } from '@/app/lib/auth/types';
 import { canManageRole, normalizeAccessEmail, type AssignableRole, type OrganizationRole } from '@/app/lib/platform/access-policy';
 import { type DatabaseClient, getDatabaseClient } from './client';
 import { enqueueWebhookEvent } from './platform';
+import { clearOpenReconciliationAssignments } from './reconciliation';
+import { clearOpenRiskCaseAssignments } from './risk';
 
 export { assignableRole, normalizeAccessEmail } from '@/app/lib/platform/access-policy';
 
@@ -170,13 +172,11 @@ export async function updateOrganizationMember(input: {
     const now = new Date().toISOString();
     let unassignedWorkItems = 0;
     if (input.role === 'viewer') {
-      const risk = await database.prepare(
-        `UPDATE risk_cases SET assigned_to = NULL, updated_at = ? WHERE organization_id = ? AND assigned_to = ? AND status = 'open'`,
-      ).bind(now, input.organizationId, current.userId).run();
-      const reconciliation = await database.prepare(
-        `UPDATE reconciliation_exceptions SET assigned_to = NULL, updated_at = ? WHERE organization_id = ? AND assigned_to = ? AND status = 'open'`,
-      ).bind(now, input.organizationId, current.userId).run();
-      unassignedWorkItems = risk.rowsAffected + reconciliation.rowsAffected;
+      unassignedWorkItems = (
+        await clearOpenRiskCaseAssignments(input.organizationId, current.userId, now, database)
+      ) + (
+        await clearOpenReconciliationAssignments(input.organizationId, current.userId, now, database)
+      );
     }
     await database.prepare('UPDATE members SET role = ? WHERE id = ?').bind(input.role, current.id).run();
     await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId,
@@ -197,16 +197,15 @@ export async function removeOrganizationMember(input: {
     if (current.userId === input.actor.userId) throw new AccessControlError('No podés quitar tu propio acceso.', 409, 'self_removal');
     assertCanManage(input.actorRole, current.role);
     const now = new Date().toISOString();
-    const risk = await database.prepare(
-      `UPDATE risk_cases SET assigned_to = NULL, updated_at = ? WHERE organization_id = ? AND assigned_to = ? AND status = 'open'`,
-    ).bind(now, input.organizationId, current.userId).run();
-    const reconciliation = await database.prepare(
-      `UPDATE reconciliation_exceptions SET assigned_to = NULL, updated_at = ? WHERE organization_id = ? AND assigned_to = ? AND status = 'open'`,
-    ).bind(now, input.organizationId, current.userId).run();
+    const unassignedWorkItems = (
+      await clearOpenRiskCaseAssignments(input.organizationId, current.userId, now, database)
+    ) + (
+      await clearOpenReconciliationAssignments(input.organizationId, current.userId, now, database)
+    );
     await database.prepare('DELETE FROM members WHERE id = ?').bind(current.id).run();
     await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId,
       action: 'organization.member_removed', resourceType: 'organization_member', resourceId: current.id,
-      payload: { email: current.email, role: current.role, unassignedWorkItems: risk.rowsAffected + reconciliation.rowsAffected } });
+      payload: { email: current.email, role: current.role, unassignedWorkItems } });
     return { id: current.id, removed: true };
   });
 }

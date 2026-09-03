@@ -1073,6 +1073,19 @@ export async function getRiskCaseForResolution(organizationId: string, id: strin
   ).bind(id, organizationId).first<{ id: string; holdId: string | null; status: string; resolution: string | null; resolutionIdempotencyKey: string | null }>();
 }
 
+/** Libera asignaciones abiertas cuando identity degrada o remueve un miembro. */
+export async function clearOpenRiskCaseAssignments(
+  organizationId: string,
+  assigneeUserId: string,
+  updatedAt: string,
+  database: DatabaseClient = getDatabaseClient(),
+) {
+  const result = await database.prepare(
+    `UPDATE risk_cases SET assigned_to = NULL, updated_at = ? WHERE organization_id = ? AND assigned_to = ? AND status = 'open'`,
+  ).bind(updatedAt, organizationId, assigneeUserId).run();
+  return result.rowsAffected;
+}
+
 export async function resolveRiskCase(input: {
   organizationId: string; actor: AuthUser; caseId: string; resolution: 'approved' | 'declined'; note: string; idempotencyKey: string;
   approvalContext?: { requestId: string; requestedBy: string };

@@ -27,7 +27,7 @@ export const HELP_ARTICLES = [
     id: 'ledger',
     title: 'Libro mayor',
     summary: 'Saldos, journals y holds en sólo lectura.',
-    body: 'Ledger consulta GET /api/v1/ledger. Ves saldos por moneda, journals recientes y holds activos. No hay edición manual: las correcciones viven en reversas de transferencias, book transfers, payments o cobranzas.',
+    body: 'Ledger consulta GET /api/v1/ledger. Ves saldos por moneda, journals recientes y holds activos. Owner/admin/operator con risk.cases.resolve pueden capturar o liberar holds desde esta pantalla. Los journals no se editan: las correcciones viven en reversas de transferencias, book transfers, payments o cobranzas.',
   },
   {
     id: 'audit',

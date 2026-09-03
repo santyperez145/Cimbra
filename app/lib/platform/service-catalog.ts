@@ -47,8 +47,6 @@ export const SERVICE_CATALOG: readonly ServiceDefinition[] = [
     benchmark: 'Los emisores comparables aíslan identidad del procesamiento para poder rotar credenciales sin tocar el core transaccional.',
     extractionDebt: [
       { table: 'organizations', owner: 'tenants', reason: 'El alta de cuenta crea la organización en la misma transacción que el usuario.' },
-      { table: 'reconciliation_exceptions', owner: 'reconciliation', reason: 'Al remover un miembro se libera la asignación de sus excepciones.' },
-      { table: 'risk_cases', owner: 'risk', reason: 'Al remover un miembro se libera la asignación de sus casos de riesgo.' },
     ],
   },
   {

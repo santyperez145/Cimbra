@@ -120,7 +120,10 @@ test('la consola opera book transfers, cash-in/out y ledger sobre APIs v1 con RB
   assert.match(payments, /Idempotency-Key/);
   assert.match(payments, /finance\.write/);
   assert.match(ledger, /\/api\/v1\/ledger/);
-  assert.doesNotMatch(ledger, /method: 'POST'/);
+  assert.match(ledger, /\/api\/v1\/holds\//);
+  assert.match(ledger, /risk\.cases\.resolve/);
+  assert.match(ledger, /method: 'POST'/);
+  assert.doesNotMatch(ledger, /ledger\/entries/);
 });
 
 test('ops registra el envelope Gate 1 sin abrir liveReady', () => {
@@ -153,6 +156,21 @@ test('abrir cuentas exige KYC/KYB aprobado y la consola no simula payments', () 
   assert.match(consoleClient, /setActive\('Riesgo'\)/);
   assert.doesNotMatch(capabilities, /payment intents/);
   assert.doesNotMatch(capabilities, /límites, fees/);
+});
+
+test('identity libera asignaciones vía risk y reconciliation sin deuda cruzada', () => {
+  const access = readFileSync(join(root, 'db', 'access.ts'), 'utf8');
+  const risk = readFileSync(join(root, 'db', 'risk.ts'), 'utf8');
+  const reconciliation = readFileSync(join(root, 'db', 'reconciliation.ts'), 'utf8');
+  const catalog = readFileSync(join(root, 'app', 'lib', 'platform', 'service-catalog.ts'), 'utf8');
+  assert.match(access, /clearOpenRiskCaseAssignments/);
+  assert.match(access, /clearOpenReconciliationAssignments/);
+  assert.doesNotMatch(access, /UPDATE risk_cases SET assigned_to/);
+  assert.doesNotMatch(access, /UPDATE reconciliation_exceptions SET assigned_to/);
+  assert.match(risk, /clearOpenRiskCaseAssignments/);
+  assert.match(reconciliation, /clearOpenReconciliationAssignments/);
+  assert.doesNotMatch(catalog, /table: 'risk_cases', owner: 'risk'/);
+  assert.doesNotMatch(catalog, /table: 'reconciliation_exceptions', owner: 'reconciliation'/);
 });
 
 test('la consola opera la auditoría del tenant sobre GET /api/v1/events', () => {

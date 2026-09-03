@@ -190,3 +190,16 @@ export async function resolveReconciliationException(input: {
     return { id: input.exceptionId, status, resolution: input.resolution, replayed: false };
   });
 }
+
+/** Libera asignaciones abiertas cuando identity degrada o remueve un miembro. */
+export async function clearOpenReconciliationAssignments(
+  organizationId: string,
+  assigneeUserId: string,
+  updatedAt: string,
+  database: DatabaseClient = getDatabaseClient(),
+) {
+  const result = await database.prepare(
+    `UPDATE reconciliation_exceptions SET assigned_to = NULL, updated_at = ? WHERE organization_id = ? AND assigned_to = ? AND status = 'open'`,
+  ).bind(updatedAt, organizationId, assigneeUserId).run();
+  return result.rowsAffected;
+}

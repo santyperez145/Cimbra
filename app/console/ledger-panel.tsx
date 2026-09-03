@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { roleCan, type OrganizationRole } from '@/app/lib/platform/access-policy';
 import { authenticatedFetch } from '@/app/lib/platform/client-http';
 
 type Balance = { currency: string; current: number; available: number; held: number };
@@ -21,11 +23,14 @@ function apiError(body: { error?: string | { message?: string } }, fallback: str
   return typeof body.error === 'string' ? body.error : body.error?.message ?? fallback;
 }
 
-export default function LedgerPanel() {
+export default function LedgerPanel({ role }: { role: OrganizationRole }) {
+  const router = useRouter();
+  const canResolve = roleCan(role, 'risk.cases.resolve');
   const [balances, setBalances] = useState<Balance[]>([]);
   const [journals, setJournals] = useState<Journal[]>([]);
   const [holds, setHolds] = useState<Hold[]>([]);
   const [busy, setBusy] = useState(true);
+  const [actionBusy, setActionBusy] = useState(false);
   const [feedback, setFeedback] = useState('');
 
   const load = useCallback(async () => {
@@ -51,12 +56,27 @@ export default function LedgerPanel() {
     return () => { active = false; window.clearTimeout(task); };
   }, [load]);
 
+  async function resolveHold(holdId: string, action: 'capture' | 'release') {
+    setActionBusy(true); setFeedback('');
+    const response = await authenticatedFetch(`/api/v1/holds/${holdId}/${action}`, {
+      method: 'POST', headers: { 'Idempotency-Key': `ledger-hold-${action}-${holdId}` },
+    });
+    const body = await response.json() as { error?: string | { message?: string } };
+    if (!response.ok) setFeedback(apiError(body, 'No pudimos resolver la reserva.'));
+    else {
+      setFeedback(action === 'capture' ? 'Reserva capturada y contabilizada.' : 'Reserva liberada sin mutar postings previos.');
+      await load();
+      router.refresh();
+    }
+    setActionBusy(false);
+  }
+
   return <div className="module-view">
     <div className="module-view-head">
       <div>
         <p>FINANCIAL CORE · LEDGER</p>
         <h1>Libro mayor</h1>
-        <span>Saldos, journals y holds del ledger de doble partida. Sólo lectura: las correcciones se hacen con reversas en el flujo de origen.</span>
+        <span>Saldos, journals y holds del ledger de doble partida. Las correcciones de asientos son reversas; los holds se capturan o liberan con la API de riesgo.</span>
       </div>
       <span className="module-health"><i /> {busy ? 'Cargando…' : `${journals.length} journals`}</span>
     </div>
@@ -91,14 +111,21 @@ export default function LedgerPanel() {
       ))}
     </article>
     {holds.length > 0 && <article className="module-list">
-      <div className="card-head"><div><h2>Holds activos</h2><p>Reservas que restan del disponible</p></div><b>{holds.length}</b></div>
+      <div className="card-head"><div><h2>Holds activos</h2><p>Reservas que restan del disponible · POST /api/v1/holds/:id/capture|release</p></div><b>{holds.length}</b></div>
       {holds.map((hold) => (
         <div key={hold.id}>
-          <span className="movement"><i>!</i><b>{hold.counterparty}<small>{hold.description}</small></b></span>
-          <strong>{money(hold.amount, hold.currency)}</strong>
+          <span className="movement"><i>!</i><b>{hold.counterparty}<small>{hold.description} · {new Date(hold.createdAt).toLocaleString('es-AR')}</small></b></span>
+          {canResolve
+            ? <span className="hold-actions">
+              <strong>{money(hold.amount, hold.currency)}</strong>
+              <button type="button" disabled={actionBusy} onClick={() => void resolveHold(hold.id, 'release')}>Liberar</button>
+              <button type="button" disabled={actionBusy} onClick={() => void resolveHold(hold.id, 'capture')}>Capturar</button>
+            </span>
+            : <strong>{money(hold.amount, hold.currency)}</strong>}
         </div>
       ))}
+      {!canResolve && <p className="role-boundary-copy">Tu rol sólo consulta holds. Captura y liberación requieren risk.cases.resolve.</p>}
     </article>}
-    <p className="role-boundary-copy">El ledger sandbox es persistente e inmutable. No representa custodia ni cámara: live exige riel oficial y adaptador Cimbra.</p>
+    <p className="role-boundary-copy">El ledger sandbox es persistente e inmutable en postings. No representa custodia ni cámara: live exige riel oficial y adaptador Cimbra.</p>
   </div>;
 }
