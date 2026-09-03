@@ -2532,6 +2532,43 @@ try {
     body: JSON.stringify({ actionType: 'collection.refund', enabled: false, expiresInMinutes: 1440 }),
   }), 200);
 
+  const mandateCreatePolicy = await json(await request('/api/platform/approval-policy', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actionType: 'recurring_mandate.create', enabled: true, expiresInMinutes: 1440 }),
+  }), 200);
+  assert.equal(mandateCreatePolicy.policy.actionType, 'recurring_mandate.create');
+  const mandateMcBiller = await json(await request('/api/v1/billers', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-mandate-mc-biller-${runId}` },
+    body: JSON.stringify({
+      code: `QA-MMC-${runId.slice(0, 8)}`, name: 'QA MC Mandate Topup', country: 'AR', category: 'telecom',
+      serviceType: 'mobile_topup', currency: 'ARS', amountMode: 'range', minAmount: '1.00', maxAmount: '500.00',
+    }),
+  }), 201);
+  const protectedMandate = await json(await request('/api/v1/recurring-mandates', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-protected-mandate-${runId}` },
+    body: JSON.stringify({
+      accountId: account.id, billerId: mandateMcBiller.biller.id, subscriberReference: '5491199887766',
+      frequency: 'monthly', amount: '4.00', amountLimit: '50.00', consentReference: `CONSENT-MC-${runId}`,
+      consentedAt: new Date().toISOString(), nextChargeAt: new Date(Date.now() + 86_400_000).toISOString(), maxRetries: 2,
+    }),
+  }), 202);
+  assert.equal(protectedMandate.requiresApproval, true);
+  assert.equal(protectedMandate.approval.actionType, 'recurring_mandate.create');
+  assert.equal(protectedMandate.approval.resourceType, 'recurring_payment_mandate');
+  cookie = checkerCookie;
+  const protectedMandateExecution = await json(await request(`/api/v1/approvals/${protectedMandate.approval.id}/approve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-mandate-checker-${runId}` },
+    body: JSON.stringify({ reason: 'Independent recurring mandate checker' }),
+  }), 200);
+  assert.equal(protectedMandateExecution.approval.status, 'executed');
+  assert.equal(protectedMandateExecution.mandate.status, 'active');
+  assert.equal(protectedMandateExecution.mandate.id, protectedMandate.approval.resourceId);
+  cookie = ownerCookieAfterRequest;
+  await json(await request('/api/platform/approval-policy', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actionType: 'recurring_mandate.create', enabled: false, expiresInMinutes: 1440 }),
+  }), 200);
+
   await json(await request('/api/platform/approval-policy', {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ actionType: 'transfer.create', enabled: true, expiresInMinutes: 1440 }),
@@ -3077,7 +3114,7 @@ try {
 
   console.log(JSON.stringify({
     ok: true,
-    checks: ['auth', 'landing-session-state', 'console-session-guard', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'viewer-read-only', 'member-invitations', 'public-help-status', 'organization-profile', 'service-topology', 'support-cases', 'ops-fail-closed', 'dual-control', 'maker-checker', 'transfer-approval', 'book-transfer-approval', 'approval-replay', 'approval-fail-closed', 'payout-approval', 'risk-case-approval', 'risk-hold-bypass-guard', 'reconciliation-exception-approval', 'disputes', 'partial-dispute', 'dispute-ledger-credit', 'dispute-compensation', 'dispute-approval', 'dispute-evidence', 'dispute-rbac', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'book-transfers', 'account-statements', 'book-transfer-compensation', 'book-transfer-rbac', 'wallets', 'wallet-pockets', 'wallet-lifecycle', 'wallet-rbac', 'instant-payments', 'cvu-alias', 'alias-assign', 'cvu-revoke', 'holder-confirmation', 'internal-credit', 'sandbox-outbound', 'internal-debit', 'cimbra-qr', 'qr-sale-orders', 'qr-debts', 'instant-return', 'instant-return-approval', 'instant-rbac', 'collections', 'payment-links', 'collection-tills', 'collection-internal', 'collection-inbound', 'collection-refund', 'collection-refund-approval', 'collection-cancel', 'collection-card-denied', 'collection-debt-link', 'collection-till-link', 'collection-rbac', 'echeqs', 'echeq-accept', 'echeq-deposit', 'echeq-cancel', 'echeq-return', 'echeq-nsf', 'echeq-discount-denied', 'echeq-rbac', 'payout-beneficiaries', 'protected-payout-destination', 'payout-batches', 'payout-scheduling', 'payout-result-file', 'payout-compensation', 'payout-rbac', 'payout-s2s', 'billers', 'biller-obligations', 'protected-subscriber-reference', 'bill-payments', 'mobile-topups', 'gift-cards', 'recurring-mandates', 'mandate-consent', 'biller-rbac', 'biller-s2s', 'bill-payment-compensation', 'cdd-kyb', 'cdd-evidence', 'cdd-idempotency', 'cdd-maker-checker', 'cdd-s2s-orchestration', 'cdd-session-only-decision', 'cdd-expiry', 'cdd-rbac', 'card-programs', 'card-lifecycle', 'card-controls', 'card-terminal-state', 'card-rbac', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'risk-signals-privacy', 'risk-decision-lists', 'risk-step-up', 'risk-step-up-idempotency', 'risk-step-up-rbac', 'risk-decision-slo', 'risk-confirmed-outcomes', 'risk-supervised-metrics', 'risk-outcome-revisions', 'reconciliation', 'operations-work-queue', 'operations-idempotency', 'operations-evidence', 'operations-rbac', 'csv-import', 'settlement', 'private-evidence', 'audit'],
+    checks: ['auth', 'landing-session-state', 'console-session-guard', 'email-verification', 'password-recovery', 'session-revocation', 'totp-mfa', 'recovery-codes', 'tenant-seed', 'tenant-rbac', 'viewer-read-only', 'member-invitations', 'public-help-status', 'organization-profile', 'service-topology', 'support-cases', 'ops-fail-closed', 'dual-control', 'maker-checker', 'transfer-approval', 'book-transfer-approval', 'approval-replay', 'approval-fail-closed', 'payout-approval', 'risk-case-approval', 'risk-hold-bypass-guard', 'reconciliation-exception-approval', 'disputes', 'partial-dispute', 'dispute-ledger-credit', 'dispute-compensation', 'dispute-approval', 'dispute-evidence', 'dispute-rbac', 'api-v1', 'request-id', 'rate-limit-headers', 'api-keys', 'scopes', 'revocation', 'webhook-security', 'webhook-rotation', 'customers-idempotency', 'accounts-idempotency', 'book-transfers', 'account-statements', 'book-transfer-compensation', 'book-transfer-rbac', 'wallets', 'wallet-pockets', 'wallet-lifecycle', 'wallet-rbac', 'instant-payments', 'cvu-alias', 'alias-assign', 'cvu-revoke', 'holder-confirmation', 'internal-credit', 'sandbox-outbound', 'internal-debit', 'cimbra-qr', 'qr-sale-orders', 'qr-debts', 'instant-return', 'instant-return-approval', 'instant-rbac', 'collections', 'payment-links', 'collection-tills', 'collection-internal', 'collection-inbound', 'collection-refund', 'collection-refund-approval', 'collection-cancel', 'collection-card-denied', 'collection-debt-link', 'collection-till-link', 'collection-rbac', 'echeqs', 'echeq-accept', 'echeq-deposit', 'echeq-cancel', 'echeq-return', 'echeq-nsf', 'echeq-discount-denied', 'echeq-rbac', 'payout-beneficiaries', 'protected-payout-destination', 'payout-batches', 'payout-scheduling', 'payout-result-file', 'payout-compensation', 'payout-rbac', 'payout-s2s', 'billers', 'biller-obligations', 'protected-subscriber-reference', 'bill-payments', 'mobile-topups', 'gift-cards', 'recurring-mandates', 'mandate-consent', 'recurring-mandate-approval', 'biller-rbac', 'biller-s2s', 'bill-payment-compensation', 'cdd-kyb', 'cdd-evidence', 'cdd-idempotency', 'cdd-maker-checker', 'cdd-s2s-orchestration', 'cdd-session-only-decision', 'cdd-expiry', 'cdd-rbac', 'card-programs', 'card-lifecycle', 'card-controls', 'card-terminal-state', 'card-rbac', 'cards-idempotency', 'transfers-idempotency', 'holds', 'capture', 'release', 'reversal', 'insufficient-funds', 'risk', 'risk-signals-privacy', 'risk-decision-lists', 'risk-step-up', 'risk-step-up-idempotency', 'risk-step-up-rbac', 'risk-decision-slo', 'risk-confirmed-outcomes', 'risk-supervised-metrics', 'risk-outcome-revisions', 'reconciliation', 'operations-work-queue', 'operations-idempotency', 'operations-evidence', 'operations-rbac', 'csv-import', 'settlement', 'private-evidence', 'audit'],
   }));
 } finally {
   await cleanup();

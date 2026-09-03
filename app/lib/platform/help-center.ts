@@ -63,7 +63,13 @@ export const HELP_ARTICLES = [
     id: 'approvals',
     title: 'Aprobaciones maker/checker',
     summary: 'Cola de operaciones que exigen otro actor privilegiado.',
-    body: 'Aprobaciones lista solicitudes pendientes (transferencias y book transfers, sus reversas, cash-in/out y sus reversas, pagos de servicios y sus reversas, payouts, settlements y políticas). Approve/reject exige otro usuario con MFA cuando la política lo pide. No es un workflow externo: vive en el tenant y deja auditoría. Viewer no aprueba.',
+    body: 'Aprobaciones lista solicitudes pendientes (transferencias y book transfers, sus reversas, cash-in/out y sus reversas, pagos de servicios y sus reversas, altas de mandatos recurrentes, devoluciones instant/cobranzas, payouts, settlements y políticas). Approve/reject exige otro usuario con MFA cuando la política lo pide. No es un workflow externo: vive en el tenant y deja auditoría. Viewer no aprueba.',
+  },
+  {
+    id: 'bill-payments',
+    title: 'Servicios, recargas y mandatos',
+    summary: 'Catálogo propio, órdenes ledger-backed y standing orders sandbox.',
+    body: 'Servicios opera billers, obligaciones, POST /api/v1/bill-payments y mandatos en POST /api/v1/recurring-mandates. Con bill_payment.create / bill_payment.reverse o recurring_mandate.create activos, esas mutaciones pasan por Aprobaciones. Los cargos del worker del mandato no piden bill_payment.create: quedan auditados con approvalExemption standing_mandate. No es débito automático homologado ni consulta a agregadores: cada país exige contrato directo y riel certificado.',
   },
   {
     id: 'disputes',

@@ -15,7 +15,8 @@ import { DisputeError, transitionDispute } from './disputes';
 import { authorizePayoutBatchInTransaction, closePayoutBatchApprovalInTransaction, PayoutError } from './payouts';
 import { bookTransferFingerprint, BookTransferError, createBookTransferInTransaction, findBookTransferByIdempotency,
   retrieveBookTransfer, reverseBookTransferInTransaction, type BookTransferInput } from './book-transfers';
-import { BillerError, createBillPaymentOrderInTransaction, reverseBillPaymentOrderInTransaction } from './billers';
+import { BillerError, createBillPaymentOrderInTransaction, createRecurringMandateInTransaction, reverseBillPaymentOrderInTransaction } from './billers';
+import type { RecurringFrequency } from '@/app/lib/platform/billers-input';
 import { CollectionError, refundPaymentLinkInTransaction } from './collections';
 import { InstantPaymentError, returnInstantTransferInTransaction } from './instant-payments';
 import type { NormalizedPaymentLinkRefundInput } from '@/app/lib/platform/collections-input';
@@ -26,7 +27,7 @@ export class ApprovalError extends Error {
 
 type ApprovalRow = {
   id: string; actionType: ApprovalActionType;
-  resourceType: 'settlement_cycle' | 'transfer' | 'book_transfer' | 'payment' | 'bill_payment' | 'instant_transfer' | 'payment_link' | 'payout_batch' | 'risk_case' | 'reconciliation_exception' | 'dispute'; resourceId: string;
+  resourceType: 'settlement_cycle' | 'transfer' | 'book_transfer' | 'payment' | 'bill_payment' | 'instant_transfer' | 'payment_link' | 'recurring_payment_mandate' | 'payout_batch' | 'risk_case' | 'reconciliation_exception' | 'dispute'; resourceId: string;
   status: ApprovalStatus; requestFingerprint: string; requestPayload: string; requestedBy: string; requestedByName: string;
   resolvedBy: string | null; resolvedByName: string | null; resolutionReason: string | null;
   expiresAt: string; resolvedAt: string | null; executedAt: string | null; createdAt: string; updatedAt: string;
@@ -115,7 +116,7 @@ export async function getApprovalPolicies(organizationId: string) {
        WHERE m.organization_id = ? AND m.role IN ('owner', 'admin') AND u.mfa_enabled = 1`,
     ).bind(organizationId).first<{ count: number }>(),
   ]);
-  return (['settlement.execute', 'transfer.create', 'transfer.reverse', 'payment.create', 'payment.reverse', 'bill_payment.create', 'bill_payment.reverse', 'instant_transfer.return', 'collection.refund', 'payout_batch.execute', 'risk.case.resolve', 'reconciliation.exception.resolve', 'dispute.resolve'] as const).map((actionType) => {
+  return (['settlement.execute', 'transfer.create', 'transfer.reverse', 'payment.create', 'payment.reverse', 'bill_payment.create', 'bill_payment.reverse', 'instant_transfer.return', 'collection.refund', 'recurring_mandate.create', 'payout_batch.execute', 'risk.case.resolve', 'reconciliation.exception.resolve', 'dispute.resolve'] as const).map((actionType) => {
     const policy = policies.results.find((item) => item.actionType === actionType);
     return { id: policy?.id ?? null, actionType, enabled: policy?.enabled === 1,
       expiresInMinutes: policy?.expiresInMinutes ?? 1440, eligibleApprovers: approvers?.count ?? 0,
@@ -1040,6 +1041,79 @@ export async function refundPaymentLinkWithApprovalPolicy(input: {
   });
 }
 
+export async function createRecurringMandateWithApprovalPolicy(input: {
+  organizationId: string; actor: AuthUser; idempotencyKey: string; accountId: string; billerId: string;
+  subscriberReference: string; frequency: RecurringFrequency; amount: unknown; amountLimit: unknown;
+  consentReference: string; consentedAt: string; nextChargeAt: string; maxRetries: number;
+  authentication: 'session' | 'api_key'; apiKeyId: string | null;
+}) {
+  const fingerprint = await sha256(JSON.stringify({
+    actionType: 'recurring_mandate.create', accountId: input.accountId, billerId: input.billerId,
+    subscriberReference: input.subscriberReference, frequency: input.frequency,
+    amount: input.amount === undefined || input.amount === null ? null : String(input.amount),
+    amountLimit: String(input.amountLimit), consentReference: input.consentReference,
+    consentedAt: input.consentedAt, nextChargeAt: input.nextChargeAt, maxRetries: input.maxRetries,
+  }));
+  return getDatabaseClient().transaction(async (database) => {
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:mandate:${input.idempotencyKey}`).first();
+    const existing = await database.prepare(
+      `SELECT id FROM recurring_payment_mandates WHERE organization_id = ? AND idempotency_key = ? LIMIT 1`,
+    ).bind(input.organizationId, input.idempotencyKey).first<{ id: string }>();
+    if (existing) {
+      const result = await createRecurringMandateInTransaction(input, database);
+      return { requiresApproval: false as const, ...result };
+    }
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:approval:${input.idempotencyKey}`).first();
+    const existingApproval = await database.prepare(
+      `${approvalSelect} WHERE ar.organization_id = ? AND ar.idempotency_key = ? LIMIT 1`,
+    ).bind(input.organizationId, input.idempotencyKey).first<ApprovalRow>();
+    if (existingApproval) {
+      if (existingApproval.requestFingerprint !== fingerprint || existingApproval.resourceType !== 'recurring_payment_mandate' ||
+        existingApproval.actionType !== 'recurring_mandate.create') {
+        throw new ApprovalError('La Idempotency-Key ya fue usada para otra operación.', 409, 'idempotency_mismatch');
+      }
+      return { requiresApproval: true as const, approval: serializeApproval(existingApproval), replayed: true, deduplicated: false };
+    }
+    await database.prepare('SELECT pg_advisory_xact_lock_shared(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:approval-policy:recurring_mandate.create`).first();
+    const policy = await database.prepare(
+      `SELECT expires_in_minutes AS "expiresInMinutes" FROM approval_policies
+       WHERE organization_id = ? AND action_type = 'recurring_mandate.create' AND enabled = 1 LIMIT 1`,
+    ).bind(input.organizationId).first<{ expiresInMinutes: number }>();
+    if (!policy) {
+      const result = await createRecurringMandateInTransaction(input, database);
+      return { requiresApproval: false as const, ...result };
+    }
+    const id = crypto.randomUUID(); const resourceId = crypto.randomUUID(); const now = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + policy.expiresInMinutes * 60_000).toISOString();
+    const payload = {
+      accountId: input.accountId, billerId: input.billerId, subscriberReference: input.subscriberReference,
+      frequency: input.frequency,
+      amount: input.amount === undefined || input.amount === null ? null : String(input.amount),
+      amountLimit: String(input.amountLimit), consentReference: input.consentReference,
+      consentedAt: input.consentedAt, nextChargeAt: input.nextChargeAt, maxRetries: input.maxRetries,
+      origin: input.authentication, apiKeyId: input.apiKeyId, sandbox: true,
+    };
+    await database.prepare(
+      `INSERT INTO approval_requests
+        (id, organization_id, action_type, resource_type, resource_id, idempotency_key, request_fingerprint, status,
+         request_payload, requested_by, expires_at, created_at, updated_at)
+       VALUES (?, ?, 'recurring_mandate.create', 'recurring_payment_mandate', ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
+    ).bind(id, input.organizationId, resourceId, input.idempotencyKey, fingerprint, JSON.stringify(payload), input.actor.userId,
+      expiresAt, now, now).run();
+    await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId, action: 'approval.request_created',
+      resourceType: 'approval_request', resourceId: id, payload: { actionType: 'recurring_mandate.create',
+        resourceType: 'recurring_payment_mandate', resourceId, expiresAt, accountId: payload.accountId,
+        billerId: payload.billerId, frequency: payload.frequency, amountLimit: payload.amountLimit,
+        nextChargeAt: payload.nextChargeAt, origin: payload.origin, sandbox: true } });
+    const approval = await approvalById(database, input.organizationId, id);
+    if (!approval) throw new ApprovalError('No pudimos recuperar la solicitud.', 500, 'approval_create_failed');
+    return { requiresApproval: true as const, approval, replayed: false, deduplicated: false };
+  });
+}
+
 function transferPayload(row: ApprovalRow) {
   try {
     const payload = JSON.parse(row.requestPayload) as Record<string, unknown>;
@@ -1134,6 +1208,25 @@ function collectionRefundPayload(row: ApprovalRow): NormalizedPaymentLinkRefundI
       if (amountMinor <= 0n) return null;
     }
     return { amountMinor, creditId };
+  } catch { return null; }
+}
+
+function recurringMandatePayload(row: ApprovalRow) {
+  try {
+    const payload = JSON.parse(row.requestPayload) as Record<string, unknown>;
+    if (typeof payload.accountId !== 'string' || typeof payload.billerId !== 'string' ||
+      typeof payload.subscriberReference !== 'string' || (payload.frequency !== 'weekly' && payload.frequency !== 'monthly') ||
+      typeof payload.amountLimit !== 'string' || typeof payload.consentReference !== 'string' ||
+      typeof payload.consentedAt !== 'string' || typeof payload.nextChargeAt !== 'string' ||
+      typeof payload.maxRetries !== 'number' || !Number.isInteger(payload.maxRetries) ||
+      payload.maxRetries < 0 || payload.maxRetries > 10) return null;
+    return {
+      accountId: payload.accountId, billerId: payload.billerId, subscriberReference: payload.subscriberReference,
+      frequency: payload.frequency as RecurringFrequency,
+      amount: payload.amount === undefined || payload.amount === null || payload.amount === '' ? null : payload.amount,
+      amountLimit: payload.amountLimit, consentReference: payload.consentReference, consentedAt: payload.consentedAt,
+      nextChargeAt: payload.nextChargeAt, maxRetries: payload.maxRetries,
+    };
   } catch { return null; }
 }
 
@@ -1353,6 +1446,7 @@ export async function decideApprovalRequest(input: {
     let executedBillPayment: Awaited<ReturnType<typeof createBillPaymentOrderInTransaction>>['order'] | undefined;
     let executedInstantTransfer: Awaited<ReturnType<typeof returnInstantTransferInTransaction>>['transfer'] | undefined;
     let executedPaymentLink: Awaited<ReturnType<typeof refundPaymentLinkInTransaction>>['link'] | undefined;
+    let executedMandate: Awaited<ReturnType<typeof createRecurringMandateInTransaction>>['mandate'] | undefined;
     let executedPayoutBatch: Awaited<ReturnType<typeof authorizePayoutBatchInTransaction>> | undefined;
     let executedRiskCase: Awaited<ReturnType<typeof resolveRiskCase>> | undefined;
     let executedException: Awaited<ReturnType<typeof resolveReconciliationException>> | undefined;
@@ -1519,6 +1613,19 @@ export async function decideApprovalRequest(input: {
             failure = { message: error.message, code: error.code, status: error.status };
           } else throw error;
         }
+      } else if (row.actionType === 'recurring_mandate.create') {
+        const payload = recurringMandatePayload(row);
+        if (!payload) throw new ApprovalError('El payload protegido del mandato es inválido.', 500, 'approval_payload_invalid');
+        try {
+          const execution = await createRecurringMandateInTransaction({
+            organizationId: input.organizationId, actor: input.actor, idempotencyKey: `approval:${row.id}`,
+            mandateId: row.resourceId, approvalContext: { requestId: row.id, requestedBy: row.requestedBy }, ...payload,
+          }, database);
+          executedMandate = execution.mandate;
+        } catch (error) {
+          if (error instanceof BillerError && error.status < 500) failure = { message: error.message, code: error.code, status: error.status };
+          else throw error;
+        }
       } else if (row.actionType === 'payout_batch.execute') {
         try {
           executedPayoutBatch = await authorizePayoutBatchInTransaction(database, { organizationId: input.organizationId,
@@ -1594,7 +1701,7 @@ export async function decideApprovalRequest(input: {
     if (!approval) throw new ApprovalError('No pudimos recuperar la decisión.', 500, 'approval_decision_failed');
     return { approval, cycle: executedCycle, transaction: executedTransfer, bookTransfer: executedBookTransfer,
       payment: executedPayment, reversal: executedReversal, billPayment: executedBillPayment,
-      transfer: executedInstantTransfer, link: executedPaymentLink,
+      transfer: executedInstantTransfer, link: executedPaymentLink, mandate: executedMandate,
       payoutBatch: executedPayoutBatch, case: executedRiskCase,
       exception: executedException, dispute: executedDispute, failed: failure, replayed: false, expired: false };
   });

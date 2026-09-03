@@ -3780,7 +3780,7 @@
               }
             ],
             "url": "{{baseUrl}}/api/v1/recurring-mandates",
-            "description": "Persists consent evidence, limits, cadence and retry policy. It does not claim homologated direct debit or a live biller rail.\n\noperationId: createRecurringPaymentMandate\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "description": "Persists consent evidence, limits, cadence and retry policy. When recurring_mandate.create maker/checker is enabled, returns 202 with a pending approval instead of activating immediately. Worker charges under an approved standing mandate do not enter bill_payment.create; they are audited with approvalExemption standing_mandate. It does not claim homologated direct debit or a live biller rail.\n\noperationId: createRecurringPaymentMandate\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \n}\n",

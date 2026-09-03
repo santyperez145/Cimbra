@@ -1816,7 +1816,7 @@ paths:
     post:
       operationId: createRecurringPaymentMandate
       summary: Create a weekly or monthly payment mandate
-      description: Persists consent evidence, limits, cadence and retry policy. It does not claim homologated direct debit or a live biller rail.
+      description: Persists consent evidence, limits, cadence and retry policy. When recurring_mandate.create maker/checker is enabled, returns 202 with a pending approval instead of activating immediately. Worker charges under an approved standing mandate do not enter bill_payment.create; they are audited with approvalExemption standing_mandate. It does not claim homologated direct debit or a live biller rail.
       security: [{ session: [] }, { bearerApiKey: [] }]
       parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody:
@@ -1825,6 +1825,7 @@ paths:
       responses:
         '201': { description: Mandate created }
         '200': { description: Idempotent replay }
+        '202': { description: Pending maker/checker approval }
         '403': { description: Missing payments:write scope or finance.write permission }
         '409': { description: Biller/account state or idempotency conflict }
   /api/v1/recurring-mandates/{id}:
@@ -3161,7 +3162,7 @@ paths:
               type: object
               required: [enabled, expiresInMinutes]
               properties:
-                actionType: { type: string, enum: [settlement.execute, transfer.create, transfer.reverse, payment.create, payment.reverse, bill_payment.create, bill_payment.reverse, instant_transfer.return, collection.refund, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve], default: settlement.execute }
+                actionType: { type: string, enum: [settlement.execute, transfer.create, transfer.reverse, payment.create, payment.reverse, bill_payment.create, bill_payment.reverse, instant_transfer.return, collection.refund, recurring_mandate.create, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve], default: settlement.execute }
                 enabled: { type: boolean }
                 expiresInMinutes: { type: integer, minimum: 15, maximum: 10080 }
       responses:
@@ -4508,8 +4509,8 @@ components:
       required: [id, actionType, resourceType, resourceId, status, requestPayload, requestedBy, requestedByName, expiresAt, createdAt, updatedAt]
       properties:
         id: { type: string, format: uuid }
-        actionType: { type: string, enum: [settlement.execute, transfer.create, transfer.reverse, payment.create, payment.reverse, bill_payment.create, bill_payment.reverse, instant_transfer.return, collection.refund, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve] }
-        resourceType: { type: string, enum: [settlement_cycle, transfer, book_transfer, payment, bill_payment, instant_transfer, payment_link, payout_batch, risk_case, reconciliation_exception, dispute] }
+        actionType: { type: string, enum: [settlement.execute, transfer.create, transfer.reverse, payment.create, payment.reverse, bill_payment.create, bill_payment.reverse, instant_transfer.return, collection.refund, recurring_mandate.create, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve] }
+        resourceType: { type: string, enum: [settlement_cycle, transfer, book_transfer, payment, bill_payment, instant_transfer, payment_link, recurring_payment_mandate, payout_batch, risk_case, reconciliation_exception, dispute] }
         resourceId: { type: string, format: uuid }
         status: { type: string, enum: [pending, executed, rejected, cancelled, expired, failed] }
         requestPayload: { type: object, additionalProperties: true }

@@ -714,6 +714,7 @@ test('maker/checker exige otro actor privilegiado con MFA y políticas acotadas'
   assert.equal(approvalActionType('bill_payment.reverse'), 'bill_payment.reverse');
   assert.equal(approvalActionType('instant_transfer.return'), 'instant_transfer.return');
   assert.equal(approvalActionType('collection.refund'), 'collection.refund');
+  assert.equal(approvalActionType('recurring_mandate.create'), 'recurring_mandate.create');
   assert.equal(approvalActionType('payout_batch.execute'), 'payout_batch.execute');
   assert.equal(approvalActionType('risk.case.resolve'), 'risk.case.resolve');
   assert.equal(approvalActionType('reconciliation.exception.resolve'), 'reconciliation.exception.resolve');

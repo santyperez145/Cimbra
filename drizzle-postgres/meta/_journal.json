@@ -379,6 +379,13 @@
       "when": 1788394800000,
       "tag": "0053_return_refund_approval",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1788396000000,
+      "tag": "0054_recurring_mandate_approval",
+      "breakpoints": true
     }
   ]
 }

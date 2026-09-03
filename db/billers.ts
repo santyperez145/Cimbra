@@ -398,52 +398,64 @@ export async function listRecurringMandateExecutions(organizationId: string, man
 
 export async function createRecurringMandate(input: { organizationId: string; actor: AuthUser; idempotencyKey: string; accountId: string;
   billerId: string; subscriberReference: string; frequency: RecurringFrequency; amount: unknown; amountLimit: unknown;
-  consentReference: string; consentedAt: string; nextChargeAt: string; maxRetries: number }) {
+  consentReference: string; consentedAt: string; nextChargeAt: string; maxRetries: number;
+  mandateId?: string; approvalContext?: { requestId: string; requestedBy: string };
+}) {
+  return getDatabaseClient().transaction((database) => createRecurringMandateInTransaction(input, database));
+}
+
+export async function createRecurringMandateInTransaction(input: { organizationId: string; actor: AuthUser; idempotencyKey: string; accountId: string;
+  billerId: string; subscriberReference: string; frequency: RecurringFrequency; amount: unknown; amountLimit: unknown;
+  consentReference: string; consentedAt: string; nextChargeAt: string; maxRetries: number;
+  mandateId?: string; approvalContext?: { requestId: string; requestedBy: string };
+}, database: DatabaseClient) {
   const reference = await protectedReference(input.organizationId, input.subscriberReference);
-  return getDatabaseClient().transaction(async (database) => {
-    const biller = await database.prepare(`SELECT service_type AS "serviceType", currency, amount_mode AS "amountMode", min_amount_minor::text AS "minAmountMinor",
-      max_amount_minor::text AS "maxAmountMinor", status FROM billers WHERE organization_id = ? AND id = ? FOR SHARE`)
-      .bind(input.organizationId, input.billerId).first<{ serviceType: BillerServiceType; currency: Currency; amountMode: BillerAmountMode; minAmountMinor: string | null; maxAmountMinor: string | null; status: string }>();
-    if (!biller) throw new BillerError('Biller no encontrado.', 404, 'biller_not_found');
-    if (biller.status !== 'active') throw new BillerError('El biller está suspendido.', 409, 'biller_suspended');
-    const account = await database.prepare('SELECT currency, status FROM accounts WHERE organization_id = ? AND id = ? FOR SHARE')
-      .bind(input.organizationId, input.accountId).first<{ currency: Currency; status: string }>();
-    if (!account) throw new BillerError('Cuenta no encontrada.', 404, 'account_not_found');
-    if (account.status !== 'active' || account.currency !== biller.currency) throw new BillerError('La cuenta no está activa en la moneda del biller.', 409, 'account_not_eligible');
-    let amountLimitMinor: bigint; try { amountLimitMinor = majorToMinor(input.amountLimit, biller.currency); }
-    catch { throw new BillerError('Límite de mandato inválido.', 400, 'invalid_amount_limit'); }
-    if (amountLimitMinor <= 0n || amountLimitMinor > majorToMinor('10000000', biller.currency)) throw new BillerError('Límite de mandato fuera de rango.', 400, 'invalid_amount_limit');
-    let amountMinor: bigint | null = null;
-    if (biller.serviceType !== 'bill_payment') {
-      try { amountMinor = majorToMinor(input.amount, biller.currency); } catch { throw new BillerError('Monto recurrente inválido.', 400, 'invalid_amount'); }
-      if (amountMinor <= 0n || amountMinor > amountLimitMinor) throw new BillerError('El monto recurrente supera el límite autorizado.', 422, 'mandate_amount_exceeds_limit');
-      const min = biller.minAmountMinor ? BigInt(biller.minAmountMinor) : null; const max = biller.maxAmountMinor ? BigInt(biller.maxAmountMinor) : null;
-      if (min && amountMinor < min || max && amountMinor > max) throw new BillerError('El monto no cumple el rango del biller.', 422, 'amount_out_of_biller_range');
-    }
-    const fingerprint = await requestFingerprint({ accountId: input.accountId, billerId: input.billerId, subscriberReferenceHash: reference.hash,
-      frequency: input.frequency, amountMinor: amountMinor?.toString() ?? null, amountLimitMinor: amountLimitMinor.toString(),
-      consentReference: input.consentReference, consentedAt: input.consentedAt, nextChargeAt: input.nextChargeAt, maxRetries: input.maxRetries });
-    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))').bind(`${input.organizationId}:mandate:${input.idempotencyKey}`).first();
-    const existing = await database.prepare(`${mandateSelect}
-      WHERE m.organization_id = ? AND m.idempotency_key = ? LIMIT 1`).bind(input.organizationId, input.idempotencyKey).first<MandateRow>();
-    if (existing) { assertFingerprint(existing.requestFingerprint, fingerprint); return { mandate: publicMandate(existing), replayed: true }; }
-    const duplicateConsent = await database.prepare('SELECT id FROM recurring_payment_mandates WHERE organization_id = ? AND consent_reference = ? LIMIT 1')
-      .bind(input.organizationId, input.consentReference).first<{ id: string }>();
-    if (duplicateConsent) throw new BillerError('La referencia de consentimiento ya fue utilizada.', 409, 'mandate_consent_exists');
-    const id = crypto.randomUUID(); const now = new Date().toISOString();
-    await database.prepare(`INSERT INTO recurring_payment_mandates (id, organization_id, biller_id, account_id, idempotency_key,
-      request_fingerprint, subscriber_reference_hash, subscriber_reference_last4, frequency, amount_minor, amount_limit_minor,
-      consent_reference, consented_at, status, next_charge_at, retry_count, max_retries, created_by, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, 0, ?, ?, ?, ?)`)
-      .bind(id, input.organizationId, input.billerId, input.accountId, input.idempotencyKey, fingerprint, reference.hash, reference.last4,
-        input.frequency, amountMinor?.toString() ?? null, amountLimitMinor.toString(), input.consentReference, input.consentedAt,
-        input.nextChargeAt, input.maxRetries, input.actor.userId, now, now).run();
-    await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId, action: 'recurring_mandate.created',
-      resourceType: 'recurring_payment_mandate', resourceId: id, payload: { billerId: input.billerId, accountId: input.accountId,
-        frequency: input.frequency, nextChargeAt: input.nextChargeAt, amountLimitMinor: amountLimitMinor.toString(), currency: biller.currency } });
-    const created = await database.prepare(`${mandateSelect} WHERE m.organization_id = ? AND m.id = ?`).bind(input.organizationId, id).first<MandateRow>();
-    return { mandate: publicMandate(created!), replayed: false };
-  });
+  const biller = await database.prepare(`SELECT service_type AS "serviceType", currency, amount_mode AS "amountMode", min_amount_minor::text AS "minAmountMinor",
+    max_amount_minor::text AS "maxAmountMinor", status FROM billers WHERE organization_id = ? AND id = ? FOR SHARE`)
+    .bind(input.organizationId, input.billerId).first<{ serviceType: BillerServiceType; currency: Currency; amountMode: BillerAmountMode; minAmountMinor: string | null; maxAmountMinor: string | null; status: string }>();
+  if (!biller) throw new BillerError('Biller no encontrado.', 404, 'biller_not_found');
+  if (biller.status !== 'active') throw new BillerError('El biller está suspendido.', 409, 'biller_suspended');
+  const account = await database.prepare('SELECT currency, status FROM accounts WHERE organization_id = ? AND id = ? FOR SHARE')
+    .bind(input.organizationId, input.accountId).first<{ currency: Currency; status: string }>();
+  if (!account) throw new BillerError('Cuenta no encontrada.', 404, 'account_not_found');
+  if (account.status !== 'active' || account.currency !== biller.currency) throw new BillerError('La cuenta no está activa en la moneda del biller.', 409, 'account_not_eligible');
+  let amountLimitMinor: bigint; try { amountLimitMinor = majorToMinor(input.amountLimit, biller.currency); }
+  catch { throw new BillerError('Límite de mandato inválido.', 400, 'invalid_amount_limit'); }
+  if (amountLimitMinor <= 0n || amountLimitMinor > majorToMinor('10000000', biller.currency)) throw new BillerError('Límite de mandato fuera de rango.', 400, 'invalid_amount_limit');
+  let amountMinor: bigint | null = null;
+  if (biller.serviceType !== 'bill_payment') {
+    try { amountMinor = majorToMinor(input.amount, biller.currency); } catch { throw new BillerError('Monto recurrente inválido.', 400, 'invalid_amount'); }
+    if (amountMinor <= 0n || amountMinor > amountLimitMinor) throw new BillerError('El monto recurrente supera el límite autorizado.', 422, 'mandate_amount_exceeds_limit');
+    const min = biller.minAmountMinor ? BigInt(biller.minAmountMinor) : null; const max = biller.maxAmountMinor ? BigInt(biller.maxAmountMinor) : null;
+    if (min && amountMinor < min || max && amountMinor > max) throw new BillerError('El monto no cumple el rango del biller.', 422, 'amount_out_of_biller_range');
+  }
+  const fingerprint = await requestFingerprint({ accountId: input.accountId, billerId: input.billerId, subscriberReferenceHash: reference.hash,
+    frequency: input.frequency, amountMinor: amountMinor?.toString() ?? null, amountLimitMinor: amountLimitMinor.toString(),
+    consentReference: input.consentReference, consentedAt: input.consentedAt, nextChargeAt: input.nextChargeAt, maxRetries: input.maxRetries });
+  await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))').bind(`${input.organizationId}:mandate:${input.idempotencyKey}`).first();
+  const existing = await database.prepare(`${mandateSelect}
+    WHERE m.organization_id = ? AND m.idempotency_key = ? LIMIT 1`).bind(input.organizationId, input.idempotencyKey).first<MandateRow>();
+  if (existing) { assertFingerprint(existing.requestFingerprint, fingerprint); return { mandate: publicMandate(existing), replayed: true }; }
+  const duplicateConsent = await database.prepare('SELECT id FROM recurring_payment_mandates WHERE organization_id = ? AND consent_reference = ? LIMIT 1')
+    .bind(input.organizationId, input.consentReference).first<{ id: string }>();
+  if (duplicateConsent) throw new BillerError('La referencia de consentimiento ya fue utilizada.', 409, 'mandate_consent_exists');
+  const id = input.mandateId ?? crypto.randomUUID(); const now = new Date().toISOString();
+  await database.prepare(`INSERT INTO recurring_payment_mandates (id, organization_id, biller_id, account_id, idempotency_key,
+    request_fingerprint, subscriber_reference_hash, subscriber_reference_last4, frequency, amount_minor, amount_limit_minor,
+    consent_reference, consented_at, status, next_charge_at, retry_count, max_retries, created_by, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, 0, ?, ?, ?, ?)`)
+    .bind(id, input.organizationId, input.billerId, input.accountId, input.idempotencyKey, fingerprint, reference.hash, reference.last4,
+      input.frequency, amountMinor?.toString() ?? null, amountLimitMinor.toString(), input.consentReference, input.consentedAt,
+      input.nextChargeAt, input.maxRetries, input.actor.userId, now, now).run();
+  await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId, action: 'recurring_mandate.created',
+    resourceType: 'recurring_payment_mandate', resourceId: id, payload: {
+      billerId: input.billerId, accountId: input.accountId, frequency: input.frequency, nextChargeAt: input.nextChargeAt,
+      amountLimitMinor: amountLimitMinor.toString(), currency: biller.currency,
+      approvalRequestId: input.approvalContext?.requestId ?? null,
+      requestedBy: input.approvalContext?.requestedBy ?? null,
+    } });
+  const created = await database.prepare(`${mandateSelect} WHERE m.organization_id = ? AND m.id = ?`).bind(input.organizationId, id).first<MandateRow>();
+  return { mandate: publicMandate(created!), replayed: false };
 }
 
 export async function updateRecurringMandateStatus(input: { organizationId: string; actor: AuthUser; mandateId: string; idempotencyKey: string;
@@ -539,7 +551,10 @@ export async function processDueRecurringMandates(limit = 50) {
               .bind(nextChargeAt, attemptedAt, attemptedAt, mandate.id).run();
             await audit(transaction, { organizationId: mandate.organizationId,
               actorId: actorRow.userId, action: 'recurring_mandate.execution_skipped', resourceType: 'recurring_payment_mandate', resourceId: mandate.id,
-              payload: { scheduledFor, reason: 'no_open_debt', nextChargeAt } });
+              payload: {
+                scheduledFor, reason: 'no_open_debt', nextChargeAt,
+                approvalExemption: 'standing_mandate', bypassedPolicy: 'bill_payment.create',
+              } });
             return { status: 'skipped_no_debt' };
           }
           obligationId = obligation.id;
@@ -555,7 +570,10 @@ export async function processDueRecurringMandates(limit = 50) {
         await transaction.prepare('UPDATE recurring_payment_mandates SET pending_scheduled_for = NULL, next_charge_at = ?, last_executed_at = ?, retry_count = 0, updated_at = ? WHERE id = ?')
           .bind(nextChargeAt, attemptedAt, attemptedAt, mandate.id).run();
         await audit(transaction, { organizationId, actorId: actorRow.userId, action: 'recurring_mandate.execution_completed',
-          resourceType: 'recurring_payment_mandate', resourceId: mandate.id, payload: { orderId: order.order.id, scheduledFor, status, nextChargeAt } });
+          resourceType: 'recurring_payment_mandate', resourceId: mandate.id, payload: {
+            orderId: order.order.id, scheduledFor, status, nextChargeAt,
+            approvalExemption: 'standing_mandate', bypassedPolicy: 'bill_payment.create',
+          } });
         return { status, orderId: order.order.id };
       });
       results.push({ mandateId: candidate.id, ...result });

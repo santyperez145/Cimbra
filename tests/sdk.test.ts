@@ -306,6 +306,20 @@ test('el SDK representa devoluciones de transferencias instantáneas pendientes 
   if (result.data.requiresApproval) assert.equal(result.data.approval.actionType, 'instant_transfer.return');
 });
 
+test('recurringMandates.create tipa maker/checker opt-in', async () => {
+  const client = new Cimbra({ baseUrl: 'https://api.test', apiKey: 'cim_test', fetch: async () =>
+    Response.json({
+      ok: true, requiresApproval: true, replayed: false, deduplicated: false,
+      approval: { id: 'approval_mandate_1', actionType: 'recurring_mandate.create', resourceType: 'recurring_payment_mandate', resourceId: 'mandate_1', status: 'pending' },
+    }, { status: 202 }) });
+  const result = await client.recurringMandates.create({
+    accountId: 'account_1', billerId: 'biller_1', subscriberReference: 'cliente-001', frequency: 'monthly',
+    amountLimit: '100.00', consentReference: 'CONSENT-1', consentedAt: '2026-09-01T00:00:00.000Z', nextChargeAt: '2026-09-10T00:00:00.000Z',
+  });
+  assert.equal(result.data.requiresApproval, true);
+  if (result.data.requiresApproval) assert.equal(result.data.approval.actionType, 'recurring_mandate.create');
+});
+
 test('el SDK cablea links de cobro, eco cerrado, inbound sandbox y devoluciones', async () => {
   const calls: string[] = [];
   const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async (input, init) => {
@@ -677,8 +691,10 @@ test('el SDK cablea billers, obligaciones, pagos, reversas y mandatos con rutas 
   const mandate = await client.recurringMandates.create({ accountId: 'account_1', billerId: biller.data.biller.id,
     subscriberReference: 'CLIENTE-001234', frequency: 'monthly', amountLimit: '500.00', consentReference: 'CONSENT-001',
     consentedAt: '2026-08-30T12:00:00.000Z', nextChargeAt: '2026-09-30T12:00:00.000Z' });
-  await client.recurringMandates.listExecutions(mandate.data.mandate.id, { limit: 20 });
-  await client.recurringMandates.pause(mandate.data.mandate.id);
+  if (!mandate.data.requiresApproval) {
+    await client.recurringMandates.listExecutions(mandate.data.mandate.id, { limit: 20 });
+    await client.recurringMandates.pause(mandate.data.mandate.id);
+  }
   assert.deepEqual(calls.map(({ method, url }) => `${method} ${url}`), [
     'POST https://api.test/api/v1/billers', 'POST https://api.test/api/v1/billers/biller_1/obligations',
     'POST https://api.test/api/v1/bill-payments', 'POST https://api.test/api/v1/bill-payments/order_1/reverse',

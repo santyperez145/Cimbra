@@ -232,6 +232,26 @@ test('instant return y collection refund usan maker/checker opt-in', () => {
   assert.match(migration, /collection\.refund/);
 });
 
+test('recurring mandates usan maker/checker opt-in recurring_mandate.create y exención auditada del worker', () => {
+  const approvals = readFileSync(join(root, 'db', 'approvals.ts'), 'utf8');
+  const billers = readFileSync(join(root, 'db', 'billers.ts'), 'utf8');
+  const route = readFileSync(join(root, 'app', 'api', 'v1', 'recurring-mandates', 'route.ts'), 'utf8');
+  const panel = readFileSync(join(root, 'app', 'console', 'approvals-panel.tsx'), 'utf8');
+  const billersPanel = readFileSync(join(root, 'app', 'console', 'billers-panel.tsx'), 'utf8');
+  const help = readFileSync(join(root, 'app', 'lib', 'platform', 'help-center.ts'), 'utf8');
+  const migration = readFileSync(join(root, 'drizzle-postgres', '0054_recurring_mandate_approval.sql'), 'utf8');
+  assert.match(approvals, /createRecurringMandateWithApprovalPolicy/);
+  assert.match(approvals, /recurring_mandate\.create/);
+  assert.match(route, /createRecurringMandateWithApprovalPolicy/);
+  assert.match(panel, /recurring_mandate\.create/);
+  assert.match(billersPanel, /standing_mandate/);
+  assert.match(billers, /approvalExemption: 'standing_mandate'/);
+  assert.match(billers, /bypassedPolicy: 'bill_payment\.create'/);
+  assert.match(help, /id: 'bill-payments'/);
+  assert.match(help, /standing_mandate/);
+  assert.match(migration, /recurring_mandate\.create/);
+});
+
 test('help-center documenta Compliance, Aprobaciones y Disputas con límites honestos', () => {
   const help = readFileSync(join(root, 'app', 'lib', 'platform', 'help-center.ts'), 'utf8');
   assert.match(help, /id: 'compliance-kyc'/);

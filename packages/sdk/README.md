@@ -164,10 +164,12 @@ const mandate = await cimbra.recurringMandates.create({
   consentedAt: new Date().toISOString(),
   nextChargeAt: '2026-09-10T12:00:00.000Z',
 });
-await cimbra.recurringMandates.pause(mandate.data.mandate.id);
+if (!mandate.data.requiresApproval) {
+  await cimbra.recurringMandates.pause(mandate.data.mandate.id);
+}
 ```
 
-Estas órdenes reutilizan cuentas, ledger de doble partida, riesgo, holds, auditoría y webhooks; una reversa crea postings compensatorios. El sandbox no inventa consultas de deuda ni cobertura comercial y no debita dinero real: cada país requiere contratos directos, consentimiento exigible y homologación del riel.
+Estas órdenes reutilizan cuentas, ledger de doble partida, riesgo, holds, auditoría y webhooks; una reversa crea postings compensatorios. El alta del mandato puede exigir maker/checker (`recurring_mandate.create`); los cargos del worker no pasan por `bill_payment.create` y quedan auditados con exención `standing_mandate`. El sandbox no inventa consultas de deuda ni cobertura comercial y no debita dinero real: cada país requiere contratos directos, consentimiento exigible y homologación del riel.
 
 ## Book transfers y estados de cuenta
 
