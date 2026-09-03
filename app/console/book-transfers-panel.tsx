@@ -71,8 +71,11 @@ export default function BookTransfersPanel({ accounts, role, onCashMovement }: {
     if (!window.confirm(`¿Revertir ${transfer.externalReference} con postings compensatorios?`)) return;
     setBusy(true); setFeedback(''); const response = await authenticatedFetch(`/api/v1/book-transfers/${transfer.id}/reverse`, {
       method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() },
-    }); const body = await response.json() as { error?: string | { message?: string } };
-    setFeedback(response.ok ? 'Book transfer revertido sin modificar el historial original.' : errorMessage(body));
+    }); const body = await response.json() as { requiresApproval?: boolean; error?: string | { message?: string } };
+    if (!response.ok) setFeedback(errorMessage(body));
+    else setFeedback(body.requiresApproval
+      ? 'Reversa enviada a Aprobaciones (maker/checker).'
+      : 'Book transfer revertido sin modificar el historial original.');
     if (response.ok) { await loadTransfers(); await loadStatement(statementAccountId); } setBusy(false);
   }
 

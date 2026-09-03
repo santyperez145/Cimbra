@@ -647,7 +647,11 @@ export async function reverseTransactionInTransaction(input: ReverseTransactionI
         .bind(id, now, now, bookTransfer.id).run();
       await insertAudit(transaction, {
         organizationId: input.organizationId, actorId: input.actor.userId, action: 'book_transfer.reversed',
-        resourceType: 'book_transfer', resourceId: bookTransfer.id, payload: { transactionId: original.id, reversalId: id },
+        resourceType: 'book_transfer', resourceId: bookTransfer.id, payload: {
+          transactionId: original.id, reversalId: id,
+          approvalRequestId: input.approvalContext?.requestId ?? null,
+          requestedBy: input.approvalContext?.requestedBy ?? null,
+        },
       });
     }
     const instantTransfer = await transaction.prepare(`SELECT id, status FROM instant_transfers

@@ -158,6 +158,16 @@ test('el SDK representa reversas de payments pendientes de aprobación humana', 
   assert.equal(result.data.requiresApproval, true);
   if (result.data.requiresApproval) assert.equal(result.data.approval.actionType, 'payment.reverse');
 });
+
+test('el SDK representa reversas de transferencias pendientes de aprobación humana', async () => {
+  const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', fetch: async () => Response.json({
+    ok: true, requiresApproval: true, replayed: false, deduplicated: false,
+    approval: { id: 'approval_tx_rev_1', actionType: 'transfer.reverse', resourceType: 'transfer', resourceId: 'tx_1', status: 'pending' },
+  }, { status: 202 }) });
+  const result = await client.transfers.reverse('tx_1');
+  assert.equal(result.data.requiresApproval, true);
+  if (result.data.requiresApproval) assert.equal(result.data.approval.actionType, 'transfer.reverse');
+});
 test('el SDK cablea book transfers, reversas y statements paginados', async () => {
   const calls: Array<{ url: string; method: string; idempotencyKey: string | null }> = [];
   const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0,

@@ -5,7 +5,7 @@ import { roleCan, type OrganizationRole } from '@/app/lib/platform/access-policy
 import { authenticatedFetch } from '@/app/lib/platform/client-http';
 
 type Role = OrganizationRole;
-type ApprovalActionType = 'settlement.execute' | 'transfer.create' | 'payment.create' | 'payment.reverse' | 'payout_batch.execute' | 'risk.case.resolve' | 'reconciliation.exception.resolve' | 'dispute.resolve';
+type ApprovalActionType = 'settlement.execute' | 'transfer.create' | 'transfer.reverse' | 'payment.create' | 'payment.reverse' | 'payout_batch.execute' | 'risk.case.resolve' | 'reconciliation.exception.resolve' | 'dispute.resolve';
 type ApprovalStatus = 'pending' | 'executed' | 'rejected' | 'cancelled' | 'expired' | 'failed';
 type Approval = {
   id: string; actionType: ApprovalActionType;
@@ -27,6 +27,7 @@ const statusLabels: Record<ApprovalStatus, string> = {
 const policyLabels: Record<ApprovalActionType, { title: string; direct: string }> = {
   'settlement.execute': { title: 'Ejecución de settlement', direct: 'Ejecución directa sandbox' },
   'transfer.create': { title: 'Transferencias y book transfers', direct: 'Ejecución directa según saldo y riesgo' },
+  'transfer.reverse': { title: 'Reversa de transferencias y book transfers', direct: 'Compensación directa en ledger' },
   'payment.create': { title: 'Cash-in y cash-out', direct: 'Ejecución directa contra settlement interno' },
   'payment.reverse': { title: 'Reversa de cash-in/out', direct: 'Compensación directa en ledger' },
   'payout_batch.execute': { title: 'Ejecución de lotes de payouts', direct: 'Envío asíncrono por ítem' },
@@ -48,6 +49,12 @@ function amountLabel(payload: Approval['requestPayload']) {
 }
 
 function approvalTitle(item: Approval) {
+  if (item.actionType === 'transfer.reverse' && item.resourceType === 'book_transfer') {
+    return `Reversa book · ${item.requestPayload.externalReference ?? 'book transfer'}`;
+  }
+  if (item.actionType === 'transfer.reverse') {
+    return `Reversa · ${item.requestPayload.counterparty ?? 'transferencia'}`;
+  }
   if (item.resourceType === 'book_transfer') return item.requestPayload.externalReference ?? 'Nuevo book transfer';
   if (item.actionType === 'payment.create') {
     return `${item.requestPayload.direction === 'cash_out' ? 'Cash-out' : 'Cash-in'} · ${item.requestPayload.counterparty ?? 'payment'}`;
@@ -64,6 +71,12 @@ function approvalTitle(item: Approval) {
 }
 
 function approvalChannel(item: Approval) {
+  if (item.actionType === 'transfer.reverse' && item.resourceType === 'book_transfer') {
+    return `${item.requestPayload.description ?? 'Sin concepto'} · compensación book · ${item.requestPayload.origin === 'api_key' ? 'API key' : 'consola'}`;
+  }
+  if (item.actionType === 'transfer.reverse') {
+    return `${item.requestPayload.description ?? 'Sin concepto'} · compensación · ${item.requestPayload.origin === 'api_key' ? 'API key' : 'consola'}`;
+  }
   if (item.resourceType === 'book_transfer') return `${item.requestPayload.description ?? 'Sin concepto'} · account-to-account · ${item.requestPayload.origin === 'api_key' ? 'API key' : 'consola'}`;
   if (item.actionType === 'payment.create') {
     return `${item.requestPayload.description ?? 'Sin concepto'} · ${item.requestPayload.direction ?? 'cash'} · ${item.requestPayload.origin === 'api_key' ? 'API key' : 'consola'}`;
@@ -80,6 +93,7 @@ function approvalChannel(item: Approval) {
 }
 
 function approvalIcon(item: Approval) {
+  if (item.actionType === 'transfer.reverse') return '↺';
   if (item.resourceType === 'book_transfer') return '⇄';
   if (item.actionType === 'payment.create') return item.requestPayload.direction === 'cash_out' ? '↗' : '↙';
   if (item.actionType === 'payment.reverse') return '↺';

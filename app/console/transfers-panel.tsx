@@ -113,11 +113,13 @@ export default function TransfersPanel({ role, refreshKey = 0 }: { role: Organiz
   async function reverseTransfer(id: string) {
     setBusy(true); setFeedback('');
     const response = await authenticatedFetch(`/api/v1/transfers/${id}/reverse`, {
-      method: 'POST', headers: { 'Idempotency-Key': `reverse-${id}` },
+      method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() },
     });
-    const result = await response.json() as { transaction?: Transfer; error?: unknown };
+    const result = await response.json() as { transaction?: Transfer; requiresApproval?: boolean; error?: unknown };
     if (response.ok) {
-      setFeedback('Reversa compensatoria posteada. El asiento original no se mutó.');
+      setFeedback(result.requiresApproval
+        ? 'Reversa enviada a Aprobaciones (maker/checker).'
+        : 'Reversa compensatoria posteada. El asiento original no se mutó.');
       await loadFirst();
       router.refresh();
     } else setFeedback(apiError(result, 'No pudimos revertir la transferencia.'));

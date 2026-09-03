@@ -179,6 +179,21 @@ test('cash-in/out usa maker/checker opt-in payment.create y payment.reverse', ()
   assert.match(reverseMigration, /payment\.reverse/);
 });
 
+test('transfers y book transfers usan maker/checker opt-in transfer.reverse', () => {
+  const approvals = readFileSync(join(root, 'db', 'approvals.ts'), 'utf8');
+  const transferReverse = readFileSync(join(root, 'app', 'api', 'sandbox', 'transfers', '[id]', 'reverse', 'route.ts'), 'utf8');
+  const bookReverse = readFileSync(join(root, 'app', 'api', 'sandbox', 'book-transfers', '[id]', 'reverse', 'route.ts'), 'utf8');
+  const panel = readFileSync(join(root, 'app', 'console', 'approvals-panel.tsx'), 'utf8');
+  const migration = readFileSync(join(root, 'drizzle-postgres', '0051_transfer_reverse_approval.sql'), 'utf8');
+  assert.match(approvals, /reverseTransferWithApprovalPolicy/);
+  assert.match(approvals, /reverseBookTransferWithApprovalPolicy/);
+  assert.match(approvals, /transfer\.reverse/);
+  assert.match(transferReverse, /reverseTransferWithApprovalPolicy/);
+  assert.match(bookReverse, /reverseBookTransferWithApprovalPolicy/);
+  assert.match(panel, /transfer\.reverse/);
+  assert.match(migration, /transfer\.reverse/);
+});
+
 test('help-center documenta Compliance, Aprobaciones y Disputas con límites honestos', () => {
   const help = readFileSync(join(root, 'app', 'lib', 'platform', 'help-center.ts'), 'utf8');
   assert.match(help, /id: 'compliance-kyc'/);

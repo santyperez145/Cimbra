@@ -195,18 +195,24 @@ export async function retrieveBookTransfer(organizationId: string, id: string, d
 
 export async function reverseBookTransfer(input: {
   organizationId: string; actor: AuthUser; transferId: string; idempotencyKey: string;
+  approvalContext?: { requestId: string; requestedBy: string };
 }) {
-  return getDatabaseClient().transaction(async (database) => {
+  return getDatabaseClient().transaction((database) => reverseBookTransferInTransaction(input, database));
+}
+
+export async function reverseBookTransferInTransaction(input: {
+  organizationId: string; actor: AuthUser; transferId: string; idempotencyKey: string;
+  approvalContext?: { requestId: string; requestedBy: string };
+}, database: DatabaseClient) {
     const transfer = await database.prepare(`SELECT id, transaction_id AS "transactionId" FROM book_transfers
       WHERE organization_id = ? AND id = ? FOR UPDATE`)
       .bind(input.organizationId, input.transferId).first<{ id: string; transactionId: string }>();
     if (!transfer) throw new BookTransferError('Book transfer no encontrado.', 404, 'book_transfer_not_found');
     const result = await reverseTransactionInTransaction({ organizationId: input.organizationId, actor: input.actor,
       transactionId: transfer.transactionId, idempotencyKey: input.idempotencyKey,
-      auditAction: 'book_transfer.reversed' }, database);
+      auditAction: 'book_transfer.reversed', approvalContext: input.approvalContext }, database);
     return { transfer: await retrieveBookTransfer(input.organizationId, transfer.id, database),
       reversal: result.transaction, replayed: result.replayed };
-  });
 }
 
 type StatementRow = {

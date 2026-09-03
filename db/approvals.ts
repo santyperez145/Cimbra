@@ -6,7 +6,7 @@ import type { Currency } from '@/app/lib/ledger/money';
 import type { DisputeEvent, DisputeStatus } from '@/app/lib/platform/disputes';
 import { parseProtectedRiskSignals, publicRiskSignals } from '@/app/lib/platform/risk-signals';
 import { type DatabaseClient, getDatabaseClient } from './client';
-import { createTransferInTransaction, findPaymentByIdempotency, findTransferByIdempotency, LedgerError, resolveHold, createAccountPaymentInTransaction, reverseAccountPaymentInTransaction, serializeTransaction, type AccountPaymentInput, type TransferCreationInput } from './ledger';
+import { createTransferInTransaction, findPaymentByIdempotency, findTransferByIdempotency, LedgerError, resolveHold, createAccountPaymentInTransaction, reverseAccountPaymentInTransaction, reverseTransactionInTransaction, serializeTransaction, type AccountPaymentInput, type TransferCreationInput } from './ledger';
 import { enqueueWebhookEvent } from './platform';
 import { ReconciliationError, resolveReconciliationException } from './reconciliation';
 import { getRiskCaseForResolution, resolveRiskCase, RiskError } from './risk';
@@ -14,7 +14,7 @@ import { executeSettlementCycle, executeSettlementCycleInTransaction, Settlement
 import { DisputeError, transitionDispute } from './disputes';
 import { authorizePayoutBatchInTransaction, closePayoutBatchApprovalInTransaction, PayoutError } from './payouts';
 import { bookTransferFingerprint, BookTransferError, createBookTransferInTransaction, findBookTransferByIdempotency,
-  type BookTransferInput } from './book-transfers';
+  retrieveBookTransfer, reverseBookTransferInTransaction, type BookTransferInput } from './book-transfers';
 
 export class ApprovalError extends Error {
   constructor(message: string, readonly status = 400, readonly code = 'approval_error') { super(message); }
@@ -111,7 +111,7 @@ export async function getApprovalPolicies(organizationId: string) {
        WHERE m.organization_id = ? AND m.role IN ('owner', 'admin') AND u.mfa_enabled = 1`,
     ).bind(organizationId).first<{ count: number }>(),
   ]);
-  return (['settlement.execute', 'transfer.create', 'payment.create', 'payment.reverse', 'payout_batch.execute', 'risk.case.resolve', 'reconciliation.exception.resolve', 'dispute.resolve'] as const).map((actionType) => {
+  return (['settlement.execute', 'transfer.create', 'transfer.reverse', 'payment.create', 'payment.reverse', 'payout_batch.execute', 'risk.case.resolve', 'reconciliation.exception.resolve', 'dispute.resolve'] as const).map((actionType) => {
     const policy = policies.results.find((item) => item.actionType === actionType);
     return { id: policy?.id ?? null, actionType, enabled: policy?.enabled === 1,
       expiresInMinutes: policy?.expiresInMinutes ?? 1440, eligibleApprovers: approvers?.count ?? 0,
@@ -369,6 +369,194 @@ export async function createBookTransferWithApprovalPolicy(input: BookTransferIn
       action: 'approval.request_created', resourceType: 'approval_request', resourceId: id,
       payload: { actionType: 'transfer.create', resourceType: 'book_transfer', resourceId, expiresAt,
         ...publicApprovalPayload(payload) } });
+    const approval = await approvalById(database, input.organizationId, id);
+    if (!approval) throw new ApprovalError('No pudimos recuperar la solicitud.', 500, 'approval_create_failed');
+    return { requiresApproval: true as const, approval, replayed: false, deduplicated: false };
+  });
+}
+
+export async function reverseTransferWithApprovalPolicy(input: {
+  organizationId: string; actor: AuthUser; transactionId: string; idempotencyKey: string;
+  authentication: 'session' | 'api_key'; apiKeyId: string | null;
+}) {
+  const fingerprint = await sha256(JSON.stringify({ actionType: 'transfer.reverse', transactionId: input.transactionId }));
+  return getDatabaseClient().transaction(async (database) => {
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:transfer-reverse:${input.idempotencyKey}`).first();
+    const existingReversal = await database.prepare(
+      `SELECT id, counterparty, description, amount_minor::text AS "amountMinor", currency, status,
+        risk_score AS "riskScore", reversal_of AS "reversalOf", created_at AS "createdAt"
+       FROM transactions WHERE organization_id = ? AND idempotency_key = ? LIMIT 1`,
+    ).bind(input.organizationId, `reversal:${input.idempotencyKey}`).first<{
+      id: string; counterparty: string; description: string; amountMinor: string; currency: Currency;
+      status: string; riskScore: number; reversalOf: string | null; createdAt: string;
+    }>();
+    if (existingReversal) {
+      if (existingReversal.reversalOf !== input.transactionId) {
+        throw new ApprovalError('La Idempotency-Key ya fue usada para otra reversa.', 409, 'idempotency_mismatch');
+      }
+      return { requiresApproval: false as const, transaction: serializeTransaction(existingReversal), replayed: true };
+    }
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:approval:${input.idempotencyKey}`).first();
+    const existingApproval = await database.prepare(
+      `${approvalSelect} WHERE ar.organization_id = ? AND ar.idempotency_key = ? LIMIT 1`,
+    ).bind(input.organizationId, input.idempotencyKey).first<ApprovalRow>();
+    if (existingApproval) {
+      if (existingApproval.requestFingerprint !== fingerprint || existingApproval.resourceType !== 'transfer' ||
+        existingApproval.actionType !== 'transfer.reverse') {
+        throw new ApprovalError('La Idempotency-Key ya fue usada para otra operación.', 409, 'idempotency_mismatch');
+      }
+      return { requiresApproval: true as const, approval: serializeApproval(existingApproval), replayed: true, deduplicated: false };
+    }
+    await database.prepare('SELECT pg_advisory_xact_lock_shared(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:approval-policy:transfer.reverse`).first();
+    const policy = await database.prepare(
+      `SELECT expires_in_minutes AS "expiresInMinutes" FROM approval_policies
+       WHERE organization_id = ? AND action_type = 'transfer.reverse' AND enabled = 1 LIMIT 1`,
+    ).bind(input.organizationId).first<{ expiresInMinutes: number }>();
+    if (!policy) {
+      const result = await reverseTransactionInTransaction({
+        organizationId: input.organizationId, actor: input.actor, transactionId: input.transactionId,
+        idempotencyKey: input.idempotencyKey, auditAction: 'transfer.reversed',
+      }, database);
+      return { requiresApproval: false as const, ...result };
+    }
+    const original = await database.prepare(
+      `SELECT id, counterparty, description, amount_minor::text AS "amountMinor", currency, status,
+        idempotency_key AS "idempotencyKey"
+       FROM transactions WHERE id = ? AND organization_id = ? FOR UPDATE`,
+    ).bind(input.transactionId, input.organizationId).first<{
+      id: string; counterparty: string; description: string; amountMinor: string; currency: Currency;
+      status: string; idempotencyKey: string;
+    }>();
+    if (!original) throw new ApprovalError('Transferencia no encontrada.', 404, 'transaction_not_found');
+    if (original.idempotencyKey.startsWith('payment:')) {
+      throw new ApprovalError('Esta transacción debe revertirse desde su payment.', 409, 'payment_reverse_required');
+    }
+    const bookTransfer = await database.prepare('SELECT id FROM book_transfers WHERE organization_id = ? AND transaction_id = ? LIMIT 1')
+      .bind(input.organizationId, original.id).first<{ id: string }>();
+    if (bookTransfer) throw new ApprovalError('Esta transacción debe revertirse desde su book transfer.', 409, 'book_transfer_reverse_required');
+    const billPayment = await database.prepare('SELECT id FROM bill_payment_orders WHERE organization_id = ? AND transaction_id = ? LIMIT 1')
+      .bind(input.organizationId, original.id).first<{ id: string }>();
+    if (billPayment) throw new ApprovalError('Esta transacción debe revertirse desde su orden de servicio.', 409, 'bill_payment_reverse_required');
+    const instantTransfer = await database.prepare('SELECT id FROM instant_transfers WHERE organization_id = ? AND transaction_id = ? LIMIT 1')
+      .bind(input.organizationId, original.id).first<{ id: string }>();
+    if (instantTransfer) throw new ApprovalError('Esta transacción debe revertirse desde su transferencia instantánea.', 409, 'instant_transfer_return_required');
+    const paymentLink = await database.prepare('SELECT id FROM payment_links WHERE organization_id = ? AND transaction_id = ? LIMIT 1')
+      .bind(input.organizationId, original.id).first<{ id: string }>();
+    const collectionCredit = await database.prepare('SELECT id FROM payment_link_credits WHERE organization_id = ? AND transaction_id = ? LIMIT 1')
+      .bind(input.organizationId, original.id).first<{ id: string }>();
+    if (paymentLink || collectionCredit) throw new ApprovalError('Esta transacción debe revertirse desde su link de cobro.', 409, 'collection_refund_required');
+    const echeq = await database.prepare('SELECT id FROM echeqs WHERE organization_id = ? AND transaction_id = ? LIMIT 1')
+      .bind(input.organizationId, original.id).first<{ id: string }>();
+    if (echeq) throw new ApprovalError('El depósito de un ECHEQ no se revierte por la reversa genérica.', 409, 'echeq_deposit_irreversible');
+    if (original.status !== 'settled') throw new ApprovalError('Sólo se puede revertir una transferencia liquidada.', 409, 'transaction_not_reversible');
+    const alreadyReversed = await database.prepare('SELECT id FROM transactions WHERE reversal_of = ? LIMIT 1')
+      .bind(original.id).first<{ id: string }>();
+    if (alreadyReversed) throw new ApprovalError('La transferencia ya fue revertida.', 409, 'transaction_already_reversed');
+    const id = crypto.randomUUID(); const now = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + policy.expiresInMinutes * 60_000).toISOString();
+    const payload = {
+      counterparty: original.counterparty, description: original.description,
+      amountMinor: original.amountMinor.replace(/^-/, ''), currency: original.currency,
+      origin: input.authentication, apiKeyId: input.apiKeyId, sandbox: true,
+    };
+    await database.prepare(
+      `INSERT INTO approval_requests
+        (id, organization_id, action_type, resource_type, resource_id, idempotency_key, request_fingerprint, status,
+         request_payload, requested_by, expires_at, created_at, updated_at)
+       VALUES (?, ?, 'transfer.reverse', 'transfer', ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
+    ).bind(id, input.organizationId, original.id, input.idempotencyKey, fingerprint, JSON.stringify(payload), input.actor.userId,
+      expiresAt, now, now).run();
+    await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId, action: 'approval.request_created',
+      resourceType: 'approval_request', resourceId: id, payload: { actionType: 'transfer.reverse', resourceType: 'transfer',
+        resourceId: original.id, expiresAt, ...publicApprovalPayload(payload) } });
+    const approval = await approvalById(database, input.organizationId, id);
+    if (!approval) throw new ApprovalError('No pudimos recuperar la solicitud.', 500, 'approval_create_failed');
+    return { requiresApproval: true as const, approval, replayed: false, deduplicated: false };
+  });
+}
+
+export async function reverseBookTransferWithApprovalPolicy(input: {
+  organizationId: string; actor: AuthUser; transferId: string; idempotencyKey: string;
+  authentication: 'session' | 'api_key'; apiKeyId: string | null;
+}) {
+  const fingerprint = await sha256(JSON.stringify({ actionType: 'transfer.reverse', bookTransferId: input.transferId }));
+  return getDatabaseClient().transaction(async (database) => {
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:book-transfer-reverse:${input.idempotencyKey}`).first();
+    const existingReversal = await database.prepare(
+      `SELECT id, counterparty, description, amount_minor::text AS "amountMinor", currency, status,
+        risk_score AS "riskScore", reversal_of AS "reversalOf", created_at AS "createdAt"
+       FROM transactions WHERE organization_id = ? AND idempotency_key = ? LIMIT 1`,
+    ).bind(input.organizationId, `reversal:${input.idempotencyKey}`).first<{
+      id: string; counterparty: string; description: string; amountMinor: string; currency: Currency;
+      status: string; riskScore: number; reversalOf: string | null; createdAt: string;
+    }>();
+    if (existingReversal) {
+      const book = await database.prepare(
+        `SELECT id FROM book_transfers WHERE organization_id = ? AND id = ? AND transaction_id = ? LIMIT 1`,
+      ).bind(input.organizationId, input.transferId, existingReversal.reversalOf).first<{ id: string }>();
+      if (!book) throw new ApprovalError('La Idempotency-Key ya fue usada para otra reversa.', 409, 'idempotency_mismatch');
+      return {
+        requiresApproval: false as const,
+        transfer: await retrieveBookTransfer(input.organizationId, book.id, database),
+        reversal: serializeTransaction(existingReversal),
+        replayed: true,
+      };
+    }
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:approval:${input.idempotencyKey}`).first();
+    const existingApproval = await database.prepare(
+      `${approvalSelect} WHERE ar.organization_id = ? AND ar.idempotency_key = ? LIMIT 1`,
+    ).bind(input.organizationId, input.idempotencyKey).first<ApprovalRow>();
+    if (existingApproval) {
+      if (existingApproval.requestFingerprint !== fingerprint || existingApproval.resourceType !== 'book_transfer' ||
+        existingApproval.actionType !== 'transfer.reverse') {
+        throw new ApprovalError('La Idempotency-Key ya fue usada para otra operación.', 409, 'idempotency_mismatch');
+      }
+      return { requiresApproval: true as const, approval: serializeApproval(existingApproval), replayed: true, deduplicated: false };
+    }
+    await database.prepare('SELECT pg_advisory_xact_lock_shared(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:approval-policy:transfer.reverse`).first();
+    const policy = await database.prepare(
+      `SELECT expires_in_minutes AS "expiresInMinutes" FROM approval_policies
+       WHERE organization_id = ? AND action_type = 'transfer.reverse' AND enabled = 1 LIMIT 1`,
+    ).bind(input.organizationId).first<{ expiresInMinutes: number }>();
+    if (!policy) {
+      const result = await reverseBookTransferInTransaction(input, database);
+      return { requiresApproval: false as const, ...result };
+    }
+    const transfer = await database.prepare(
+      `SELECT id, external_reference AS "externalReference", description, amount_minor::text AS "amountMinor",
+        currency, status, source_account_id AS "sourceAccountId", destination_account_id AS "destinationAccountId",
+        transaction_id AS "transactionId"
+       FROM book_transfers WHERE organization_id = ? AND id = ? FOR UPDATE`,
+    ).bind(input.organizationId, input.transferId).first<{
+      id: string; externalReference: string; description: string; amountMinor: string; currency: Currency;
+      status: string; sourceAccountId: string; destinationAccountId: string; transactionId: string;
+    }>();
+    if (!transfer) throw new ApprovalError('Book transfer no encontrado.', 404, 'book_transfer_not_found');
+    if (transfer.status !== 'settled') throw new ApprovalError('Sólo se puede revertir un book transfer liquidado.', 409, 'transaction_not_reversible');
+    const id = crypto.randomUUID(); const now = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + policy.expiresInMinutes * 60_000).toISOString();
+    const payload = {
+      bookTransfer: true, externalReference: transfer.externalReference, description: transfer.description,
+      amountMinor: transfer.amountMinor, currency: transfer.currency,
+      sourceAccountId: transfer.sourceAccountId, destinationAccountId: transfer.destinationAccountId,
+      origin: input.authentication, apiKeyId: input.apiKeyId, sandbox: true,
+    };
+    await database.prepare(
+      `INSERT INTO approval_requests
+        (id, organization_id, action_type, resource_type, resource_id, idempotency_key, request_fingerprint, status,
+         request_payload, requested_by, expires_at, created_at, updated_at)
+       VALUES (?, ?, 'transfer.reverse', 'book_transfer', ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
+    ).bind(id, input.organizationId, transfer.id, input.idempotencyKey, fingerprint, JSON.stringify(payload), input.actor.userId,
+      expiresAt, now, now).run();
+    await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId, action: 'approval.request_created',
+      resourceType: 'approval_request', resourceId: id, payload: { actionType: 'transfer.reverse', resourceType: 'book_transfer',
+        resourceId: transfer.id, expiresAt, ...publicApprovalPayload(payload) } });
     const approval = await approvalById(database, input.organizationId, id);
     if (!approval) throw new ApprovalError('No pudimos recuperar la solicitud.', 500, 'approval_create_failed');
     return { requiresApproval: true as const, approval, replayed: false, deduplicated: false };
@@ -851,6 +1039,35 @@ export async function decideApprovalRequest(input: {
             else executedTransfer = execution.transaction;
           } catch (error) {
             if (error instanceof LedgerError && error.status === 422) failure = { message: error.message, code: error.code, status: error.status };
+            else throw error;
+          }
+        }
+      } else if (row.actionType === 'transfer.reverse') {
+        if (row.resourceType === 'book_transfer') {
+          try {
+            const execution = await reverseBookTransferInTransaction({
+              organizationId: input.organizationId, actor: input.actor, transferId: row.resourceId,
+              idempotencyKey: `approval:${row.id}`,
+              approvalContext: { requestId: row.id, requestedBy: row.requestedBy },
+            }, database);
+            executedBookTransfer = execution.transfer;
+            executedReversal = execution.reversal;
+          } catch (error) {
+            if ((error instanceof BookTransferError || error instanceof LedgerError) && error.status < 500) {
+              failure = { message: error.message, code: error.code, status: error.status };
+            } else throw error;
+          }
+        } else {
+          try {
+            const execution = await reverseTransactionInTransaction({
+              organizationId: input.organizationId, actor: input.actor, transactionId: row.resourceId,
+              idempotencyKey: `approval:${row.id}`, auditAction: 'transfer.reversed',
+              approvalContext: { requestId: row.id, requestedBy: row.requestedBy },
+            }, database);
+            executedTransfer = execution.transaction;
+            executedReversal = execution.transaction;
+          } catch (error) {
+            if (error instanceof LedgerError && error.status < 500) failure = { message: error.message, code: error.code, status: error.status };
             else throw error;
           }
         }

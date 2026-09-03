@@ -358,6 +358,13 @@
       "when": 1788391200000,
       "tag": "0050_payment_reverse_approval",
       "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1788392400000,
+      "tag": "0051_transfer_reverse_approval",
+      "breakpoints": true
     }
   ]
 }

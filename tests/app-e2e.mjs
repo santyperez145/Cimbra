@@ -2344,6 +2344,68 @@ try {
   }), 200);
   assert.equal(disabledReversePolicy.policy.enabled, false);
 
+  const transferForReverse = await json(await request('/api/v1/transfers', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-transfer-for-reverse-${runId}` },
+    body: JSON.stringify({
+      counterparty: 'QA Reverse Transfer Target', description: 'Funding reverse approval',
+      amount: '12.00', currency: 'ARS',
+      signals: { deviceReference, identityReference, deviceTrust: 'trusted', identityVerified: true },
+    }),
+  }), 201);
+  assert.equal(transferForReverse.transaction.status, 'settled');
+  const transferReversePolicy = await json(await request('/api/platform/approval-policy', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actionType: 'transfer.reverse', enabled: true, expiresInMinutes: 1440 }),
+  }), 200);
+  assert.equal(transferReversePolicy.policy.actionType, 'transfer.reverse');
+  assert.equal(transferReversePolicy.policy.enabled, true);
+  const protectedTransferReverse = await json(await request(`/api/v1/transfers/${transferForReverse.transaction.id}/reverse`, {
+    method: 'POST', headers: { 'Idempotency-Key': `qa-protected-transfer-reverse-${runId}` },
+  }), 202);
+  assert.equal(protectedTransferReverse.requiresApproval, true);
+  assert.equal(protectedTransferReverse.approval.actionType, 'transfer.reverse');
+  assert.equal(protectedTransferReverse.approval.resourceType, 'transfer');
+  assert.equal(protectedTransferReverse.approval.resourceId, transferForReverse.transaction.id);
+  cookie = checkerCookie;
+  const protectedTransferReverseExecution = await json(await request(`/api/v1/approvals/${protectedTransferReverse.approval.id}/approve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-transfer-reverse-checker-${runId}` },
+    body: JSON.stringify({ reason: 'Independent transfer reverse checker' }),
+  }), 200);
+  assert.equal(protectedTransferReverseExecution.approval.status, 'executed');
+  assert.equal(protectedTransferReverseExecution.transaction.reversalOf, transferForReverse.transaction.id);
+  cookie = ownerCookieAfterRequest;
+
+  const bookForReverse = await json(await request('/api/v1/book-transfers', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-book-for-reverse-${runId}` },
+    body: JSON.stringify({
+      externalReference: `QA-BT-REV-${runId}`, sourceAccountId: account.id, destinationAccountId: destinationAccount.id,
+      description: 'Book reverse approval', amount: '8.00', currency: 'ARS',
+      signals: { deviceReference, identityReference, deviceTrust: 'trusted', identityVerified: true },
+    }),
+  }), 201);
+  assert.equal(bookForReverse.transfer.status, 'settled');
+  const protectedBookReverse = await json(await request(`/api/v1/book-transfers/${bookForReverse.transfer.id}/reverse`, {
+    method: 'POST', headers: { 'Idempotency-Key': `qa-protected-book-reverse-${runId}` },
+  }), 202);
+  assert.equal(protectedBookReverse.requiresApproval, true);
+  assert.equal(protectedBookReverse.approval.actionType, 'transfer.reverse');
+  assert.equal(protectedBookReverse.approval.resourceType, 'book_transfer');
+  assert.equal(protectedBookReverse.approval.resourceId, bookForReverse.transfer.id);
+  cookie = checkerCookie;
+  const protectedBookReverseExecution = await json(await request(`/api/v1/approvals/${protectedBookReverse.approval.id}/approve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-book-reverse-checker-${runId}` },
+    body: JSON.stringify({ reason: 'Independent book reverse checker' }),
+  }), 200);
+  assert.equal(protectedBookReverseExecution.approval.status, 'executed');
+  assert.equal(protectedBookReverseExecution.bookTransfer.status, 'reversed');
+  assert.equal(protectedBookReverseExecution.reversal.reversalOf, bookForReverse.transfer.transactionId);
+  cookie = ownerCookieAfterRequest;
+  const disabledTransferReversePolicy = await json(await request('/api/platform/approval-policy', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actionType: 'transfer.reverse', enabled: false, expiresInMinutes: 1440 }),
+  }), 200);
+  assert.equal(disabledTransferReversePolicy.policy.enabled, false);
+
   const unfundedTransfer = await json(await request('/api/v1/transfers', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-protected-unfunded-${runId}` },
     body: JSON.stringify({ counterparty: 'QA Protected Supplier', description: 'Approval-time balance recheck', amount: '9000000', currency: 'ARS' }),

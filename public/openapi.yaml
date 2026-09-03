@@ -478,13 +478,14 @@ paths:
     post:
       operationId: reverseBookTransfer
       summary: Reverse a settled book transfer with compensating postings
-      description: Never mutates the original postings. It creates an opposite journal, links the reversal transaction and preserves the full account statement history.
+      description: Never mutates the original postings. When transfer.reverse maker/checker is enabled, returns 202 with a pending approval instead of posting compensation immediately. Creates an opposite journal, links the reversal transaction and preserves the full account statement history.
       security: [{ session: [] }, { bearerApiKey: [] }]
       parameters:
         - $ref: '#/components/parameters/ResourceId'
         - $ref: '#/components/parameters/IdempotencyKey'
       responses:
         '201': { description: Compensating reversal created }
+        '202': { description: Pending maker/checker approval }
         '200': { description: Idempotent replay }
         '403': { description: Missing transfers:write scope or finance.write permission }
         '404': { description: Book transfer not found in tenant }
@@ -2793,6 +2794,7 @@ paths:
     post:
       operationId: reverseTransfer
       summary: Reverse a settled transfer with a compensating journal
+      description: When transfer.reverse maker/checker is enabled, returns 202 with a pending approval instead of posting compensation immediately.
       security: [{ session: [] }, { bearerApiKey: [] }]
       parameters:
         - in: path
@@ -2802,6 +2804,7 @@ paths:
         - $ref: '#/components/parameters/IdempotencyKey'
       responses:
         '201': { description: Reversal posted }
+        '202': { description: Pending maker/checker approval }
         '200': { description: Existing reversal returned }
         '404': { description: Original transfer not found }
         '409': { description: Transfer is not reversible }
@@ -3153,7 +3156,7 @@ paths:
               type: object
               required: [enabled, expiresInMinutes]
               properties:
-                actionType: { type: string, enum: [settlement.execute, transfer.create, payment.create, payment.reverse, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve], default: settlement.execute }
+                actionType: { type: string, enum: [settlement.execute, transfer.create, transfer.reverse, payment.create, payment.reverse, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve], default: settlement.execute }
                 enabled: { type: boolean }
                 expiresInMinutes: { type: integer, minimum: 15, maximum: 10080 }
       responses:
@@ -4500,7 +4503,7 @@ components:
       required: [id, actionType, resourceType, resourceId, status, requestPayload, requestedBy, requestedByName, expiresAt, createdAt, updatedAt]
       properties:
         id: { type: string, format: uuid }
-        actionType: { type: string, enum: [settlement.execute, transfer.create, payment.create, payment.reverse, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve] }
+        actionType: { type: string, enum: [settlement.execute, transfer.create, transfer.reverse, payment.create, payment.reverse, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve] }
         resourceType: { type: string, enum: [settlement_cycle, transfer, book_transfer, payment, payout_batch, risk_case, reconciliation_exception, dispute] }
         resourceId: { type: string, format: uuid }
         status: { type: string, enum: [pending, executed, rejected, cancelled, expired, failed] }

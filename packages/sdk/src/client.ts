@@ -1,7 +1,7 @@
 import { CimbraApiError, CimbraConnectionError, CimbraTimeoutError } from './errors.ts';
 import type {
   Account, AccountStatement, AccountStatementOptions, ApprovalRequest, AuditEvent, Biller, BillerObligation, BillPaymentOrder, BookTransfer,
-  BookTransferCreationResult, Card, CardControls, CardLifecycleEvent, CardProgram, CimbraResult, CreateAccountInput,
+  BookTransferCreationResult, BookTransferReversalResult, Card, CardControls, CardLifecycleEvent, CardProgram, CimbraResult, CreateAccountInput,
   CreateBillerInput, CreateBillerObligationInput, CreateBillPaymentInput, CreateCardInput, CreateCardProgramInput, CreateCustomerInput, CreateDisputeInput, CreatePaymentInput,
   CreateDueDiligenceCaseInput, CreateDueDiligencePartyInput,
   CreateReconciliationCsvImportInput, CreateReconciliationRunInput, CreateRiskEvaluationInput, CreateRiskListEntryInput, CreateRiskRuleInput, CreateRiskSimulationInput,
@@ -21,7 +21,7 @@ import type {
   ReportRiskOutcomeInput, RiskCaseResolutionResult, RiskEvaluation, RiskListEntry, RiskMetrics, RiskOutcome, RiskRule, RiskSimulation,
   RecurringPaymentExecution, RecurringPaymentMandate, RiskStepUpAttempt, RiskStepUpChallenge, SettlementCycle, SettlementExecutionResult, VerifyRiskStepUpChallengeInput,
   Organization, OpenSupportCaseInput, ServiceTopology, SupportCase, SupportCaseResult, SupportCaseStatus, SupportCaseThread, UpdateOrganizationInput,
-  PaymentCreationResult, PaymentReversalResult, RecordDueDiligenceCheckInput, Transaction, TransferCreationResult, Wallet, WalletLifecycleEvent, WalletPocket, WalletPocketTransferCreationResult, WalletProgram, WebhookOperationalState,
+  PaymentCreationResult, PaymentReversalResult, RecordDueDiligenceCheckInput, Transaction, TransferCreationResult, TransferReversalResult, Wallet, WalletLifecycleEvent, WalletPocket, WalletPocketTransferCreationResult, WalletProgram, WebhookOperationalState,
 } from './types.ts';
 
 type Fetch = typeof globalThis.fetch;
@@ -167,7 +167,7 @@ export class Cimbra {
     create: (input: CreateTransferInput, options?: RequestOptions) =>
       this.post<TransferCreationResult>('/api/v1/transfers', input, options, true),
     reverse: (id: string, options?: RequestOptions) =>
-      this.post<{ ok: true; transaction: Transaction; replayed: boolean }>(`/api/v1/transfers/${encodeURIComponent(id)}/reverse`, undefined, options, true),
+      this.post<TransferReversalResult>(`/api/v1/transfers/${encodeURIComponent(id)}/reverse`, undefined, options, true),
   };
 
   readonly ledger = {
@@ -264,7 +264,7 @@ export class Cimbra {
     create: (input: CreateBookTransferInput, options?: RequestOptions) =>
       this.post<BookTransferCreationResult>('/api/v1/book-transfers', input, options, true),
     reverse: (id: string, options?: RequestOptions) =>
-      this.post<{ ok: true; transfer: BookTransfer; reversal: Transaction; replayed: boolean }>(
+      this.post<BookTransferReversalResult>(
         `/api/v1/book-transfers/${encodeURIComponent(id)}/reverse`, undefined, options, true),
   };
 

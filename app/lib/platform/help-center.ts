@@ -39,13 +39,13 @@ export const HELP_ARTICLES = [
     id: 'transfers',
     title: 'Movimientos y transferencias',
     summary: 'Listado paginado del API, alta idempotente y reversas compensatorias.',
-    body: 'Movimientos opera GET/POST /api/v1/transfers y la reversa compensatoria. No es un book transfer entre cuentas ni un pago Coelsa. Un monto alto puede exigir maker/checker en Aprobaciones. Viewer lee y exporta; no crea ni revierte.',
+    body: 'Movimientos opera GET/POST /api/v1/transfers y la reversa compensatoria. No es un book transfer entre cuentas ni un pago Coelsa. Crear o revertir puede exigir maker/checker (transfer.create / transfer.reverse) en Aprobaciones. Viewer lee y exporta; no crea ni revierte.',
   },
   {
     id: 'book-transfers',
     title: 'Book transfers',
     summary: 'Movimiento atómico entre dos cuentas Cimbra de la misma moneda.',
-    body: 'Book transfers debita y acredita en un solo journal. Puede exigir aprobación. Distinto de cash-in/out (contra settlement interno) y de Pagos AR (instrumentos locales). No sale a Coelsa.',
+    body: 'Book transfers debita y acredita en un solo journal. Crear o revertir puede exigir aprobación (transfer.create / transfer.reverse). Distinto de cash-in/out (contra settlement interno) y de Pagos AR (instrumentos locales). No sale a Coelsa.',
   },
   {
     id: 'cash-payments',
@@ -63,7 +63,7 @@ export const HELP_ARTICLES = [
     id: 'approvals',
     title: 'Aprobaciones maker/checker',
     summary: 'Cola de operaciones que exigen otro actor privilegiado.',
-    body: 'Aprobaciones lista solicitudes pendientes (transferencias, book transfers, cash-in/out y sus reversas, payouts, settlements y políticas). Approve/reject exige otro usuario con MFA cuando la política lo pide. No es un workflow externo: vive en el tenant y deja auditoría. Viewer no aprueba.',
+    body: 'Aprobaciones lista solicitudes pendientes (transferencias y book transfers, sus reversas, cash-in/out y sus reversas, payouts, settlements y políticas). Approve/reject exige otro usuario con MFA cuando la política lo pide. No es un workflow externo: vive en el tenant y deja auditoría. Viewer no aprueba.',
   },
   {
     id: 'disputes',

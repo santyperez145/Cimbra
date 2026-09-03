@@ -239,7 +239,7 @@ export type SettlementCycle = {
   status: 'ready' | 'scheduled' | 'settled'; scheduledFor: string | null; settledAt: string | null; createdAt: string; updatedAt: string;
 };
 export type ApprovalRequest = {
-  id: string; actionType: 'settlement.execute' | 'transfer.create' | 'payment.create' | 'payment.reverse' | 'payout_batch.execute' | 'risk.case.resolve' | 'reconciliation.exception.resolve' | 'dispute.resolve';
+  id: string; actionType: 'settlement.execute' | 'transfer.create' | 'transfer.reverse' | 'payment.create' | 'payment.reverse' | 'payout_batch.execute' | 'risk.case.resolve' | 'reconciliation.exception.resolve' | 'dispute.resolve';
   resourceType: 'settlement_cycle' | 'transfer' | 'book_transfer' | 'payment' | 'payout_batch' | 'risk_case' | 'reconciliation_exception' | 'dispute'; resourceId: string;
   status: 'pending' | 'executed' | 'rejected' | 'cancelled' | 'expired' | 'failed'; requestPayload: {
     name?: string; rail?: ReconciliationRun['source']; currency?: Currency; netMinor?: string; differenceMinor?: string;
@@ -262,6 +262,9 @@ export type SettlementExecutionResult =
 export type TransferCreationResult =
   | { ok: true; requiresApproval: false; transaction: Transaction; replayed: boolean }
   | { ok: true; requiresApproval: true; approval: ApprovalRequest; replayed: boolean; deduplicated: boolean };
+export type TransferReversalResult =
+  | { ok: true; requiresApproval?: false; transaction: Transaction; replayed: boolean }
+  | { ok: true; requiresApproval: true; approval: ApprovalRequest; replayed: boolean; deduplicated: boolean };
 export type RiskCaseResolutionResult =
   | { ok: true; requiresApproval: false; case: { id: string; status: 'resolved'; resolution: 'approved' | 'declined'; replayed: boolean }; replayed: boolean }
   | { ok: true; requiresApproval: true; approval: ApprovalRequest; replayed: boolean; deduplicated: boolean };
@@ -270,6 +273,9 @@ export type ReconciliationExceptionResolutionResult =
   | { ok: true; requiresApproval: true; approval: ApprovalRequest; replayed: boolean; deduplicated: boolean };
 export type BookTransferCreationResult =
   | { ok: true; requiresApproval: false; transfer: BookTransfer; replayed: boolean }
+  | { ok: true; requiresApproval: true; approval: ApprovalRequest; replayed: boolean; deduplicated: boolean };
+export type BookTransferReversalResult =
+  | { ok: true; requiresApproval?: false; transfer: BookTransfer; reversal: Transaction; replayed: boolean }
   | { ok: true; requiresApproval: true; approval: ApprovalRequest; replayed: boolean; deduplicated: boolean };
 export type WalletStatus = 'active' | 'frozen' | 'closed';
 export type WalletPocketKind = 'available' | 'pending' | 'rewards';
