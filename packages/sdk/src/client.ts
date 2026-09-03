@@ -108,6 +108,20 @@ export class Cimbra {
     cancel: (id: string, note: string, options?: RequestOptions) =>
       this.post<{ ok: true; case: DueDiligenceCase; replayed: boolean }>(
         `/api/v1/due-diligence/cases/${encodeURIComponent(id)}/cancel`, { note }, options, true),
+    uploadDocument: (input: { file: Blob | ArrayBuffer | Uint8Array | string; fileName?: string; contentType?: 'application/pdf' | 'image/jpeg' | 'image/png' }, options?: RequestOptions) => {
+      const contentType = input.contentType ?? 'application/pdf';
+      const fileName = input.fileName
+        ?? (contentType === 'image/png' ? 'evidence.png' : contentType === 'image/jpeg' ? 'evidence.jpg' : 'evidence.pdf');
+      const blob = input.file instanceof Blob
+        ? input.file
+        : new Blob([typeof input.file === 'string' || input.file instanceof ArrayBuffer
+          ? input.file
+          : input.file.slice()], { type: contentType });
+      const form = new FormData();
+      form.set('file', blob, fileName);
+      return this.postForm<{ ok: true; document: { id: string; fileName: string; status: 'received' } }>(
+        '/api/v1/compliance/documents', form, options, true);
+    },
   };
 
   readonly accounts = {

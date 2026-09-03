@@ -61,6 +61,11 @@ const caseId = opened.data.case.id;
 await cimbra.dueDiligence.addParty(caseId, {
   role: 'beneficial_owner', name: 'Ana Sur', taxId: '20123456789', ownershipPercentage: 25,
 });
+await cimbra.dueDiligence.uploadDocument({
+  file: '%PDF-1.4 sandbox evidence',
+  fileName: 'ownership.pdf',
+  contentType: 'application/pdf',
+});
 await cimbra.dueDiligence.recordCheck(caseId, {
   checkType: 'sanctions', source: 'official_registry', status: 'passed',
   resultCode: 'no_match', note: 'Consulta directa documentada.',
