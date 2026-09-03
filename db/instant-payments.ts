@@ -569,123 +569,74 @@ async function postInternalMovement(database: DatabaseClient, input: {
 export async function createInstantTransfer(input: {
   organizationId: string; actor: AuthUser; idempotencyKey: string;
   transfer: NormalizedInstantTransferInput; signals?: ProtectedRiskSignals;
+  transferId?: string; approvalContext?: { requestId: string; requestedBy: string };
 }) {
   await assertSandboxLedgerOrCertifiedRail('transfers', InstantPaymentError);
+  return getDatabaseClient().transaction((database) => createInstantTransferInTransaction(input, database));
+}
+
+export async function createInstantTransferInTransaction(input: {
+  organizationId: string; actor: AuthUser; idempotencyKey: string;
+  transfer: NormalizedInstantTransferInput; signals?: ProtectedRiskSignals;
+  transferId?: string; approvalContext?: { requestId: string; requestedBy: string };
+}, database: DatabaseClient) {
   const fingerprint = await sha256(JSON.stringify({
     ...input.transfer, amountMinor: input.transfer.amountMinor.toString(), signals: input.signals ?? {},
   }));
-  return getDatabaseClient().transaction(async (database) => {
-    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
-      .bind(`${input.organizationId}:instant:${input.idempotencyKey}`).first();
-    const existing = await database.prepare(`${transferSelect} WHERE it.organization_id = ? AND it.idempotency_key = ? LIMIT 1`)
-      .bind(input.organizationId, input.idempotencyKey).first<TransferRow>();
-    if (existing) {
-      if (existing.requestFingerprint !== fingerprint) {
-        throw new InstantPaymentError('La Idempotency-Key ya fue usada con otra transferencia instantánea.', 409, 'idempotency_mismatch');
-      }
-      return { transfer: serializeTransfer(existing), replayed: true };
+  await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+    .bind(`${input.organizationId}:instant:${input.idempotencyKey}`).first();
+  const existing = await database.prepare(`${transferSelect} WHERE it.organization_id = ? AND it.idempotency_key = ? LIMIT 1`)
+    .bind(input.organizationId, input.idempotencyKey).first<TransferRow>();
+  if (existing) {
+    if (existing.requestFingerprint !== fingerprint) {
+      throw new InstantPaymentError('La Idempotency-Key ya fue usada con otra transferencia instantánea.', 409, 'idempotency_mismatch');
     }
-    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
-      .bind(`${input.organizationId}:instant-ref:${input.transfer.externalReference}`).first();
-    const referenceOwner = await database.prepare(
-      'SELECT id FROM instant_transfers WHERE organization_id = ? AND external_reference = ? LIMIT 1',
-    ).bind(input.organizationId, input.transfer.externalReference).first<{ id: string }>();
-    if (referenceOwner) throw new InstantPaymentError('La referencia externa ya pertenece a otra transferencia instantánea.', 409, 'external_reference_conflict');
+    return { transfer: serializeTransfer(existing), replayed: true };
+  }
+  await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+    .bind(`${input.organizationId}:instant-ref:${input.transfer.externalReference}`).first();
+  const referenceOwner = await database.prepare(
+    'SELECT id FROM instant_transfers WHERE organization_id = ? AND external_reference = ? LIMIT 1',
+  ).bind(input.organizationId, input.transfer.externalReference).first<{ id: string }>();
+  if (referenceOwner) throw new InstantPaymentError('La referencia externa ya pertenece a otra transferencia instantánea.', 409, 'external_reference_conflict');
 
-    const account = await loadAccount(database, input.organizationId, input.transfer.accountId, true);
-    assertArsAccount(account);
-    const destination = input.transfer.destination;
-    const local = await findInstrumentByValue(database, input.organizationId, destination.value);
+  const account = await loadAccount(database, input.organizationId, input.transfer.accountId, true);
+  assertArsAccount(account);
+  const destination = input.transfer.destination;
+  const local = await findInstrumentByValue(database, input.organizationId, destination.value);
 
-    if (destination.kind === 'alias' && !local) {
-      throw new InstantPaymentError('El alias no existe en este tenant. El sandbox no consulta el directorio nacional.', 404, 'alias_not_found');
+  if (destination.kind === 'alias' && !local) {
+    throw new InstantPaymentError('El alias no existe en este tenant. El sandbox no consulta el directorio nacional.', 404, 'alias_not_found');
+  }
+  if (destination.kind === 'cvu' && isSandboxCvu(destination.value) && !local) {
+    throw new InstantPaymentError('El CVU sandbox no pertenece a este tenant.', 404, 'unknown_sandbox_cvu');
+  }
+
+  if (local) {
+    if (!namesMatch(input.transfer.holderName, local.holderName) || input.transfer.taxIdLast4 !== local.taxIdLast4) {
+      throw new InstantPaymentError('La confirmación de titular no coincide con el instrumento.', 422, 'holder_mismatch');
     }
-    if (destination.kind === 'cvu' && isSandboxCvu(destination.value) && !local) {
-      throw new InstantPaymentError('El CVU sandbox no pertenece a este tenant.', 404, 'unknown_sandbox_cvu');
-    }
+  }
 
-    if (local) {
-      if (!namesMatch(input.transfer.holderName, local.holderName) || input.transfer.taxIdLast4 !== local.taxIdLast4) {
-        throw new InstantPaymentError('La confirmación de titular no coincide con el instrumento.', 422, 'holder_mismatch');
-      }
-    }
+  const id = input.transferId ?? crypto.randomUUID();
+  const createdAt = new Date().toISOString();
+  const operationKey = `instant:${input.idempotencyKey}`;
+  const approvalAudit = {
+    approvalRequestId: input.approvalContext?.requestId ?? null,
+    requestedBy: input.approvalContext?.requestedBy ?? null,
+  };
 
-    const id = crypto.randomUUID();
-    const createdAt = new Date().toISOString();
-    const operationKey = `instant:${input.idempotencyKey}`;
-
-    if (input.transfer.direction === 'inbound') {
-      if (local) throw new InstantPaymentError('Un crédito inbound sandbox debe originarse en un CBU/CVU externo.', 400, 'inbound_must_be_external');
-      const ownCvu = await database.prepare(
-        "SELECT id FROM rail_instruments WHERE organization_id = ? AND account_id = ? AND kind = 'cvu' AND status = 'active' LIMIT 1",
-      ).bind(input.organizationId, account.id).first<{ id: string }>();
-      if (!ownCvu) throw new InstantPaymentError('La cuenta destino no tiene un CVU sandbox emitido.', 409, 'cvu_required');
-      let payment;
-      try {
-        payment = await createAccountPaymentInTransaction({
-          organizationId: input.organizationId, actor: input.actor, idempotencyKey: `inbound-${input.idempotencyKey}`,
-          accountId: account.id, direction: 'cash_in', counterparty: `${destination.kind}:${railLast4(destination.value)}`,
-          description: input.transfer.description, amountMinor: input.transfer.amountMinor, currency: 'ARS', signals: input.signals,
-        }, database);
-      } catch (error) {
-        if (error instanceof LedgerError) throw new InstantPaymentError(error.message, error.status, error.code);
-        throw error;
-      }
-      if ('declined' in payment) return { declined: payment.declined, replayed: payment.replayed };
-      await insertTransfer(database, {
-        id, organizationId: input.organizationId, idempotencyKey: input.idempotencyKey, fingerprint, scheme: 'credit_push',
-        direction: 'inbound', sourceAccountId: null, destinationAccountId: account.id, counterpartyKind: destination.kind,
-        counterpartyValue: destination.value, holderName: input.transfer.holderName, taxIdLast4: input.transfer.taxIdLast4,
-        amountMinor: input.transfer.amountMinor, description: input.transfer.description, externalReference: input.transfer.externalReference,
-        status: payment.payment.status === 'review' ? 'pending' : 'settled', transactionId: payment.payment.id,
-        qrPayload: null, expiresAt: null, actorId: input.actor.userId, createdAt,
-      });
-      await insertAudit(database, {
-        organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.transfer_created',
-        resourceType: 'instant_transfer', resourceId: id,
-        payload: { scheme: 'credit_push', direction: 'inbound', status: payment.payment.status, amountMinor: input.transfer.amountMinor.toString() },
-      });
-      return { transfer: await retrieveInstantTransfer(input.organizationId, id, database), replayed: false };
-    }
-
-    if (local) {
-      if (local.accountId === account.id) throw new InstantPaymentError('La cuenta de origen y destino deben ser diferentes.', 400, 'same_account');
-      const destinationAccount = await loadAccount(database, input.organizationId, local.accountId, true);
-      assertArsAccount(destinationAccount);
-      const movement = await postInternalMovement(database, {
-        organizationId: input.organizationId, actor: input.actor, operationKey, source: account, destination: destinationAccount,
-        amountMinor: input.transfer.amountMinor, description: input.transfer.description,
-        counterparty: `internal:${destinationAccount.accountReference}`, signals: input.signals,
-      });
-      if ('declined' in movement) return { declined: movement.declined, replayed: movement.replayed };
-      await insertTransfer(database, {
-        id, organizationId: input.organizationId, idempotencyKey: input.idempotencyKey, fingerprint, scheme: 'credit_push',
-        direction: 'internal', sourceAccountId: account.id, destinationAccountId: destinationAccount.id,
-        counterpartyKind: destination.kind, counterpartyValue: destination.value, holderName: local.holderName,
-        taxIdLast4: local.taxIdLast4, amountMinor: input.transfer.amountMinor, description: input.transfer.description,
-        externalReference: input.transfer.externalReference, status: movement.status, transactionId: movement.transactionId,
-        qrPayload: null, expiresAt: null, actorId: input.actor.userId, createdAt, collectionTillId: local.collectionTillId ?? null,
-      });
-      await insertAudit(database, {
-        organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.transfer_created',
-        resourceType: 'instant_transfer', resourceId: id,
-        payload: { scheme: 'credit_push', direction: 'internal', status: movement.status, amountMinor: input.transfer.amountMinor.toString() },
-      });
-      if (local.collectionTillId) {
-        await insertAudit(database, {
-          organizationId: input.organizationId, actorId: input.actor.userId, action: 'collection.till_credited',
-          resourceType: 'collection_till', resourceId: local.collectionTillId,
-          payload: { transferId: id, amountMinor: input.transfer.amountMinor.toString(), direction: 'internal' },
-        });
-      }
-      return { transfer: await retrieveInstantTransfer(input.organizationId, id, database), replayed: false };
-    }
-
+  if (input.transfer.direction === 'inbound') {
+    if (local) throw new InstantPaymentError('Un crédito inbound sandbox debe originarse en un CBU/CVU externo.', 400, 'inbound_must_be_external');
+    const ownCvu = await database.prepare(
+      "SELECT id FROM rail_instruments WHERE organization_id = ? AND account_id = ? AND kind = 'cvu' AND status = 'active' LIMIT 1",
+    ).bind(input.organizationId, account.id).first<{ id: string }>();
+    if (!ownCvu) throw new InstantPaymentError('La cuenta destino no tiene un CVU sandbox emitido.', 409, 'cvu_required');
     let payment;
     try {
       payment = await createAccountPaymentInTransaction({
-        organizationId: input.organizationId, actor: input.actor, idempotencyKey: `outbound-${input.idempotencyKey}`,
-        accountId: account.id, direction: 'cash_out', counterparty: `${destination.kind}:${railLast4(destination.value)}`,
+        organizationId: input.organizationId, actor: input.actor, idempotencyKey: `inbound-${input.idempotencyKey}`,
+        accountId: account.id, direction: 'cash_in', counterparty: `${destination.kind}:${railLast4(destination.value)}`,
         description: input.transfer.description, amountMinor: input.transfer.amountMinor, currency: 'ARS', signals: input.signals,
       }, database);
     } catch (error) {
@@ -695,7 +646,7 @@ export async function createInstantTransfer(input: {
     if ('declined' in payment) return { declined: payment.declined, replayed: payment.replayed };
     await insertTransfer(database, {
       id, organizationId: input.organizationId, idempotencyKey: input.idempotencyKey, fingerprint, scheme: 'credit_push',
-      direction: 'outbound', sourceAccountId: account.id, destinationAccountId: null, counterpartyKind: destination.kind,
+      direction: 'inbound', sourceAccountId: null, destinationAccountId: account.id, counterpartyKind: destination.kind,
       counterpartyValue: destination.value, holderName: input.transfer.holderName, taxIdLast4: input.transfer.taxIdLast4,
       amountMinor: input.transfer.amountMinor, description: input.transfer.description, externalReference: input.transfer.externalReference,
       status: payment.payment.status === 'review' ? 'pending' : 'settled', transactionId: payment.payment.id,
@@ -704,10 +655,70 @@ export async function createInstantTransfer(input: {
     await insertAudit(database, {
       organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.transfer_created',
       resourceType: 'instant_transfer', resourceId: id,
-      payload: { scheme: 'credit_push', direction: 'outbound', status: payment.payment.status, amountMinor: input.transfer.amountMinor.toString() },
+      payload: { scheme: 'credit_push', direction: 'inbound', status: payment.payment.status, amountMinor: input.transfer.amountMinor.toString(), ...approvalAudit },
     });
     return { transfer: await retrieveInstantTransfer(input.organizationId, id, database), replayed: false };
+  }
+
+  if (local) {
+    if (local.accountId === account.id) throw new InstantPaymentError('La cuenta de origen y destino deben ser diferentes.', 400, 'same_account');
+    const destinationAccount = await loadAccount(database, input.organizationId, local.accountId, true);
+    assertArsAccount(destinationAccount);
+    const movement = await postInternalMovement(database, {
+      organizationId: input.organizationId, actor: input.actor, operationKey, source: account, destination: destinationAccount,
+      amountMinor: input.transfer.amountMinor, description: input.transfer.description,
+      counterparty: `internal:${destinationAccount.accountReference}`, signals: input.signals,
+    });
+    if ('declined' in movement) return { declined: movement.declined, replayed: movement.replayed };
+    await insertTransfer(database, {
+      id, organizationId: input.organizationId, idempotencyKey: input.idempotencyKey, fingerprint, scheme: 'credit_push',
+      direction: 'internal', sourceAccountId: account.id, destinationAccountId: destinationAccount.id,
+      counterpartyKind: destination.kind, counterpartyValue: destination.value, holderName: local.holderName,
+      taxIdLast4: local.taxIdLast4, amountMinor: input.transfer.amountMinor, description: input.transfer.description,
+      externalReference: input.transfer.externalReference, status: movement.status, transactionId: movement.transactionId,
+      qrPayload: null, expiresAt: null, actorId: input.actor.userId, createdAt, collectionTillId: local.collectionTillId ?? null,
+    });
+    await insertAudit(database, {
+      organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.transfer_created',
+      resourceType: 'instant_transfer', resourceId: id,
+      payload: { scheme: 'credit_push', direction: 'internal', status: movement.status, amountMinor: input.transfer.amountMinor.toString(), ...approvalAudit },
+    });
+    if (local.collectionTillId) {
+      await insertAudit(database, {
+        organizationId: input.organizationId, actorId: input.actor.userId, action: 'collection.till_credited',
+        resourceType: 'collection_till', resourceId: local.collectionTillId,
+        payload: { transferId: id, amountMinor: input.transfer.amountMinor.toString(), direction: 'internal' },
+      });
+    }
+    return { transfer: await retrieveInstantTransfer(input.organizationId, id, database), replayed: false };
+  }
+
+  let payment;
+  try {
+    payment = await createAccountPaymentInTransaction({
+      organizationId: input.organizationId, actor: input.actor, idempotencyKey: `outbound-${input.idempotencyKey}`,
+      accountId: account.id, direction: 'cash_out', counterparty: `${destination.kind}:${railLast4(destination.value)}`,
+      description: input.transfer.description, amountMinor: input.transfer.amountMinor, currency: 'ARS', signals: input.signals,
+    }, database);
+  } catch (error) {
+    if (error instanceof LedgerError) throw new InstantPaymentError(error.message, error.status, error.code);
+    throw error;
+  }
+  if ('declined' in payment) return { declined: payment.declined, replayed: payment.replayed };
+  await insertTransfer(database, {
+    id, organizationId: input.organizationId, idempotencyKey: input.idempotencyKey, fingerprint, scheme: 'credit_push',
+    direction: 'outbound', sourceAccountId: account.id, destinationAccountId: null, counterpartyKind: destination.kind,
+    counterpartyValue: destination.value, holderName: input.transfer.holderName, taxIdLast4: input.transfer.taxIdLast4,
+    amountMinor: input.transfer.amountMinor, description: input.transfer.description, externalReference: input.transfer.externalReference,
+    status: payment.payment.status === 'review' ? 'pending' : 'settled', transactionId: payment.payment.id,
+    qrPayload: null, expiresAt: null, actorId: input.actor.userId, createdAt,
   });
+  await insertAudit(database, {
+    organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.transfer_created',
+    resourceType: 'instant_transfer', resourceId: id,
+    payload: { scheme: 'credit_push', direction: 'outbound', status: payment.payment.status, amountMinor: input.transfer.amountMinor.toString(), ...approvalAudit },
+  });
+  return { transfer: await retrieveInstantTransfer(input.organizationId, id, database), replayed: false };
 }
 
 export async function returnInstantTransfer(input: {

@@ -63,7 +63,7 @@ export const HELP_ARTICLES = [
     id: 'approvals',
     title: 'Aprobaciones maker/checker',
     summary: 'Cola de operaciones que exigen otro actor privilegiado.',
-    body: 'Aprobaciones lista solicitudes pendientes (transferencias y book transfers, sus reversas, cash-in/out y sus reversas, pagos de servicios y sus reversas, altas de mandatos recurrentes, devoluciones instant/cobranzas, payouts, settlements y políticas). Approve/reject exige otro usuario con MFA cuando la política lo pide. No es un workflow externo: vive en el tenant y deja auditoría. Viewer no aprueba.',
+    body: 'Aprobaciones lista solicitudes pendientes (transferencias y book transfers, sus reversas, cash-in/out y sus reversas, pagos de servicios y sus reversas, altas y devoluciones de transferencias instantáneas, altas de mandatos recurrentes, devoluciones de cobranzas, payouts, settlements y políticas). Approve/reject exige otro usuario con MFA cuando la política lo pide. No es un workflow externo: vive en el tenant y deja auditoría. Viewer no aprueba.',
   },
   {
     id: 'bill-payments',
@@ -93,7 +93,7 @@ export const HELP_ARTICLES = [
     id: 'pagos-ar',
     title: 'Pagos AR',
     summary: 'Instrumentos locales sandbox: CVU, alias, DEBIN e instant transfers internos.',
-    body: 'Pagos AR usa el riel sandbox Cimbra (prefijo 0009999). No consulta el directorio nacional ni mueve Transferencias 3.0 reales. La devolución canónica es POST /api/v1/instant-transfers/{id}/return; con política instant_transfer.return pasa por Aprobaciones. Live exige Coelsa u otro riel oficial.',
+    body: 'Pagos AR usa el riel sandbox Cimbra (prefijo 0009999). No consulta el directorio nacional ni mueve Transferencias 3.0 reales. Con política instant_transfer.create el alta queda pendiente de maker/checker; la devolución canónica es POST /api/v1/instant-transfers/{id}/return y con instant_transfer.return también pasa por Aprobaciones. Live exige Coelsa u otro riel oficial.',
   },
   {
     id: 'echeq',

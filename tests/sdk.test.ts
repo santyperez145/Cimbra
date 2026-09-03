@@ -306,6 +306,21 @@ test('el SDK representa devoluciones de transferencias instantáneas pendientes 
   if (result.data.requiresApproval) assert.equal(result.data.approval.actionType, 'instant_transfer.return');
 });
 
+test('instantTransfers.create tipa maker/checker opt-in', async () => {
+  const client = new Cimbra({ baseUrl: 'https://api.test', apiKey: 'cim_test', fetch: async () =>
+    Response.json({
+      ok: true, requiresApproval: true, replayed: false, deduplicated: false,
+      approval: { id: 'approval_ip_create_1', actionType: 'instant_transfer.create', resourceType: 'instant_transfer', resourceId: 'ip_new', status: 'pending' },
+    }, { status: 202 }) });
+  const result = await client.instantTransfers.create({
+    externalReference: 'IP-1', accountId: 'account_1', destination: '0110023500000000012342',
+    description: 'MC create', amount: '3.50', currency: 'ARS', confirmHolder: true,
+    holderName: 'Banco Ejemplo', taxIdLast4: '1111',
+  });
+  assert.equal(result.data.requiresApproval, true);
+  if (result.data.requiresApproval) assert.equal(result.data.approval.actionType, 'instant_transfer.create');
+});
+
 test('recurringMandates.create tipa maker/checker opt-in', async () => {
   const client = new Cimbra({ baseUrl: 'https://api.test', apiKey: 'cim_test', fetch: async () =>
     Response.json({

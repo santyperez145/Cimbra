@@ -18,7 +18,10 @@ import { bookTransferFingerprint, BookTransferError, createBookTransferInTransac
 import { BillerError, createBillPaymentOrderInTransaction, createRecurringMandateInTransaction, reverseBillPaymentOrderInTransaction } from './billers';
 import type { RecurringFrequency } from '@/app/lib/platform/billers-input';
 import { CollectionError, refundPaymentLinkInTransaction } from './collections';
-import { InstantPaymentError, returnInstantTransferInTransaction } from './instant-payments';
+import { InstantPaymentError, createInstantTransferInTransaction, returnInstantTransferInTransaction } from './instant-payments';
+import type { NormalizedInstantTransferInput } from '@/app/lib/platform/instant-payments-input';
+import type { ProtectedRiskSignals } from '@/app/lib/platform/risk-signals';
+import { assertSandboxLedgerOrCertifiedRail } from './platform-rails';
 import type { NormalizedPaymentLinkRefundInput } from '@/app/lib/platform/collections-input';
 
 export class ApprovalError extends Error {
@@ -116,7 +119,7 @@ export async function getApprovalPolicies(organizationId: string) {
        WHERE m.organization_id = ? AND m.role IN ('owner', 'admin') AND u.mfa_enabled = 1`,
     ).bind(organizationId).first<{ count: number }>(),
   ]);
-  return (['settlement.execute', 'transfer.create', 'transfer.reverse', 'payment.create', 'payment.reverse', 'bill_payment.create', 'bill_payment.reverse', 'instant_transfer.return', 'collection.refund', 'recurring_mandate.create', 'payout_batch.execute', 'risk.case.resolve', 'reconciliation.exception.resolve', 'dispute.resolve'] as const).map((actionType) => {
+  return (['settlement.execute', 'transfer.create', 'transfer.reverse', 'payment.create', 'payment.reverse', 'bill_payment.create', 'bill_payment.reverse', 'instant_transfer.create', 'instant_transfer.return', 'collection.refund', 'recurring_mandate.create', 'payout_batch.execute', 'risk.case.resolve', 'reconciliation.exception.resolve', 'dispute.resolve'] as const).map((actionType) => {
     const policy = policies.results.find((item) => item.actionType === actionType);
     return { id: policy?.id ?? null, actionType, enabled: policy?.enabled === 1,
       expiresInMinutes: policy?.expiresInMinutes ?? 1440, eligibleApprovers: approvers?.count ?? 0,
@@ -869,6 +872,76 @@ export async function reverseBillPaymentOrderWithApprovalPolicy(input: {
   });
 }
 
+export async function createInstantTransferWithApprovalPolicy(input: {
+  organizationId: string; actor: AuthUser; idempotencyKey: string;
+  transfer: NormalizedInstantTransferInput; signals?: ProtectedRiskSignals;
+  authentication: 'session' | 'api_key'; apiKeyId: string | null;
+}) {
+  await assertSandboxLedgerOrCertifiedRail('transfers', InstantPaymentError);
+  const fingerprint = await sha256(JSON.stringify({
+    actionType: 'instant_transfer.create',
+    ...input.transfer, amountMinor: input.transfer.amountMinor.toString(), signals: input.signals ?? {},
+  }));
+  return getDatabaseClient().transaction(async (database) => {
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:instant:${input.idempotencyKey}`).first();
+    const existing = await database.prepare(
+      `SELECT id FROM instant_transfers WHERE organization_id = ? AND idempotency_key = ? LIMIT 1`,
+    ).bind(input.organizationId, input.idempotencyKey).first<{ id: string }>();
+    if (existing) {
+      const result = await createInstantTransferInTransaction(input, database);
+      return { requiresApproval: false as const, ...result };
+    }
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:approval:${input.idempotencyKey}`).first();
+    const existingApproval = await database.prepare(
+      `${approvalSelect} WHERE ar.organization_id = ? AND ar.idempotency_key = ? LIMIT 1`,
+    ).bind(input.organizationId, input.idempotencyKey).first<ApprovalRow>();
+    if (existingApproval) {
+      if (existingApproval.requestFingerprint !== fingerprint || existingApproval.resourceType !== 'instant_transfer' ||
+        existingApproval.actionType !== 'instant_transfer.create') {
+        throw new ApprovalError('La Idempotency-Key ya fue usada para otra operación.', 409, 'idempotency_mismatch');
+      }
+      return { requiresApproval: true as const, approval: serializeApproval(existingApproval), replayed: true, deduplicated: false };
+    }
+    await database.prepare('SELECT pg_advisory_xact_lock_shared(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:approval-policy:instant_transfer.create`).first();
+    const policy = await database.prepare(
+      `SELECT expires_in_minutes AS "expiresInMinutes" FROM approval_policies
+       WHERE organization_id = ? AND action_type = 'instant_transfer.create' AND enabled = 1 LIMIT 1`,
+    ).bind(input.organizationId).first<{ expiresInMinutes: number }>();
+    if (!policy) {
+      const result = await createInstantTransferInTransaction(input, database);
+      return { requiresApproval: false as const, ...result };
+    }
+    const id = crypto.randomUUID(); const resourceId = crypto.randomUUID(); const now = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + policy.expiresInMinutes * 60_000).toISOString();
+    const payload = {
+      externalReference: input.transfer.externalReference, accountId: input.transfer.accountId,
+      destination: input.transfer.destination, description: input.transfer.description,
+      amountMinor: input.transfer.amountMinor.toString(), currency: input.transfer.currency,
+      direction: input.transfer.direction, holderName: input.transfer.holderName, taxIdLast4: input.transfer.taxIdLast4,
+      signals: input.signals ?? {}, origin: input.authentication, apiKeyId: input.apiKeyId, sandbox: true,
+    };
+    await database.prepare(
+      `INSERT INTO approval_requests
+        (id, organization_id, action_type, resource_type, resource_id, idempotency_key, request_fingerprint, status,
+         request_payload, requested_by, expires_at, created_at, updated_at)
+       VALUES (?, ?, 'instant_transfer.create', 'instant_transfer', ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
+    ).bind(id, input.organizationId, resourceId, input.idempotencyKey, fingerprint, JSON.stringify(payload), input.actor.userId,
+      expiresAt, now, now).run();
+    await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId, action: 'approval.request_created',
+      resourceType: 'approval_request', resourceId: id, payload: { actionType: 'instant_transfer.create', resourceType: 'instant_transfer',
+        resourceId, expiresAt, externalReference: payload.externalReference, accountId: payload.accountId,
+        description: payload.description, amountMinor: payload.amountMinor, currency: payload.currency,
+        direction: payload.direction, destinationKind: payload.destination.kind,
+        counterpartyLast4: payload.destination.value.slice(-4), origin: payload.origin, sandbox: true } });
+    const approval = await approvalById(database, input.organizationId, id);
+    if (!approval) throw new ApprovalError('No pudimos recuperar la solicitud.', 500, 'approval_create_failed');
+    return { requiresApproval: true as const, approval, replayed: false, deduplicated: false };
+  });
+}
+
 export async function returnInstantTransferWithApprovalPolicy(input: {
   organizationId: string; actor: AuthUser; transferId: string; idempotencyKey: string;
   authentication: 'session' | 'api_key'; apiKeyId: string | null;
@@ -1230,6 +1303,35 @@ function recurringMandatePayload(row: ApprovalRow) {
   } catch { return null; }
 }
 
+function instantTransferCreatePayload(row: ApprovalRow): {
+  transfer: NormalizedInstantTransferInput; signals: ProtectedRiskSignals | undefined;
+} | null {
+  try {
+    const payload = JSON.parse(row.requestPayload) as Record<string, unknown>;
+    const destination = payload.destination && typeof payload.destination === 'object' && !Array.isArray(payload.destination)
+      ? payload.destination as Record<string, unknown> : null;
+    if (!destination || (destination.kind !== 'cvu' && destination.kind !== 'cbu' && destination.kind !== 'alias') ||
+      typeof destination.value !== 'string') return null;
+    if (typeof payload.externalReference !== 'string' || typeof payload.accountId !== 'string' ||
+      typeof payload.description !== 'string' || typeof payload.amountMinor !== 'string' ||
+      payload.currency !== 'ARS' || (payload.direction !== 'outbound' && payload.direction !== 'inbound') ||
+      typeof payload.holderName !== 'string' || typeof payload.taxIdLast4 !== 'string') return null;
+    const amountMinor = BigInt(payload.amountMinor);
+    if (amountMinor <= 0n) return null;
+    const signals = parseProtectedRiskSignals(payload.signals);
+    if (!signals) return null;
+    return {
+      transfer: {
+        externalReference: payload.externalReference, accountId: payload.accountId,
+        destination: { kind: destination.kind, value: destination.value },
+        description: payload.description, amountMinor, currency: 'ARS',
+        direction: payload.direction, holderName: payload.holderName, taxIdLast4: payload.taxIdLast4,
+      },
+      signals,
+    };
+  } catch { return null; }
+}
+
 function disputeResolutionPayload(row: ApprovalRow): { event: DisputeEvent; note: string } | null {
   try {
     const payload = JSON.parse(row.requestPayload) as Record<string, unknown>;
@@ -1578,6 +1680,25 @@ export async function decideApprovalRequest(input: {
           if (error instanceof BillerError && error.status < 500) failure = { message: error.message, code: error.code, status: error.status };
           else if (error instanceof LedgerError && error.status < 500) failure = { message: error.message, code: error.code, status: error.status };
           else throw error;
+        }
+      } else if (row.actionType === 'instant_transfer.create') {
+        const payload = instantTransferCreatePayload(row);
+        if (!payload) throw new ApprovalError('El payload protegido de la transferencia instantánea es inválido.', 500, 'approval_payload_invalid');
+        try {
+          const execution = await createInstantTransferInTransaction({
+            organizationId: input.organizationId, actor: input.actor, idempotencyKey: `approval:${row.id}`,
+            transferId: row.resourceId, approvalContext: { requestId: row.id, requestedBy: row.requestedBy },
+            transfer: payload.transfer, signals: payload.signals,
+          }, database);
+          if ('declined' in execution) {
+            failure = { message: 'La política de riesgo rechazó la transferencia instantánea aprobada.', code: 'risk_declined', status: 422 };
+          } else executedInstantTransfer = execution.transfer;
+        } catch (error) {
+          if (error instanceof InstantPaymentError && error.status < 500) {
+            failure = { message: error.message, code: error.code, status: error.status };
+          } else if (error instanceof LedgerError && error.status < 500) {
+            failure = { message: error.message, code: error.code, status: error.status };
+          } else throw error;
         }
       } else if (row.actionType === 'instant_transfer.return') {
         try {

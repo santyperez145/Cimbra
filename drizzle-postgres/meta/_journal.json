@@ -386,6 +386,13 @@
       "when": 1788396000000,
       "tag": "0054_recurring_mandate_approval",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1788397200000,
+      "tag": "0055_instant_transfer_create_approval",
+      "breakpoints": true
     }
   ]
 }

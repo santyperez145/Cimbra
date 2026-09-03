@@ -170,8 +170,12 @@ export default function InstantPaymentsPanel({ role, accounts }: { role: Organiz
         confirmHolder: true, holderName: form.get('holderName'), taxIdLast4: form.get('taxIdLast4'),
       }),
     });
-    const result = await response.json() as unknown;
-    setFeedback(response.ok ? 'Transferencia instantánea registrada en el riel sandbox de Cimbra.' : apiError(result, 'No pudimos crear la transferencia.'));
+    const result = await response.json() as { requiresApproval?: boolean; error?: unknown };
+    setFeedback(response.ok
+      ? (result.requiresApproval
+        ? 'Solicitud enviada a Aprobaciones (maker/checker).'
+        : 'Transferencia instantánea registrada en el riel sandbox de Cimbra.')
+      : apiError(result, 'No pudimos crear la transferencia.'));
     if (response.ok) { formElement.reset(); await load(); }
     setBusy(false);
   }
@@ -440,7 +444,7 @@ export default function InstantPaymentsPanel({ role, accounts }: { role: Organiz
     </article>
 
     <article className="module-list">
-      <div className="card-head"><div><h2>Transferencias</h2><p>Crédito, débito interno y QR · devolución con política instant_transfer.return pasa por Aprobaciones</p></div></div>
+      <div className="card-head"><div><h2>Transferencias</h2><p>Crédito, débito interno y QR · alta con política instant_transfer.create y devolución con instant_transfer.return pasan por Aprobaciones</p></div></div>
       {transfers.length === 0 ? <div className="table-empty">Sin transferencias instantáneas.</div>
         : transfers.map((item) => <div key={item.id}><span className="movement"><i>↔</i><b>{item.scheme} · {item.direction}<small>{item.description} · {item.counterpartyKind} …{item.counterpartyLast4} · {STATUS_LABELS[item.status] ?? item.status}</small></b></span><strong>{money(item.amount, item.currency)}</strong>{canOperate && item.status === 'settled' && <button type="button" className="danger-link" disabled={busy} onClick={() => returnTransfer(item.id)}>Devolver</button>}</div>)}
     </article>

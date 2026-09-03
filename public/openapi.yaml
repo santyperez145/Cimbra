@@ -793,7 +793,7 @@ paths:
     post:
       operationId: createInstantTransfer
       summary: Create a sandbox credit push with holder confirmation
-      description: Internal CVU/alias settles between product accounts. External CBU/CVU posts cash-out to settlement. Inbound credits a Cimbra CVU from an external originator. Rail is cimbra_sandbox, not Coelsa.
+      description: Creates a sandbox credit push with holder confirmation. Internal CVU/alias settles between product accounts. External CBU/CVU posts cash-out to settlement. Inbound credits a Cimbra CVU from an external originator. When instant_transfer.create maker/checker is enabled, returns 202 with a pending approval instead of settling immediately. Rail is cimbra_sandbox, not Coelsa.
       security: [{ session: [] }, { bearerApiKey: [] }]
       parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody:
@@ -822,6 +822,7 @@ paths:
       responses:
         '201': { description: Instant transfer created }
         '200': { description: Idempotent replay }
+        '202': { description: Pending maker/checker approval }
         '400': { description: Invalid payload }
         '403': { description: Missing transfers:write scope or finance.write permission }
         '404': { description: Account, alias or sandbox CVU not found }
@@ -3162,7 +3163,7 @@ paths:
               type: object
               required: [enabled, expiresInMinutes]
               properties:
-                actionType: { type: string, enum: [settlement.execute, transfer.create, transfer.reverse, payment.create, payment.reverse, bill_payment.create, bill_payment.reverse, instant_transfer.return, collection.refund, recurring_mandate.create, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve], default: settlement.execute }
+                actionType: { type: string, enum: [settlement.execute, transfer.create, transfer.reverse, payment.create, payment.reverse, bill_payment.create, bill_payment.reverse, instant_transfer.create, instant_transfer.return, collection.refund, recurring_mandate.create, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve], default: settlement.execute }
                 enabled: { type: boolean }
                 expiresInMinutes: { type: integer, minimum: 15, maximum: 10080 }
       responses:
@@ -4509,7 +4510,7 @@ components:
       required: [id, actionType, resourceType, resourceId, status, requestPayload, requestedBy, requestedByName, expiresAt, createdAt, updatedAt]
       properties:
         id: { type: string, format: uuid }
-        actionType: { type: string, enum: [settlement.execute, transfer.create, transfer.reverse, payment.create, payment.reverse, bill_payment.create, bill_payment.reverse, instant_transfer.return, collection.refund, recurring_mandate.create, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve] }
+        actionType: { type: string, enum: [settlement.execute, transfer.create, transfer.reverse, payment.create, payment.reverse, bill_payment.create, bill_payment.reverse, instant_transfer.create, instant_transfer.return, collection.refund, recurring_mandate.create, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve] }
         resourceType: { type: string, enum: [settlement_cycle, transfer, book_transfer, payment, bill_payment, instant_transfer, payment_link, recurring_payment_mandate, payout_batch, risk_case, reconciliation_exception, dispute] }
         resourceId: { type: string, format: uuid }
         status: { type: string, enum: [pending, executed, rejected, cancelled, expired, failed] }

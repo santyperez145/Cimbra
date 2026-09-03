@@ -5,7 +5,7 @@ import { roleCan, type OrganizationRole } from '@/app/lib/platform/access-policy
 import { authenticatedFetch } from '@/app/lib/platform/client-http';
 
 type Role = OrganizationRole;
-type ApprovalActionType = 'settlement.execute' | 'transfer.create' | 'transfer.reverse' | 'payment.create' | 'payment.reverse' | 'bill_payment.create' | 'bill_payment.reverse' | 'instant_transfer.return' | 'collection.refund' | 'recurring_mandate.create' | 'payout_batch.execute' | 'risk.case.resolve' | 'reconciliation.exception.resolve' | 'dispute.resolve';
+type ApprovalActionType = 'settlement.execute' | 'transfer.create' | 'transfer.reverse' | 'payment.create' | 'payment.reverse' | 'bill_payment.create' | 'bill_payment.reverse' | 'instant_transfer.create' | 'instant_transfer.return' | 'collection.refund' | 'recurring_mandate.create' | 'payout_batch.execute' | 'risk.case.resolve' | 'reconciliation.exception.resolve' | 'dispute.resolve';
 type ApprovalStatus = 'pending' | 'executed' | 'rejected' | 'cancelled' | 'expired' | 'failed';
 type Approval = {
   id: string; actionType: ApprovalActionType;
@@ -36,6 +36,7 @@ const policyLabels: Record<ApprovalActionType, { title: string; direct: string }
   'bill_payment.create': { title: 'Pagos de servicios y recargas', direct: 'Ejecución directa ledger-backed' },
   'bill_payment.reverse': { title: 'Reversa de pagos de servicios', direct: 'Compensación directa en ledger' },
   'instant_transfer.return': { title: 'Devolución de transferencias instantáneas', direct: 'Compensación directa en ledger' },
+  'instant_transfer.create': { title: 'Alta de transferencias instantáneas', direct: 'Ejecución directa en riel sandbox' },
   'collection.refund': { title: 'Devolución de cobranzas', direct: 'Compensación directa en ledger' },
   'recurring_mandate.create': { title: 'Alta de mandatos recurrentes', direct: 'Alta directa con consentimiento declarado' },
   'payout_batch.execute': { title: 'Ejecución de lotes de payouts', direct: 'Envío asíncrono por ítem' },
@@ -57,6 +58,9 @@ function amountLabel(payload: Approval['requestPayload']) {
 }
 
 function approvalTitle(item: Approval) {
+  if (item.actionType === 'instant_transfer.create') {
+    return `IP · ${item.requestPayload.description ?? item.requestPayload.externalReference ?? item.resourceId}`;
+  }
   if (item.actionType === 'instant_transfer.return') {
     return `Devolución IP · ${item.requestPayload.description ?? item.requestPayload.transferId ?? item.resourceId}`;
   }
@@ -90,6 +94,9 @@ function approvalTitle(item: Approval) {
 }
 
 function approvalChannel(item: Approval) {
+  if (item.actionType === 'instant_transfer.create') {
+    return `${item.requestPayload.direction ?? 'outbound'} · ${item.requestPayload.origin === 'api_key' ? 'API key' : 'consola'}`;
+  }
   if (item.actionType === 'instant_transfer.return') {
     return `${item.requestPayload.scheme ?? 'credit_push'} · ${item.requestPayload.direction ?? 'transfer'} · ${item.requestPayload.origin === 'api_key' ? 'API key' : 'consola'}`;
   }
@@ -126,6 +133,7 @@ function approvalChannel(item: Approval) {
 function approvalIcon(item: Approval) {
   if (item.actionType === 'bill_payment.create') return '⌁';
   if (item.actionType === 'recurring_mandate.create') return '↻';
+  if (item.actionType === 'instant_transfer.create') return '↗';
   if (item.actionType === 'bill_payment.reverse' || item.actionType === 'transfer.reverse' || item.actionType === 'payment.reverse'
     || item.actionType === 'instant_transfer.return' || item.actionType === 'collection.refund') return '↺';
   if (item.resourceType === 'book_transfer') return '⇄';

@@ -9,7 +9,7 @@ import type {
   CreateBookTransferInput, CreateRecurringPaymentMandateInput, CreateSettlementCycleInput, CreateTransferInput, CreateWebhookInput,
   CreatePayoutBatchInput, CreatePayoutBeneficiaryInput, CreateWalletInput, CreateWalletPocketTransferInput, CreateWalletProgramInput,
   AssignRailAliasInput, CreateDebitRequestInput, CreateInstantTransferInput, CreatePaymentQrInput, CreateQrDebtInput, CreateQrSaleOrderInput, IssueRailInstrumentInput, PayPaymentQrInput,
-  CreatePaymentLinkInput, PayPaymentLinkInput, RefundPaymentLinkInput, InstantTransferReturnResult, PaymentLinkRefundResult, PaymentLink, CollectionTill, CreateCollectionTillInput, CreditCollectionTillInput,
+  CreatePaymentLinkInput, PayPaymentLinkInput, RefundPaymentLinkInput, InstantTransferCreationResult, InstantTransferReturnResult, PaymentLinkRefundResult, PaymentLink, CollectionTill, CreateCollectionTillInput, CreditCollectionTillInput,
   CreateEcheqInput, AcceptEcheqInput, EndorseEcheqInput, DepositEcheqInput, Echeq,
   InstantTransfer, PaymentQr, QrDebt, QrSaleOrder, RailDirectoryPreview, RailInstrument,
   PayoutBatch, PayoutBeneficiary,
@@ -321,7 +321,7 @@ export class Cimbra {
     retrieve: (id: string, options?: RequestOptions) =>
       this.request<InstantTransfer>('GET', `/api/v1/instant-transfers/${encodeURIComponent(id)}`, undefined, options),
     create: (input: CreateInstantTransferInput, options?: RequestOptions) =>
-      this.post<{ ok: true; transfer: InstantTransfer; replayed: boolean }>('/api/v1/instant-transfers', input, options, true),
+      this.post<InstantTransferCreationResult>('/api/v1/instant-transfers', input, options, true),
     return: (id: string, options?: RequestOptions) =>
       this.post<InstantTransferReturnResult>(
         `/api/v1/instant-transfers/${encodeURIComponent(id)}/return`, undefined, options, true),

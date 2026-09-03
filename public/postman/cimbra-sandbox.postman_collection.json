@@ -2028,7 +2028,7 @@
               }
             ],
             "url": "{{baseUrl}}/api/v1/instant-transfers",
-            "description": "Internal CVU/alias settles between product accounts. External CBU/CVU posts cash-out to settlement. Inbound credits a Cimbra CVU from an external originator. Rail is cimbra_sandbox, not Coelsa.\n\noperationId: createInstantTransfer\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "description": "Creates a sandbox credit push with holder confirmation. Internal CVU/alias settles between product accounts. External CBU/CVU posts cash-out to settlement. Inbound credits a Cimbra CVU from an external originator. When instant_transfer.create maker/checker is enabled, returns 202 with a pending approval instead of settling immediately. Rail is cimbra_sandbox, not Coelsa.\n\noperationId: createInstantTransfer\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \n}\n",
