@@ -488,11 +488,36 @@ export type ReverseTransactionInput = {
   actor: AuthUser;
   transactionId: string;
   idempotencyKey: string;
-  auditAction?: 'transfer.reversed' | 'bill_payment.reversed' | 'book_transfer.reversed' | 'instant_transfer.returned' | 'collection.refunded';
+  auditAction?: 'transfer.reversed' | 'bill_payment.reversed' | 'book_transfer.reversed' | 'instant_transfer.returned' | 'collection.refunded' | 'payment.reversed';
 };
 
 export async function reverseTransfer(input: ReverseTransactionInput) {
   return getDatabaseClient().transaction((transaction) => reverseTransactionInTransaction(input, transaction));
+}
+
+export async function reverseAccountPayment(input: {
+  organizationId: string; actor: AuthUser; paymentId: string; idempotencyKey: string;
+}) {
+  return getDatabaseClient().transaction(async (transaction) => {
+    const payment = await transaction.prepare(
+      `SELECT id FROM transactions WHERE id = ? AND organization_id = ? AND idempotency_key LIKE 'payment:%' LIMIT 1 FOR UPDATE`,
+    ).bind(input.paymentId, input.organizationId).first<{ id: string }>();
+    if (!payment) throw new LedgerError('Payment no encontrado.', 404, 'payment_not_found');
+    const result = await reverseTransactionInTransaction({
+      organizationId: input.organizationId, actor: input.actor, transactionId: payment.id,
+      idempotencyKey: input.idempotencyKey, auditAction: 'payment.reversed',
+    }, transaction);
+    const updated = await transaction.prepare(
+      `SELECT id, counterparty, description, amount_minor::text AS amountMinor, currency, status,
+        risk_score AS riskScore, reversal_of AS reversalOf, created_at AS createdAt
+       FROM transactions WHERE id = ? AND organization_id = ? LIMIT 1`,
+    ).bind(payment.id, input.organizationId).first<StoredTransaction>();
+    return {
+      payment: serializeTransaction(updated!),
+      reversal: result.transaction,
+      replayed: result.replayed,
+    };
+  });
 }
 
 export async function reverseTransactionInTransaction(input: ReverseTransactionInput, transaction: DatabaseClient) {
@@ -515,7 +540,15 @@ export async function reverseTransactionInTransaction(input: ReverseTransactionI
        FROM transactions WHERE id = ? AND organization_id = ? FOR UPDATE`,
     ).bind(input.transactionId, input.organizationId).first<StoredTransaction>();
     if (!original) throw new LedgerError('Transferencia no encontrada.', 404, 'transaction_not_found');
-    if ((input.auditAction ?? 'transfer.reversed') === 'transfer.reversed') {
+    const auditAction = input.auditAction ?? 'transfer.reversed';
+    const accountPayment = await transaction.prepare(
+      `SELECT id FROM transactions WHERE id = ? AND organization_id = ? AND idempotency_key LIKE 'payment:%' LIMIT 1`,
+    ).bind(original.id, input.organizationId).first<{ id: string }>();
+    if (auditAction === 'payment.reversed' && !accountPayment) {
+      throw new LedgerError('Sólo un cash-in o cash-out puede revertirse como payment.', 409, 'payment_reverse_invalid');
+    }
+    if (auditAction === 'transfer.reversed') {
+      if (accountPayment) throw new LedgerError('Esta transacción debe revertirse desde su payment.', 409, 'payment_reverse_required');
       const billPayment = await transaction.prepare('SELECT id FROM bill_payment_orders WHERE organization_id = ? AND transaction_id = ? LIMIT 1')
         .bind(input.organizationId, original.id).first<{ id: string }>();
       if (billPayment) throw new LedgerError('Esta transacción debe revertirse desde su orden de servicio.', 409, 'bill_payment_reverse_required');

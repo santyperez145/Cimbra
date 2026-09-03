@@ -118,6 +118,25 @@ test('el SDK crea payments regionales con idempotencia automática', async () =>
   assert.equal(result.data.payment.id, 'pay_1');
 });
 
+test('el SDK cablea la reversa canónica de payments', async () => {
+  let requestUrl = '';
+  let idempotencyKey = '';
+  const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', fetch: async (input, init) => {
+    requestUrl = String(input);
+    idempotencyKey = new Headers(init?.headers).get('idempotency-key') ?? '';
+    return Response.json({
+      ok: true, replayed: false,
+      payment: { id: 'pay_1', status: 'reversed' },
+      reversal: { id: 'pay_rev_1', status: 'settled' },
+    }, { status: 201 });
+  } });
+  const result = await client.payments.reverse('pay_1');
+  assert.equal(requestUrl, 'https://api.test/api/v1/payments/pay_1/reverse');
+  assert.match(idempotencyKey, /^idem_[a-f0-9]{32}$/);
+  assert.equal(result.data.payment.status, 'reversed');
+  assert.equal(result.data.reversal.id, 'pay_rev_1');
+});
+
 test('el SDK cablea book transfers, reversas y statements paginados', async () => {
   const calls: Array<{ url: string; method: string; idempotencyKey: string | null }> = [];
   const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0,

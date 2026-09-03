@@ -531,6 +531,24 @@ try {
   assert.equal(cashOut.payment.amountMinor, '-10000');
   const retrievedPayment = await json(await request(`/api/v1/payments/${cashOut.payment.id}`), 200);
   assert.equal(retrievedPayment.id, cashOut.payment.id);
+  const reversibleCashOut = await json(await request('/api/v1/payments', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-cash-reversible-${runId}` },
+    body: JSON.stringify({ accountId: account.id, direction: 'cash_out', counterparty: 'QA Reverse Target', description: 'Reversible cash-out', amount: '25.00', currency: 'ARS' }),
+  }), 201);
+  assert.equal(reversibleCashOut.payment.status, 'settled');
+  const genericPaymentReverse = await json(await request(`/api/v1/transfers/${reversibleCashOut.payment.id}/reverse`, {
+    method: 'POST', headers: { 'Idempotency-Key': `qa-generic-pay-rev-${runId}` },
+  }), 409);
+  assert.equal(genericPaymentReverse.code, 'payment_reverse_required');
+  const paymentReverse = await json(await request(`/api/v1/payments/${reversibleCashOut.payment.id}/reverse`, {
+    method: 'POST', headers: { 'Idempotency-Key': `qa-pay-rev-${runId}` },
+  }), 201);
+  assert.equal(paymentReverse.payment.status, 'reversed');
+  assert.equal(paymentReverse.reversal.reversalOf, reversibleCashOut.payment.id);
+  const paymentReverseReplay = await json(await request(`/api/v1/payments/${reversibleCashOut.payment.id}/reverse`, {
+    method: 'POST', headers: { 'Idempotency-Key': `qa-pay-rev-${runId}` },
+  }), 200);
+  assert.equal(paymentReverseReplay.replayed, true);
 
   const bookTransferKey = `qa-book-transfer-${runId}`;
   const bookTransferPayload = { externalReference: `BT-${runId}`, sourceAccountId: account.id,
@@ -2742,6 +2760,8 @@ try {
     events.push(...page.data); auditCursor = page.hasMore ? page.nextCursor : null;
   } while (auditCursor);
   assert.ok(events.some((event) => event.action === 'transfer.reversed'));
+  assert.ok(events.some((event) => event.action === 'payment.created'));
+  assert.ok(events.some((event) => event.action === 'payment.reversed'));
   assert.ok(events.some((event) => event.action === 'operations.evidence_linked'));
   assert.ok(events.some((event) => event.action === 'dispute.start_review'));
   assert.ok(events.some((event) => event.action === 'dispute.resolve_lost'));

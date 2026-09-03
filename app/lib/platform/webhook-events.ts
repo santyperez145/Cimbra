@@ -60,6 +60,7 @@ export const WEBHOOK_EVENT_TYPES = [
   'hold.captured',
   'hold.released',
   'payment.created',
+  'payment.reversed',
   'payout.beneficiary_created',
   'payout.beneficiary_activated',
   'payout.beneficiary_suspended',

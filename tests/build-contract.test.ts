@@ -72,7 +72,7 @@ test('el estado de cuenta conserva layout de formulario y métricas responsive',
 
 test('la landing publica capacidades reales del sandbox sin inventar rieles', () => {
   const page = readFileSync(join(root, 'app', 'page.tsx'), 'utf8');
-  assert.match(page, /192 operaciones/);
+  assert.match(page, /193 operaciones/);
   assert.match(page, /Pagos AR y cobranzas/);
   assert.match(page, /Live fail-closed/);
   assert.match(page, /Sin Coelsa, DEBIN ni QR de red/);
@@ -116,9 +116,11 @@ test('la consola opera book transfers, cash-in/out y ledger sobre APIs v1 con RB
   assert.match(book, /Idempotency-Key/);
   assert.match(book, /finance\.write/);
   assert.match(payments, /\/api\/v1\/payments/);
+  assert.match(payments, /\/api\/v1\/payments\/\$\{item\.transactionId\}\/reverse/);
   assert.match(payments, /\/api\/v1\/ledger/);
   assert.match(payments, /Idempotency-Key/);
   assert.match(payments, /finance\.write/);
+  assert.match(payments, /Revertir/);
   assert.match(ledger, /\/api\/v1\/ledger/);
   assert.match(ledger, /\/api\/v1\/holds\//);
   assert.match(ledger, /risk\.cases\.resolve/);

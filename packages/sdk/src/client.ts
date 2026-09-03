@@ -165,6 +165,10 @@ export class Cimbra {
     create: (input: CreatePaymentInput, options?: RequestOptions) =>
       this.post<{ ok: true; payment: Transaction; replayed: boolean }>('/api/v1/payments', input, options, true),
     retrieve: (id: string, options?: RequestOptions) => this.request<Transaction>('GET', `/api/v1/payments/${encodeURIComponent(id)}`, undefined, options),
+    reverse: (id: string, options?: RequestOptions) =>
+      this.post<{ ok: true; payment: Transaction; reversal: Transaction; replayed: boolean }>(
+        `/api/v1/payments/${encodeURIComponent(id)}/reverse`, undefined, options, true,
+      ),
   };
 
   readonly capabilities = {

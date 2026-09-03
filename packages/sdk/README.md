@@ -112,6 +112,8 @@ await cimbra.payments.create({
   amount: '250000.00',
   currency: 'ARS',
 });
+
+await cimbra.payments.reverse('00000000-0000-4000-8000-0000000000aa');
 ```
 
 ## Catálogo de servicios Cimbra

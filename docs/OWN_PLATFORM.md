@@ -13,7 +13,7 @@ La independencia tecnológica no elimina la realidad de los rieles. Para mover f
 | Identity & Tenancy | organizaciones, invitaciones verificadas, RBAC, API keys, MFA, maker/checker, auditoría | API, webhooks, consola | Sandbox operativo |
 | Customers, KYC & KYB | personas/empresas, partes relacionadas, evidencia, checks, casos, vencimiento y decisión maker/checker | API, webhooks, SDK, consola | Sandbox operativo; sin verificación externa certificada |
 | Financial Core | cuentas, ledger, book transfers, statements, wallets, pockets, holds, reversas | API, webhooks, SDK, consola | Sandbox operativo |
-| Payment Orchestration | intents, cash-in/out, transfers, routing, estados y doble aprobación | API, webhooks, SDK, consola | Sandbox operativo |
+| Payment Orchestration | cash-in/out, transfers, book transfers, estados, reversas canónicas y doble aprobación | API, webhooks, SDK, consola | Sandbox operativo |
 | Beneficiaries & Payout Batches | destinos protegidos, lotes inmutables, agenda/deadline, doble aprobación, ejecución y resultado por ítem | API, webhooks, SDK, archivos, consola | Sandbox operativo; sin riel de dinero real |
 | Instant Payments | CVU sandbox, alias tenant, asignar/cambiar alias, eliminar CVU, confirmación de titular, crédito, débito interno, QR Cimbra dinámico, estático y de deuda, orden de venta, returns | API, webhooks, SDK, consola | Sandbox operativo; sin Coelsa, DEBIN, directorio nacional ni QR interoperable |
 | ECHEQ | emisión, aceptación, endoso, depósito interno, NSF, anulación y devolución previa | API, webhooks, SDK, consola | Sandbox operativo; sin Coelsa, CMC7, descuento, custodia ni compensación de cámara |

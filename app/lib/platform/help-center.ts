@@ -51,7 +51,7 @@ export const HELP_ARTICLES = [
     id: 'cash-payments',
     title: 'Cash-in y cash-out',
     summary: 'Payments de sandbox contra una cuenta de producto.',
-    body: 'Cash-in/out usa POST /api/v1/payments. Contabiliza ingreso o egreso contra la cuenta de settlement interna. No llama bancos ni BaaS competidores. El historial se lee de journals cash_in/cash_out.',
+    body: 'Cash-in/out usa POST /api/v1/payments y la reversa compensatoria POST /api/v1/payments/{id}/reverse. Contabiliza ingreso o egreso contra la cuenta de settlement interna. No llama bancos ni BaaS competidores. El historial se lee de journals cash_in/cash_out; la reversa genérica de transfers responde 409 payment_reverse_required.',
   },
   {
     id: 'wallets',

@@ -30,47 +30,47 @@ const changelog = [
   {
     date: '02 SEP 2026',
     title: 'Consola: ledger, cash-in/out y nav por capability',
-    detail: 'Ledger y Cash-in/out operan APIs reales; Book transfers queda separado. La navegación filtra por capability. El SDK agrega approvals.approve/reject/cancel. OpenAPI permanece en 192 operaciones.',
+    detail: 'Ledger y Cash-in/out operan APIs reales; Book transfers queda separado. La navegación filtra por capability. El SDK agrega approvals.approve/reject/cancel. OpenAPI permanece en 193 operaciones.',
   },
   {
     date: '02 SEP 2026',
     title: 'Banco patrocinante operable en /ops',
-    detail: 'official_rail_connections suma negotiating, evidencia de sponsor (razón social, CUIT, contrato, safeguarding) y due diligence PSPCP. /ops opera PATCH /api/ops/rails/{id}. BIND Banco es candidato a entidad financiera patrocinante; bindX/BIND PSP siguen fuera del core. El adaptador documental no despacha fondos. OpenAPI permanece en 192 operaciones.',
+    detail: 'official_rail_connections suma negotiating, evidencia de sponsor (razón social, CUIT, contrato, safeguarding) y due diligence PSPCP. /ops opera PATCH /api/ops/rails/{id}. BIND Banco es candidato a entidad financiera patrocinante; bindX/BIND PSP siguen fuera del core. El adaptador documental no despacha fondos. OpenAPI permanece en 193 operaciones.',
   },
   {
     date: '02 SEP 2026',
     title: 'Movimientos sobre la API de transferencias',
-    detail: 'La consola deja el snapshot del dashboard y opera GET/POST /api/v1/transfers con detalle, paginación, export CSV y reversas compensatorias. Viewer lee; operator/admin/owner escriben. OpenAPI permanece en 192 operaciones.',
+    detail: 'La consola deja el snapshot del dashboard y opera GET/POST /api/v1/transfers con detalle, paginación, export CSV y reversas compensatorias. Viewer lee; operator/admin/owner escriben. OpenAPI permanece en 193 operaciones.',
   },
   {
     date: '02 SEP 2026',
     title: 'Auditoría del tenant en la consola',
-    detail: 'La consola opera GET /api/v1/events: log append-only, paginado, filtrable por recurso y exportable. Todos los roles leen; no hay mutación. No es un SIEM. OpenAPI permanece en 192 operaciones.',
+    detail: 'La consola opera GET /api/v1/events: log append-only, paginado, filtrable por recurso y exportable. Todos los roles leen; no hay mutación. No es un SIEM. OpenAPI permanece en 193 operaciones.',
   },
   {
     date: '02 SEP 2026',
     title: 'Cuentas de producto en la consola',
-    detail: 'La consola opera GET/POST /api/v1/accounts y el statement de 30 días. Alta idempotente sobre un cliente del tenant, una moneda por cuenta y saldo derivado del ledger. Viewer lee; operator/admin/owner abren. No es CBU/CVU. OpenAPI permanece en 192 operaciones.',
+    detail: 'La consola opera GET/POST /api/v1/accounts y el statement de 30 días. Alta idempotente sobre un cliente del tenant, una moneda por cuenta y saldo derivado del ledger. Viewer lee; operator/admin/owner abren. No es CBU/CVU. OpenAPI permanece en 193 operaciones.',
   },
   {
     date: '02 SEP 2026',
     title: 'Padrón de clientes en la consola',
-    detail: 'La consola opera GET/POST /api/v1/customers con el mismo contrato del SDK: alta idempotente, last4 fiscal y detalle por id. Viewer lee; operator/admin/owner crean. El KYC/KYB sigue en Compliance. OpenAPI permanece en 192 operaciones.',
+    detail: 'La consola opera GET/POST /api/v1/customers con el mismo contrato del SDK: alta idempotente, last4 fiscal y detalle por id. Viewer lee; operator/admin/owner crean. El KYC/KYB sigue en Compliance. OpenAPI permanece en 193 operaciones.',
   },
   {
     date: '02 SEP 2026',
     title: 'Soporte, organización, superadmin y catálogo de servicios',
-    detail: 'API v1 de casos de soporte y perfil del tenant, /ops para operadores provisionados, /help y /status públicos, y GET /api/v1/services con fronteras de dominio verificadas. Runtime compartido: ningún servicio se declara standalone. OpenAPI pasa a 192 operaciones. BIND, Dock, tapi, Pismo, Pomelo y Wibond siguen siendo benchmarks.',
+    detail: 'API v1 de casos de soporte y perfil del tenant, /ops para operadores provisionados, /help y /status públicos, y GET /api/v1/services con fronteras de dominio verificadas. Runtime compartido: ningún servicio se declara standalone. OpenAPI pasa a 193 operaciones. BIND, Dock, tapi, Pismo, Pomelo y Wibond siguen siendo benchmarks.',
   },
   {
     date: '01 SEP 2026',
     title: 'Data room público y presupuesto Gate 1',
-    detail: 'GET /api/v1/live-readiness publica capitalPlan (USD 500, gastado 0, liveReadyAfterSpend=false). /investors muestra evidencia del sandbox sin clientes ni volumen inventados. El envelope no autoriza AWS pago, Coelsa, banco patrocinante ni Go Live. OpenAPI quedó en 179 operaciones en ese corte; el contrato vigente es 192.',
+    detail: 'GET /api/v1/live-readiness publica capitalPlan (USD 500, gastado 0, liveReadyAfterSpend=false). /investors muestra evidencia del sandbox sin clientes ni volumen inventados. El envelope no autoriza AWS pago, Coelsa, banco patrocinante ni Go Live. OpenAPI quedó en 179 operaciones en ese corte; el contrato vigente es 193.',
   },
   {
     date: '01 SEP 2026',
     title: 'QR estático del punto de recaudación',
-    detail: 'Un collection_till emite su propio cimbra:qr:static:v1 (issueStaticQr o POST /api/v1/collection-tills/{id}/static-qr) sin gastar el QR estático de la cuenta. closedAmountOnly exige una orden de venta pendiente. El pago imputa collectionTillId. El payload no se cancela: se deshabilita el punto. OpenAPI quedó en 179 operaciones en ese corte; el contrato vigente es 192. No es QR interoperable, EMVCo ni POS.',
+    detail: 'Un collection_till emite su propio cimbra:qr:static:v1 (issueStaticQr o POST /api/v1/collection-tills/{id}/static-qr) sin gastar el QR estático de la cuenta. closedAmountOnly exige una orden de venta pendiente. El pago imputa collectionTillId. El payload no se cancela: se deshabilita el punto. OpenAPI quedó en 179 operaciones en ese corte; el contrato vigente es 193. No es QR interoperable, EMVCo ni POS.',
   },
   {
     date: '01 SEP 2026',

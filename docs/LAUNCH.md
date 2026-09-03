@@ -4,7 +4,7 @@
 
 - marca y narrativa comercial orientada a compradores, con capacidades y límites verificables;
 - sitio responsive, sesión contextual y captación persistente;
-- portal developer conectado al OpenAPI real, con las 192 operaciones, parámetros, respuestas, búsqueda, quickstart ejecutable, límites del entorno sandbox y changelog;
+- portal developer conectado al OpenAPI real, con las 193 operaciones, parámetros, respuestas, búsqueda, quickstart ejecutable, límites del entorno sandbox y changelog;
 - `GET /api/v1/live-readiness` y `/api/health` exponen sandbox vs production, etapas Pomelo Integración → Homologación → Go Live, productos del catálogo público, rieles oficiales (BCRA, Coelsa, banco patrocinante, PCI), el camino PSPCP y el envelope de USD 500 de Gate 1 (`capitalPlan`, gastado 0); `liveReady=false` porque no hay hostname, inscripción, riel live ni adaptador. Gastar ese presupuesto no marca Go Live.
 - soporte tenant-scoped (`/api/v1/support`), perfil de organización, catálogo de servicios (`GET /api/v1/services`), centro de ayuda `/help`, status público `/status` y superadministración `/ops` restringida a `CIMBRA_PLATFORM_OPERATOR_EMAILS`. Los servicios de dominio corren en runtime compartido; extraer uno exige volumen o riesgo y autorización de gasto.
 - identidad y consola multi-tenant básica;

@@ -75,7 +75,7 @@ El ledger actual es el núcleo financiero real. El host de despliegue sigue en s
 
 - Identity & Tenancy: organizaciones, roles, permisos, claves, políticas y segregación.
 - Financial Core: cuentas, ledger de doble partida, holds, book transfers, statements, reversas y balances derivados.
-- Payment Orchestration: intents, routing, conectores directos a rieles, webhooks, conciliación y settlement.
+- Payment Orchestration: cash-in/out, transfers, book transfers, reversas canónicas, webhooks, conciliación y settlement sobre el ledger propio; conexiones directas a rieles regulados sólo cuando haya evidencia live.
 - Cards & Lending: emisión/procesamiento y ciclo de crédito como dominios separados.
 - Risk & Compliance: KYC/KYB, screening, rules engine, casos, evidencia y reportes.
 - Platform: API gateway, event bus, workflows, observabilidad, developer portal y billing.

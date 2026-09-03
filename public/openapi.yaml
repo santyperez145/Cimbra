@@ -1637,6 +1637,21 @@ paths:
       responses:
         '200': { description: Payment }
         '404': { description: Payment not found in tenant }
+  /api/v1/payments/{id}/reverse:
+    post:
+      operationId: reversePayment
+      summary: Reverse a settled cash-in or cash-out with compensating ledger postings
+      description: Canonical payment reversal. Generic transfer reverse returns 409 payment_reverse_required for cash movements.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '201': { description: Payment reversed }
+        '200': { description: Idempotent replay }
+        '403': { description: Missing payments:write scope or finance.write permission }
+        '404': { description: Payment not found in tenant }
+        '409': { description: Payment not settled, already reversed, or not a cash payment }
   /api/v1/billers:
     get:
       operationId: listBillers

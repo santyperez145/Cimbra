@@ -7,7 +7,8 @@ import { authenticatedFetch } from '@/app/lib/platform/client-http';
 
 type Account = { id: string; accountReference: string; currency: string; balance: number; status: string };
 type Journal = {
-  id: string; kind: string; description: string; currency: string; amount: number; postedAt: string; status: string;
+  id: string; transactionId: string | null; kind: string; description: string; currency: string;
+  amount: number; postedAt: string; status: string;
 };
 
 function money(value: number, currency: string) {
@@ -69,6 +70,23 @@ export default function PaymentsPanel({ accounts, role }: { accounts: Account[];
     setBusy(false);
   }
 
+  async function reverse(item: Journal) {
+    if (!item.transactionId) return;
+    if (!window.confirm(`¿Revertir este ${item.kind} con postings compensatorios?`)) return;
+    setBusy(true); setFeedback('');
+    const response = await authenticatedFetch(`/api/v1/payments/${item.transactionId}/reverse`, {
+      method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() },
+    });
+    const body = await response.json() as { payment?: { status: string }; error?: string | { message?: string } };
+    if (!response.ok) setFeedback(apiError(body, 'No pudimos revertir el payment.'));
+    else {
+      setFeedback('Payment revertido con compensación en el ledger.');
+      await load();
+      router.refresh();
+    }
+    setBusy(false);
+  }
+
   const operable = accounts.filter((account) => account.status === 'active');
 
   return <div className="module-view">
@@ -117,14 +135,19 @@ export default function PaymentsPanel({ accounts, role }: { accounts: Account[];
             ? <div className="table-empty">{canOperate ? 'Registrá el primer cash-in o cash-out.' : 'No hay payments para consultar.'}</div>
             : payments.map((item) => (
               <div key={item.id}>
-                <span className="movement"><i>{item.kind === 'cash_in' ? '↙' : '↗'}</i><b>{item.description}<small>{item.kind} · {new Date(item.postedAt).toLocaleString('es-AR')}</small></b></span>
-                <strong className={item.kind === 'cash_in' ? 'positive' : ''}>{item.kind === 'cash_in' ? '+' : '-'}{money(item.amount, item.currency)}</strong>
+                <span className="movement"><i>{item.kind === 'cash_in' ? '↙' : '↗'}</i><b>{item.description}<small>{item.kind} · {item.status} · {new Date(item.postedAt).toLocaleString('es-AR')}</small></b></span>
+                <span className="approval-actions">
+                  <strong className={item.kind === 'cash_in' ? 'positive' : ''}>{item.kind === 'cash_in' ? '+' : '-'}{money(item.amount, item.currency)}</strong>
+                  {canOperate && item.status === 'posted' && item.transactionId
+                    ? <button type="button" disabled={busy} onClick={() => void reverse(item)}>Revertir</button>
+                    : null}
+                </span>
               </div>
             ))}
         </div>
       </article>
     </div>
-    {!canOperate && <p className="role-boundary-copy">Viewer: sólo lectura del historial cash. Las altas requieren operator, admin u owner.</p>}
-    <p className="role-boundary-copy">Sandbox: no mueve fondos reales ni usa adaptadores regionales. Distinto de book transfers (entre cuentas Cimbra) y de Pagos AR (instrumentos locales).</p>
+    {!canOperate && <p className="role-boundary-copy">Viewer: sólo lectura del historial cash. Las altas y reversas requieren operator, admin u owner.</p>}
+    <p className="role-boundary-copy">Sandbox: no mueve fondos reales ni usa adaptadores regionales. Distinto de book transfers (entre cuentas Cimbra) y de Pagos AR (instrumentos locales). Reversa canónica: POST /api/v1/payments/{'{id}'}/reverse.</p>
   </div>;
 }
