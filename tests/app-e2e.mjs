@@ -123,9 +123,12 @@ async function cleanup() {
       await transaction`DELETE FROM payment_link_credits WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM payment_links WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM qr_debts WHERE organization_id = ${organizationId}`;
+      await transaction`UPDATE instant_transfers SET collection_till_id = NULL WHERE organization_id = ${organizationId}`;
+      await transaction`UPDATE collection_tills SET payment_qr_id = NULL WHERE organization_id = ${organizationId}`;
+      await transaction`UPDATE payment_qrs SET paid_transfer_id = NULL WHERE organization_id = ${organizationId}`;
+      await transaction`DELETE FROM payment_qrs WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM instant_transfers WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM collection_tills WHERE organization_id = ${organizationId}`;
-      await transaction`DELETE FROM payment_qrs WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM echeq_endorsements WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM echeqs WHERE organization_id = ${organizationId}`;
       await transaction`DELETE FROM rail_instruments WHERE organization_id = ${organizationId}`;
@@ -279,8 +282,12 @@ try {
   assert.equal(liveReadiness.data.fintechPath.intendedFigure, 'PSPCP');
   assert.equal(liveReadiness.data.fintechPath.metCount, 0);
   assert.ok(liveReadiness.data.rails.length >= 10);
-  assert.equal(liveReadiness.data.rails.every((rail) => rail.status === 'unwired' && rail.adapterRegistered === false), true);
+  assert.equal(liveReadiness.data.rails.every((rail) => rail.status === 'unwired' || rail.status === 'negotiating'), true);
+  assert.equal(liveReadiness.data.rails.every((rail) => rail.status !== 'live'), true);
   assert.equal(liveReadiness.data.rails.some((rail) => /bind|dock|tapi|pismo|pomelo|wibond/i.test(rail.counterparty)), false);
+  assert.equal(liveReadiness.data.capitalPlan.spent >= 0, true);
+  assert.equal(liveReadiness.data.capitalPlan.liveReadyAfterSpend, false);
+  assert.ok(liveReadiness.data.capitalPlan.allocations.some((item) => item.id === 'legal_consult'));
 
   const helpPage = await request('/help');
   assert.equal(helpPage.status, 200);
@@ -290,9 +297,15 @@ try {
   assert.match(helpHtml, /Cuentas de producto/);
   assert.match(helpHtml, /Registro de auditoría/);
   assert.match(helpHtml, /Movimientos y transferencias/);
+  assert.match(helpHtml, /Libro mayor/);
+  assert.match(helpHtml, /Cash-in y cash-out/);
+  assert.match(helpHtml, /Book transfers/);
   const statusPage = await request('/status');
   assert.equal(statusPage.status, 200);
-  assert.match(await statusPage.text(), /STATUS PÚBLICO/);
+  const statusHtml = await statusPage.text();
+  assert.match(statusHtml, /STATUS PÚBLICO/);
+  assert.match(statusHtml, /Camino PSPCP/);
+  assert.match(statusHtml, /Rieles oficiales/);
 
   const organization = await json(await request('/api/v1/organization'), 200);
   assert.equal(organization.data.country, 'AR');
@@ -533,6 +546,14 @@ try {
     method: 'POST', headers: { 'Idempotency-Key': `qa-book-reverse-${runId}` },
   }), 200);
   assert.equal(bookReverseReplay.replayed, true);
+  const destinationCashIn = await json(await request('/api/v1/payments', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-dest-cashin-${runId}` },
+    body: JSON.stringify({
+      accountId: destinationAccount.id, direction: 'cash_in', counterparty: 'QA Destination Float',
+      description: 'Float for QR and collections', amount: '500.00', currency: 'ARS',
+    }),
+  }), 201);
+  assert.equal(destinationCashIn.payment.amountMinor, '50000');
 
   const walletProgramKey = `qa-wallet-program-${runId}`;
   const walletProgramPayload = { name: `Wallet QA ${runId}`, displayName: 'Billetera QA', defaultCurrency: 'ARS',
@@ -608,7 +629,7 @@ try {
   assert.ok((await json(await request('/api/v1/wallets?limit=10'), 200)).data.some((item) => item.id === wallet.id));
   assert.ok((await json(await request(`/api/v1/wallets/${wallet.id}/lifecycle`), 200)).data.some((event) => event.toStatus === 'frozen'));
 
-  const alias = `QAINST${runId.replaceAll('-', '').slice(0, 8)}`;
+  const alias = `QAINST${runId.replaceAll('-', '').slice(0, 8)}`.toUpperCase();
   const issuedSource = await json(await request('/api/v1/rail-instruments', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-cvu-source-${runId}` },
     body: JSON.stringify({ accountId: account.id, alias }),
@@ -625,7 +646,7 @@ try {
     body: JSON.stringify({ accountId: destinationAccount.id }),
   }), 201);
   const destinationCvu = issuedDestination.instruments.find((item) => item.kind === 'cvu');
-  const destAlias = `QADEST${runId.replaceAll('-', '').slice(0, 8)}`;
+  const destAlias = `QADEST${runId.replaceAll('-', '').slice(0, 8)}`.toUpperCase();
   const assignKey = `qa-alias-assign-${runId}`;
   const assigned = await json(await request(`/api/v1/rail-instruments/${destinationCvu.id}/alias`, {
     method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': assignKey },
@@ -643,7 +664,7 @@ try {
     body: JSON.stringify({ alias }),
   }), 422);
   assert.equal(aliasConflict.error.code, 'alias_conflict');
-  const changedAlias = `QACHG${runId.replaceAll('-', '').slice(0, 8)}`;
+  const changedAlias = `QACHG${runId.replaceAll('-', '').slice(0, 8)}`.toUpperCase();
   const changed = await json(await request(`/api/v1/rail-instruments/${destinationCvu.id}/alias`, {
     method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-alias-change-${runId}` },
     body: JSON.stringify({ alias: changedAlias }),
@@ -827,7 +848,7 @@ try {
   assert.equal(debtViaQr.error.code, 'invalid_payment_qr');
   const debtKey = `qa-debt-${runId}`;
   const debtPayload = {
-    accountId: account.id, externalReference: `DEUDA-${runId}`, description: 'Cuota única QA', amount: '6.00', currency: 'ARS',
+    accountId: destinationAccount.id, externalReference: `DEUDA-${runId}`, description: 'Cuota única QA', amount: '6.00', currency: 'ARS',
   };
   const debtCreated = await json(await request('/api/v1/qr-debts', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': debtKey },
@@ -853,12 +874,12 @@ try {
   assert.equal(saleOnDebt.error.code, 'sale_order_requires_static_qr');
   const debtMismatch = await json(await request(`/api/v1/payment-qrs/${debtCreated.debt.paymentQrId}/pay`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-debt-mismatch-${runId}` },
-    body: JSON.stringify({ sourceAccountId: destinationAccount.id, externalReference: `QR-DEBT-MIS-${runId}`, amount: '9.00' }),
+    body: JSON.stringify({ sourceAccountId: account.id, externalReference: `QR-DEBT-MIS-${runId}`, amount: '9.00' }),
   }), 422);
   assert.equal(debtMismatch.error.code, 'qr_amount_mismatch');
   const debtPaid = await json(await request(`/api/v1/payment-qrs/${debtCreated.debt.paymentQrId}/pay`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-debt-pay-${runId}` },
-    body: JSON.stringify({ sourceAccountId: destinationAccount.id, externalReference: `QR-DEBT-${runId}` }),
+    body: JSON.stringify({ sourceAccountId: account.id, externalReference: `QR-DEBT-${runId}` }),
   }), 201);
   assert.equal(debtPaid.transfer.status, 'settled');
   assert.equal(debtPaid.transfer.amount, 6);
@@ -868,11 +889,11 @@ try {
   assert.equal(listedAfterDebt.data.find((item) => item.id === debtCreated.debt.paymentQrId).status, 'paid');
   const debtRepay = await json(await request(`/api/v1/payment-qrs/${debtCreated.debt.paymentQrId}/pay`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-debt-repay-${runId}` },
-    body: JSON.stringify({ sourceAccountId: destinationAccount.id, externalReference: `QR-DEBT-2-${runId}` }),
+    body: JSON.stringify({ sourceAccountId: account.id, externalReference: `QR-DEBT-2-${runId}` }),
   }), 409);
   assert.equal(debtRepay.error.code, 'qr_not_active');
   const debtCancelPayload = {
-    accountId: account.id, externalReference: `DEUDA-DEL-${runId}`, description: 'Eliminar', amount: '2.00', currency: 'ARS',
+    accountId: destinationAccount.id, externalReference: `DEUDA-DEL-${runId}`, description: 'Eliminar', amount: '2.00', currency: 'ARS',
   };
   const debtToCancel = await json(await request('/api/v1/qr-debts', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-debt-del-create-${runId}` },
@@ -889,7 +910,7 @@ try {
   assert.equal(debtCancelledReplay.replayed, true);
   const payCancelledDebt = await json(await request(`/api/v1/payment-qrs/${debtToCancel.debt.paymentQrId}/pay`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-debt-pay-dead-${runId}` },
-    body: JSON.stringify({ sourceAccountId: destinationAccount.id, externalReference: `QR-DEBT-DEAD-${runId}` }),
+    body: JSON.stringify({ sourceAccountId: account.id, externalReference: `QR-DEBT-DEAD-${runId}` }),
   }), 409);
   assert.equal(payCancelledDebt.error.code, 'qr_not_active');
   const duplicateStatic = await json(await request('/api/v1/payment-qrs', {
@@ -1005,10 +1026,10 @@ try {
       amount: '4.00', currency: 'ARS',
     }),
   }), 201);
-  const cancelled = await json(await request(`/api/v1/payment-links/${cancelledLink.link.id}/cancel`, {
+  const cancelledPaymentLink = await json(await request(`/api/v1/payment-links/${cancelledLink.link.id}/cancel`, {
     method: 'POST', headers: { 'Idempotency-Key': `qa-link-cancel-exec-${runId}` },
   }), 201);
-  assert.equal(cancelled.link.status, 'cancelled');
+  assert.equal(cancelledPaymentLink.link.status, 'cancelled');
   assert.ok((await json(await request('/api/v1/payment-links?limit=10'), 200)).data.some((item) => item.id === linkCreated.link.id));
 
   const tillStatic = await json(await request('/api/v1/payment-qrs', {
@@ -1061,7 +1082,7 @@ try {
   }), 201);
   assert.equal(tillInternal.transfer.direction, 'internal');
   assert.equal(tillInternal.transfer.collectionTillId, tillCreated.till.id);
-  const tillAlias = `TILL.${runId.replaceAll('-', '').slice(0, 14)}`;
+  const tillAlias = `TILL.${runId.replaceAll('-', '').slice(0, 14)}`.toUpperCase();
   const tillAliased = await json(await request(`/api/v1/collection-tills/${tillCreated.till.id}/alias`, {
     method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-till-alias-${runId}` },
     body: JSON.stringify({ alias: tillAlias }),
@@ -1219,13 +1240,13 @@ try {
       amount: '5.00', currency: 'ARS', methods: ['cimbra_qr'], qrDebtId: syncDebt.debt.id,
     }),
   }), 201);
-  const qrPaid = await json(await request(`/api/v1/payment-qrs/${syncDebt.debt.paymentQrId}/pay`, {
+  const syncQrPaid = await json(await request(`/api/v1/payment-qrs/${syncDebt.debt.paymentQrId}/pay`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-link-sync-pay-${runId}` },
     body: JSON.stringify({
       sourceAccountId: account.id, externalReference: `QR-SYNC-${runId}`,
     }),
   }), 201);
-  assert.equal(qrPaid.transfer.status, 'settled');
+  assert.equal(syncQrPaid.transfer.status, 'settled');
   const synced = await json(await request(`/api/v1/payment-links/${syncLink.link.id}`), 200);
   assert.equal(synced.status, 'paid'); assert.equal(synced.paidMethod, 'cimbra_qr');
   const cvuLink = await json(await request('/api/v1/payment-links', {

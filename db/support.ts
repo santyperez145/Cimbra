@@ -49,8 +49,11 @@ export async function listSupportCases(organizationId: string) {
   return rows.results.map(serializeCase);
 }
 
-export async function retrieveSupportCase(organizationId: string, id: string) {
-  const database = getDatabaseClient();
+export async function retrieveSupportCase(
+  organizationId: string,
+  id: string,
+  database: DatabaseClient = getDatabaseClient(),
+) {
   const row = await database.prepare(
     `SELECT c.id, c.organization_id AS "organizationId", c.opened_by AS "openedBy", u.display_name AS "openedByName",
       c.category, c.subject, c.status, c.created_at AS "createdAt", c.updated_at AS "updatedAt",
@@ -80,7 +83,7 @@ export async function createSupportCase(input: {
       const existing = await database.prepare(
         `SELECT c.id FROM support_cases c WHERE c.organization_id = ? AND c.idempotency_key = ? LIMIT 1`,
       ).bind(input.organizationId, input.idempotencyKey).first<{ id: string }>();
-      if (existing) return { ...(await retrieveSupportCase(input.organizationId, existing.id)), replayed: true };
+      if (existing) return { ...(await retrieveSupportCase(input.organizationId, existing.id, database)), replayed: true };
     }
     const open = await database.prepare(
       `SELECT COUNT(*)::int AS count FROM support_cases WHERE organization_id = ? AND status IN ('open', 'pending_cimbra', 'pending_tenant')`,
@@ -100,7 +103,7 @@ export async function createSupportCase(input: {
       organizationId: input.organizationId, actorId: input.actor.userId, action: 'support.case_opened',
       resourceId: id, payload: { category: input.category },
     });
-    return { ...(await retrieveSupportCase(input.organizationId, id)), replayed: false };
+    return { ...(await retrieveSupportCase(input.organizationId, id, database)), replayed: false };
   });
 }
 
@@ -116,7 +119,7 @@ export async function addSupportMessage(input: {
       const existing = await database.prepare(
         `SELECT case_id AS "caseId" FROM support_messages WHERE organization_id = ? AND idempotency_key = ? LIMIT 1`,
       ).bind(input.organizationId, input.idempotencyKey).first<{ caseId: string }>();
-      if (existing) return { ...(await retrieveSupportCase(input.organizationId, existing.caseId)), replayed: true };
+      if (existing) return { ...(await retrieveSupportCase(input.organizationId, existing.caseId, database)), replayed: true };
     }
     const current = await database.prepare(
       `SELECT id, status FROM support_cases WHERE id = ? AND organization_id = ? LIMIT 1 FOR UPDATE`,
@@ -138,7 +141,7 @@ export async function addSupportMessage(input: {
       organizationId: input.organizationId, actorId: input.actor.userId, action: 'support.message_added',
       resourceId: input.id, payload: { authorKind: input.authorKind },
     });
-    return { ...(await retrieveSupportCase(input.organizationId, input.id)), replayed: false };
+    return { ...(await retrieveSupportCase(input.organizationId, input.id, database)), replayed: false };
   });
 }
 
@@ -151,14 +154,14 @@ export async function updateSupportStatus(input: {
       `SELECT id, status FROM support_cases WHERE id = ? AND organization_id = ? LIMIT 1 FOR UPDATE`,
     ).bind(input.id, input.organizationId).first<{ id: string; status: SupportStatus }>();
     if (!current) throw new SupportError('Caso de soporte no encontrado.', 404, 'support_case_not_found');
-    if (current.status === input.status) return { ...(await retrieveSupportCase(input.organizationId, input.id)), replayed: true };
+    if (current.status === input.status) return { ...(await retrieveSupportCase(input.organizationId, input.id, database)), replayed: true };
     await database.prepare('UPDATE support_cases SET status = ?, updated_at = ? WHERE id = ?')
       .bind(input.status, now, input.id).run();
     await audit(database, {
       organizationId: input.organizationId, actorId: input.actor.userId, action: 'support.status_updated',
       resourceId: input.id, payload: { from: current.status, to: input.status },
     });
-    return { ...(await retrieveSupportCase(input.organizationId, input.id)), replayed: false };
+    return { ...(await retrieveSupportCase(input.organizationId, input.id, database)), replayed: false };
   });
 }
 

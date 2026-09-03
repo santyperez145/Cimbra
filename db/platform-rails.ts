@@ -1,3 +1,4 @@
+import { capitalPlanSnapshot } from '@/app/lib/platform/capital-plan';
 import { evaluateLiveReadiness, GO_LIVE_STAGES, type ProductStatus } from '@/app/lib/platform/live-readiness';
 import {
   isRailConnectionStatus, OFFICIAL_RAIL_CONNECTIONS, type OfficialRailOverride, type RailConnectionStatus,
@@ -8,6 +9,7 @@ import {
   normalizeOfficialRailPatch, parseDueDiligenceJson, SPONSOR_BANK_CANDIDATES, SPONSOR_DUE_DILIGENCE_CHECKS,
   type OfficialRailEvidence,
 } from '@/app/lib/platform/sponsor-bank';
+import { listCapitalAllocationOverrides } from './capital';
 import { getDatabase } from './runtime';
 
 function isProductStatus(value: string): value is ProductStatus {
@@ -66,7 +68,16 @@ export async function getOfficialRailOverride(id: string) {
 }
 
 export async function platformLiveReadiness() {
-  return evaluateLiveReadiness(await listProductStatusOverrides(), await listOfficialRailOverrides());
+  const [productOverrides, railOverrides, capitalOverrides] = await Promise.all([
+    listProductStatusOverrides(),
+    listOfficialRailOverrides(),
+    listCapitalAllocationOverrides(),
+  ]);
+  const readiness = evaluateLiveReadiness(productOverrides, railOverrides);
+  return {
+    ...readiness,
+    capitalPlan: capitalPlanSnapshot(capitalOverrides),
+  };
 }
 
 export async function listOfficialRailsForOps() {

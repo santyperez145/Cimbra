@@ -96,19 +96,32 @@ export const CAPITAL_PLAN = {
   },
 } as const;
 
-export function capitalPlanSnapshot() {
-  const allocated = CAPITAL_PLAN.allocations.reduce((sum, item) => sum + item.amount, 0);
+export function capitalPlanSnapshot(
+  overrides: ReadonlyArray<{ id: string; status: CapitalAllocationStatus }> = [],
+) {
+  const byId = new Map(overrides.map((row) => [row.id, row.status]));
+  const allocations = CAPITAL_PLAN.allocations.map((item) => ({
+    ...item,
+    status: byId.get(item.id) ?? item.status,
+  }));
+  const allocated = allocations.reduce((sum, item) => sum + item.amount, 0);
+  const spent = allocations
+    .filter((item) => item.status === 'spent' || item.status === 'exhausted')
+    .reduce((sum, item) => sum + item.amount, 0);
+  const remaining = allocations
+    .filter((item) => item.status === 'authorized_unspent')
+    .reduce((sum, item) => sum + item.amount, 0);
   return {
     currency: CAPITAL_PLAN.currency,
     envelope: CAPITAL_PLAN.envelope,
     allocated,
-    remaining: CAPITAL_PLAN.envelope - allocated,
-    spent: CAPITAL_PLAN.spent,
+    remaining,
+    spent,
     commercialGate: CAPITAL_PLAN.commercialGate,
     liveReadyAfterSpend: CAPITAL_PLAN.liveReadyAfterSpend,
     summary: CAPITAL_PLAN.summary,
     officialSources: [...CAPITAL_PLAN.officialSources],
-    allocations: CAPITAL_PLAN.allocations.map((item) => ({ ...item })),
+    allocations,
     forbidden: CAPITAL_PLAN.forbidden.map((item) => ({ ...item })),
     seedUses: [...CAPITAL_PLAN.seedUses],
     raise: { ...CAPITAL_PLAN.raise },

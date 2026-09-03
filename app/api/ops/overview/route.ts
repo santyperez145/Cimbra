@@ -5,15 +5,16 @@ import { serviceTopology } from '@/app/lib/platform/service-catalog';
 import { versionedApi } from '@/app/lib/platform/versioned-api';
 import { listPlatformLeads, listPlatformTenants, touchPlatformOperator } from '@/db/organization';
 import { listOfficialRailsForOps, platformLiveReadiness } from '@/db/platform-rails';
+import { platformCapitalPlan } from '@/db/capital';
 import { listPlatformSupportCases } from '@/db/support';
 
 async function overview(request: Request) {
   try {
     const { user, role } = await authorizePlatformOperator(request);
     await touchPlatformOperator(user.userId);
-    const [tenants, leads, supportCases, readiness, rails] = await Promise.all([
+    const [tenants, leads, supportCases, readiness, rails, capital] = await Promise.all([
       listPlatformTenants(), listPlatformLeads(), listPlatformSupportCases(),
-      platformLiveReadiness(), listOfficialRailsForOps(),
+      platformLiveReadiness(), listOfficialRailsForOps(), platformCapitalPlan(),
     ]);
     return NextResponse.json({
       data: {
@@ -23,6 +24,7 @@ async function overview(request: Request) {
         supportCases,
         services: serviceTopology(),
         rails,
+        capital,
         readiness: {
           effectiveMode: readiness.effectiveMode,
           liveReady: readiness.liveReady,

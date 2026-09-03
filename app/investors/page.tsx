@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import DemoForm from '../demo-form';
 import { buildInvestorEvidence } from '@/app/lib/platform/investor-evidence';
-import { evaluateLiveReadiness } from '@/app/lib/platform/live-readiness';
 import { loadApiReference } from '@/app/lib/platform/openapi-reference';
 
 export const metadata = {
@@ -15,9 +14,11 @@ function money(amount: number) {
   return `USD ${amount}`;
 }
 
-export default function InvestorsPage() {
+export default async function InvestorsPage() {
   const reference = loadApiReference();
-  const evidence = buildInvestorEvidence(evaluateLiveReadiness(), reference.operations.length);
+  const { platformLiveReadiness } = await import('@/db/platform-rails');
+  const readiness = await platformLiveReadiness();
+  const evidence = buildInvestorEvidence(readiness, reference.operations.length);
   const capital = evidence.capital;
   const production = evidence.environments.find((item) => item.id === 'production');
 
@@ -65,7 +66,7 @@ export default function InvestorsPage() {
         <p>{capital.summary} Asignado {money(capital.allocated)}. Gastado {money(capital.spent)}. Remanente {money(capital.remaining)}.</p>
         <ul className="investor-list">
           {capital.allocations.map((item) => (
-            <li key={item.id}><strong>{money(item.amount)} · {item.name}</strong><span>{item.summary}</span></li>
+            <li key={item.id}><strong>{money(item.amount)} · {item.name}</strong><span>{item.status === 'spent' ? 'Gastado' : 'Autorizado, sin gastar'} · {item.summary}</span></li>
           ))}
         </ul>
       </section>

@@ -46,6 +46,7 @@ export async function GET() {
         AND to_regclass('public.echeqs') IS NOT NULL
         AND to_regclass('public.platform_rails') IS NOT NULL
         AND to_regclass('public.official_rail_connections') IS NOT NULL
+        AND to_regclass('public.capital_allocations') IS NOT NULL
         AND to_regclass('public.support_cases') IS NOT NULL
         AND to_regclass('public.support_messages') IS NOT NULL
         AND to_regclass('public.platform_operators') IS NOT NULL AS ready`,

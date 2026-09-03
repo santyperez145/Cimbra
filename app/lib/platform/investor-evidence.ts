@@ -7,7 +7,7 @@ export function buildInvestorEvidence(
   readiness: LiveReadiness = evaluateLiveReadiness(),
   openApiOperations = 0,
 ) {
-  const capital = capitalPlanSnapshot();
+  const capital = readiness.capitalPlan ?? capitalPlanSnapshot();
   const services = serviceTopology();
   return {
     liveReady: readiness.liveReady,

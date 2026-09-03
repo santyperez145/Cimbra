@@ -101,6 +101,43 @@ test('la consola opera movimientos sobre la API de transferencias', () => {
   assert.match(panel, /cimbra-movimientos\.csv/);
 });
 
+test('la consola opera book transfers, cash-in/out y ledger sobre APIs v1 con RBAC', () => {
+  const consoleClient = readFileSync(join(root, 'app', 'console', 'console-client.tsx'), 'utf8');
+  const book = readFileSync(join(root, 'app', 'console', 'book-transfers-panel.tsx'), 'utf8');
+  const payments = readFileSync(join(root, 'app', 'console', 'payments-panel.tsx'), 'utf8');
+  const ledger = readFileSync(join(root, 'app', 'console', 'ledger-panel.tsx'), 'utf8');
+  assert.match(consoleClient, /label: 'Book transfers'/);
+  assert.match(consoleClient, /label: 'Cash-in\/out'/);
+  assert.match(consoleClient, /label: 'Ledger'/);
+  assert.match(consoleClient, /active === 'Book transfers'/);
+  assert.match(consoleClient, /active === 'Cash-in\/out'/);
+  assert.match(consoleClient, /active === 'Ledger'/);
+  assert.match(book, /\/api\/v1\/book-transfers/);
+  assert.match(book, /Idempotency-Key/);
+  assert.match(book, /finance\.write/);
+  assert.match(payments, /\/api\/v1\/payments/);
+  assert.match(payments, /\/api\/v1\/ledger/);
+  assert.match(payments, /Idempotency-Key/);
+  assert.match(payments, /finance\.write/);
+  assert.match(ledger, /\/api\/v1\/ledger/);
+  assert.doesNotMatch(ledger, /method: 'POST'/);
+});
+
+test('ops registra el envelope Gate 1 sin abrir liveReady', () => {
+  const ops = readFileSync(join(root, 'app', 'ops', 'ops-client.tsx'), 'utf8');
+  const capitalRoute = readFileSync(join(root, 'app', 'api', 'ops', 'capital', 'route.ts'), 'utf8');
+  const capitalPatch = readFileSync(join(root, 'app', 'api', 'ops', 'capital', '[id]', 'route.ts'), 'utf8');
+  const overview = readFileSync(join(root, 'app', 'api', 'ops', 'overview', 'route.ts'), 'utf8');
+  assert.match(ops, /Capital Gate 1/);
+  assert.match(ops, /\/api\/ops\/capital\//);
+  assert.match(ops, /Marcar gastado/);
+  assert.match(ops, /Gastar no habilita liveReady/);
+  assert.match(capitalRoute, /platformCapitalPlan/);
+  assert.match(capitalPatch, /updateCapitalAllocation/);
+  assert.match(overview, /platformCapitalPlan/);
+  assert.match(overview, /capital,/);
+});
+
 test('la consola opera la auditoría del tenant sobre GET /api/v1/events', () => {
   const consoleClient = readFileSync(join(root, 'app', 'console', 'console-client.tsx'), 'utf8');
   const panel = readFileSync(join(root, 'app', 'console', 'audit-panel.tsx'), 'utf8');

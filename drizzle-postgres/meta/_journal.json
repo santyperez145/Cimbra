@@ -337,6 +337,13 @@
       "when": 1788387600000,
       "tag": "0047_sponsor_bank_evidence",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1788388800000,
+      "tag": "0048_capital_allocations",
+      "breakpoints": true
     }
   ]
 }

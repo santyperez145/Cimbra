@@ -1421,6 +1421,15 @@ export const officialRailConnections = pgTable('official_rail_connections', {
   check('official_rail_connections_status', sql`${table.status} IN ('unwired', 'negotiating', 'contracted', 'certified', 'live')`),
 ]);
 
+export const capitalAllocations = pgTable('capital_allocations', {
+  id: text('id').primaryKey(),
+  status: text('status').notNull().default('authorized_unspent'),
+  note: text('note').notNull().default(''),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  check('capital_allocations_status', sql`${table.status} IN ('authorized_unspent', 'spent', 'exhausted')`),
+]);
+
 export const echeqEndorsements = pgTable('echeq_endorsements', {
   id: text('id').primaryKey(),
   organizationId: text('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),

@@ -177,7 +177,7 @@ test('live permanece fail-closed y el catálogo cita productos públicos de BIND
     assert.equal(current.capitalPlan.spent, 0);
     assert.equal(current.capitalPlan.liveReadyAfterSpend, false);
     assert.equal(current.capitalPlan.allocated, 500);
-    assert.equal(current.capitalPlan.remaining, 0);
+    assert.equal(current.capitalPlan.remaining, 500);
   } finally {
     if (previous === undefined) delete process.env.CIMBRA_OPERATING_MODE;
     else process.env.CIMBRA_OPERATING_MODE = previous;
@@ -231,7 +231,7 @@ test('el envelope de USD 500 cubre Gate 1 y no habilita live ni rieles', () => {
   const plan = capitalPlanSnapshot();
   assert.equal(plan.envelope, 500);
   assert.equal(plan.allocated, 500);
-  assert.equal(plan.remaining, 0);
+  assert.equal(plan.remaining, 500);
   assert.equal(plan.spent, 0);
   assert.equal(plan.liveReadyAfterSpend, false);
   assert.equal(plan.commercialGate, 'gate_1_design_partners');
@@ -242,6 +242,10 @@ test('el envelope de USD 500 cubre Gate 1 y no habilita live ni rieles', () => {
   assert.equal(isForbiddenCapitalSpend('competitor_connector'), true);
   assert.equal(isForbiddenCapitalSpend('sponsor_bank'), true);
   assert.equal(isForbiddenCapitalSpend('legal_consult'), false);
+  const spentPlan = capitalPlanSnapshot([{ id: 'legal_consult', status: 'spent' }]);
+  assert.equal(spentPlan.spent, 200);
+  assert.equal(spentPlan.remaining, 300);
+  assert.equal(spentPlan.liveReadyAfterSpend, false);
   assert.equal(normalizeDemoIntent('investor'), 'investor');
   assert.equal(normalizeDemoIntent('unknown'), 'design_session');
   assert.match(composeLeadMessage('investor', 'hola'), /^\[intent:investor\] hola$/);

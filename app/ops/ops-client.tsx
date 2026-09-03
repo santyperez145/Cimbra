@@ -54,6 +54,12 @@ type RailsBundle = {
   fintechPath: { metCount: number; gateCount: number; intendedFigure: string };
 };
 
+type CapitalPlan = {
+  envelope: number; allocated: number; remaining: number; spent: number; liveReadyAfterSpend: boolean;
+  allocations: Array<{ id: string; amount: number; status: 'authorized_unspent' | 'spent' | 'exhausted'; name: string; summary: string }>;
+  forbidden: Array<{ id: string; name: string; summary: string }>;
+};
+
 type Overview = {
   operator: { email: string; role: string };
   tenants: Tenant[];
@@ -61,6 +67,7 @@ type Overview = {
   supportCases: PlatformCase[];
   services: ServiceTopology;
   rails: RailsBundle;
+  capital: CapitalPlan;
   readiness: {
     effectiveMode: string; liveReady: boolean; blockReason: string | null;
     fintechPath?: { metCount: number; gateCount: number };
@@ -93,7 +100,7 @@ function nextRailStatus(status: RailStatus): RailStatus | null {
 
 export default function OpsClient({ operatorEmail }: { operatorEmail: string }) {
   const [data, setData] = useState<Overview | null>(null);
-  const [section, setSection] = useState<'tenants' | 'support' | 'leads' | 'services' | 'rails'>('rails');
+  const [section, setSection] = useState<'tenants' | 'support' | 'leads' | 'services' | 'rails' | 'capital'>('rails');
   const [selectedCase, setSelectedCase] = useState('');
   const [messages, setMessages] = useState<SupportMessage[]>([]);
   const [busy, setBusy] = useState(true);
@@ -201,6 +208,18 @@ export default function OpsClient({ operatorEmail }: { operatorEmail: string }) 
     setBusy(false);
   }
 
+  async function markCapitalSpend(id: string, status: 'authorized_unspent' | 'spent') {
+    setBusy(true); setFeedback('');
+    const response = await authenticatedFetch(`/api/ops/capital/${id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status, note: status === 'spent' ? 'Registrado desde /ops' : '' }),
+    });
+    const result = await response.json() as { error?: string | { message?: string } };
+    if (response.ok) { await load(); setFeedback(status === 'spent' ? `Gasto Gate 1 marcado en ${id}. liveReady sigue en false.` : `${id} volvió a autorizado sin gastar.`); }
+    else setFeedback(typeof result.error === 'string' ? result.error : result.error?.message ?? 'No pudimos actualizar el capital.');
+    setBusy(false);
+  }
+
   async function advanceRail(id: string, status: RailStatus) {
     const next = nextRailStatus(status);
     if (!next) return;
@@ -236,6 +255,7 @@ export default function OpsClient({ operatorEmail }: { operatorEmail: string }) 
 
     <nav className="ops-tabs">
       <button className={section === 'rails' ? 'active' : ''} onClick={() => setSection('rails')}>Sponsor / rieles</button>
+      <button className={section === 'capital' ? 'active' : ''} onClick={() => setSection('capital')}>Capital Gate 1</button>
       <button className={section === 'tenants' ? 'active' : ''} onClick={() => setSection('tenants')}>Tenants</button>
       <button className={section === 'support' ? 'active' : ''} onClick={() => setSection('support')}>Soporte</button>
       <button className={section === 'leads' ? 'active' : ''} onClick={() => setSection('leads')}>Leads</button>
@@ -243,6 +263,24 @@ export default function OpsClient({ operatorEmail }: { operatorEmail: string }) 
     </nav>
 
     {!data ? <p className="operations-empty">{busy ? 'Cargando plano de control…' : 'Sin datos disponibles.'}</p> : <>
+      {section === 'capital' && data.capital && <article className="module-list">
+        <div className="card-head"><div><h2>Presupuesto Gate 1</h2><p>USD {data.capital.envelope} · gastado {data.capital.spent} · sin gastar {data.capital.remaining}. Gastar no habilita liveReady.</p></div><b>USD {data.capital.spent}</b></div>
+        <p className="ops-note">Sólo se registran renglones autorizados (legal, dominio, entrevistas, correo). AWS, Coelsa, sponsor y Go Live siguen prohibidos.</p>
+        {data.capital.allocations.map((item) => <div key={item.id}>
+          <span className="movement"><i>{item.status === 'spent' ? '✓' : '○'}</i><b>{item.name}<small>USD {item.amount} · {item.summary}</small></b></span>
+          <span className="approval-actions">
+            <strong>{item.status === 'spent' ? 'Gastado' : 'Sin gastar'}</strong>
+            {item.status === 'authorized_unspent'
+              ? <button type="button" disabled={busy} onClick={() => markCapitalSpend(item.id, 'spent')}>Marcar gastado</button>
+              : <button type="button" className="secondary" disabled={busy} onClick={() => markCapitalSpend(item.id, 'authorized_unspent')}>Revertir</button>}
+          </span>
+        </div>)}
+        {data.capital.forbidden.map((item) => <div key={item.id}>
+          <span className="movement"><i>○</i><b>{item.name}<small>{item.summary}</small></b></span>
+          <strong>Prohibido</strong>
+        </div>)}
+      </article>}
+
       {section === 'rails' && <div className="operations-layout">
         <article className="operations-detail">
           <div className="operations-detail-head"><div><small>BANCO PATROCINANTE · PSPCP</small><h2>Sponsor bancario del BaaS propio</h2><p>BIND Banco puede ser la entidad financiera patrocinante. BIND PSP / bindX no son el producto.</p></div></div>
