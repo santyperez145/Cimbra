@@ -344,6 +344,13 @@
       "when": 1788388800000,
       "tag": "0048_capital_allocations",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1788390000000,
+      "tag": "0049_payment_create_approval",
+      "breakpoints": true
     }
   ]
 }

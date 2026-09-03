@@ -1604,6 +1604,7 @@ paths:
     post:
       operationId: createPayment
       summary: Create a cash-in or cash-out against an account
+      description: Posts to the tenant ledger settlement account. When payment.create maker/checker is enabled, returns 202 with a pending approval instead of settling immediately.
       security: [{ session: [] }, { bearerApiKey: [] }]
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -1624,10 +1625,11 @@ paths:
                 signals: { $ref: '#/components/schemas/RiskSignalsInput' }
       responses:
         '201': { description: Payment created }
+        '202': { description: Pending maker/checker approval }
         '200': { description: Idempotent replay }
         '404': { description: Account not found in tenant }
         '409': { description: Currency mismatch or inactive account }
-        '422': { description: Insufficient available balance }
+        '422': { description: Insufficient available balance or risk declined }
   /api/v1/payments/{id}:
     get:
       operationId: retrievePayment
@@ -3150,7 +3152,7 @@ paths:
               type: object
               required: [enabled, expiresInMinutes]
               properties:
-                actionType: { type: string, enum: [settlement.execute, transfer.create, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve], default: settlement.execute }
+                actionType: { type: string, enum: [settlement.execute, transfer.create, payment.create, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve], default: settlement.execute }
                 enabled: { type: boolean }
                 expiresInMinutes: { type: integer, minimum: 15, maximum: 10080 }
       responses:
@@ -4497,8 +4499,8 @@ components:
       required: [id, actionType, resourceType, resourceId, status, requestPayload, requestedBy, requestedByName, expiresAt, createdAt, updatedAt]
       properties:
         id: { type: string, format: uuid }
-        actionType: { type: string, enum: [settlement.execute, transfer.create, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve] }
-        resourceType: { type: string, enum: [settlement_cycle, transfer, book_transfer, payout_batch, risk_case, reconciliation_exception, dispute] }
+        actionType: { type: string, enum: [settlement.execute, transfer.create, payment.create, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve] }
+        resourceType: { type: string, enum: [settlement_cycle, transfer, book_transfer, payment, payout_batch, risk_case, reconciliation_exception, dispute] }
         resourceId: { type: string, format: uuid }
         status: { type: string, enum: [pending, executed, rejected, cancelled, expired, failed] }
         requestPayload: { type: object, additionalProperties: true }

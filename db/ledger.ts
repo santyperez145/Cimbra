@@ -390,7 +390,32 @@ export type AccountPaymentInput = {
   amountMinor: bigint;
   currency: Currency;
   signals?: ProtectedRiskSignals;
+  paymentId?: string;
+  approvalContext?: { requestId: string; requestedBy: string };
 };
+
+export async function findPaymentByIdempotency(input: AccountPaymentInput, database: DatabaseClient) {
+  const operationKey = `payment:${input.idempotencyKey}`;
+  const existing = await database.prepare(
+    `SELECT id, counterparty, description, amount_minor::text AS "amountMinor", currency, status,
+      risk_score AS "riskScore", reversal_of AS "reversalOf", created_at AS "createdAt"
+     FROM transactions WHERE organization_id = ? AND idempotency_key = ? LIMIT 1`,
+  ).bind(input.organizationId, operationKey).first<StoredTransaction>();
+  if (!existing) return null;
+  const signedAmount = input.direction === 'cash_in' ? input.amountMinor : -input.amountMinor;
+  if (existing.counterparty !== input.counterparty || existing.description !== input.description ||
+      BigInt(existing.amountMinor) !== signedAmount || existing.currency !== input.currency) {
+    throw new LedgerError('La Idempotency-Key ya fue usada con otro payload.', 409, 'idempotency_mismatch');
+  }
+  try {
+    await assessRisk({ organizationId: input.organizationId, idempotencyKey: operationKey, operationType: input.direction,
+      amountMinor: input.amountMinor, currency: input.currency, counterparty: input.counterparty, signals: input.signals }, database);
+  } catch (error) {
+    if (error instanceof RiskError) throw new LedgerError(error.message, error.status, error.code);
+    throw error;
+  }
+  return serializeTransaction(existing);
+}
 
 export async function createAccountPayment(input: AccountPaymentInput) {
   return getDatabaseClient().transaction((transaction) => createAccountPaymentInTransaction(input, transaction));
@@ -400,26 +425,9 @@ export async function createAccountPaymentInTransaction(input: AccountPaymentInp
     const operationKey = `payment:${input.idempotencyKey}`;
     await transaction.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
       .bind(`${input.organizationId}:${operationKey}`).first();
-    const existing = await transaction.prepare(
-      `SELECT id, counterparty, description, amount_minor::text AS "amountMinor", currency, status,
-        risk_score AS "riskScore", reversal_of AS "reversalOf", created_at AS "createdAt"
-       FROM transactions WHERE organization_id = ? AND idempotency_key = ? LIMIT 1`,
-    ).bind(input.organizationId, operationKey).first<StoredTransaction>();
+    const existingPayment = await findPaymentByIdempotency(input, transaction);
+    if (existingPayment) return { payment: existingPayment, replayed: true };
     const signedAmount = input.direction === 'cash_in' ? input.amountMinor : -input.amountMinor;
-    if (existing) {
-      if (existing.counterparty !== input.counterparty || existing.description !== input.description ||
-          BigInt(existing.amountMinor) !== signedAmount || existing.currency !== input.currency) {
-        throw new LedgerError('La Idempotency-Key ya fue usada con otro payload.', 409, 'idempotency_mismatch');
-      }
-      try {
-        await assessRisk({ organizationId: input.organizationId, idempotencyKey: operationKey, operationType: input.direction,
-          amountMinor: input.amountMinor, currency: input.currency, counterparty: input.counterparty, signals: input.signals }, transaction);
-      } catch (error) {
-        if (error instanceof RiskError) throw new LedgerError(error.message, error.status, error.code);
-        throw error;
-      }
-      return { payment: serializeTransaction(existing), replayed: true };
-    }
     const account = await transaction.prepare(
       `SELECT a.ledger_account_id AS "ledgerAccountId", a.currency, a.status
        FROM accounts a WHERE a.id = ? AND a.organization_id = ? LIMIT 1 FOR UPDATE`,
@@ -442,15 +450,21 @@ export async function createAccountPaymentInTransaction(input: AccountPaymentInp
       return { declined, replayed: declined.replayed };
     }
     const core = await getOrCreateCoreAccounts(input.organizationId, input.currency, transaction);
-    const id = crypto.randomUUID();
+    const id = input.paymentId ?? crypto.randomUUID();
     const now = new Date().toISOString();
     const status = assessment.decision === 'review' ? 'review' : 'settled';
-    await transaction.prepare(
+    const inserted = await transaction.prepare(
       `INSERT INTO transactions
         (id, organization_id, idempotency_key, type, counterparty, description, amount_minor, currency, status, risk_score, reversal_of, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+       ON CONFLICT (organization_id, idempotency_key) DO NOTHING RETURNING id`,
     ).bind(id, input.organizationId, operationKey, input.direction === 'cash_in' ? 'credit' : 'debit', input.counterparty,
-      input.description, signedAmount.toString(), input.currency, status, assessment.score, now, now).run();
+      input.description, signedAmount.toString(), input.currency, status, assessment.score, now, now).first<{ id: string }>();
+    if (!inserted) {
+      const replay = await findPaymentByIdempotency(input, transaction);
+      if (!replay) throw new LedgerError('No se pudo resolver la operación idempotente.', 409, 'idempotency_conflict');
+      return { payment: replay, replayed: true };
+    }
     let holdId: string | null = null;
     if (status === 'review') {
       holdId = crypto.randomUUID();
@@ -477,7 +491,12 @@ export async function createAccountPaymentInTransaction(input: AccountPaymentInp
     await insertAudit(transaction, {
       organizationId: input.organizationId, actorId: input.actor.userId, action: 'payment.created',
       resourceType: 'transaction', resourceId: id,
-      payload: { accountId: input.accountId, direction: input.direction, amountMinor: input.amountMinor.toString(), currency: input.currency, status, riskScore: assessment.score, riskDecision: assessment.decision },
+      payload: {
+        accountId: input.accountId, direction: input.direction, amountMinor: input.amountMinor.toString(),
+        currency: input.currency, status, riskScore: assessment.score, riskDecision: assessment.decision,
+        approvalRequestId: input.approvalContext?.requestId ?? null,
+        requestedBy: input.approvalContext?.requestedBy ?? null,
+      },
     });
     return { payment: serializeTransaction({ id, counterparty: input.counterparty, description: input.description,
       amountMinor: signedAmount.toString(), currency: input.currency, status, riskScore: assessment.score, reversalOf: null, createdAt: now }), replayed: false };

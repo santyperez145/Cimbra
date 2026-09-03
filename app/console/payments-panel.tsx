@@ -59,8 +59,17 @@ export default function PaymentsPanel({ accounts, role }: { accounts: Account[];
         currency: account?.currency,
       }),
     });
-    const body = await response.json() as { payment?: { status: string }; error?: string | { message?: string } };
+    const body = await response.json() as {
+      payment?: { status: string }; requiresApproval?: boolean; approval?: { id: string; status: string };
+      error?: string | { message?: string };
+    };
     if (!response.ok) setFeedback(apiError(body, 'No pudimos procesar el payment.'));
+    else if (body.requiresApproval) {
+      setFeedback('Cash movement enviado a Aprobaciones (maker/checker).');
+      event.currentTarget.reset();
+      await load();
+      router.refresh();
+    }
     else {
       setFeedback(body.payment?.status === 'review' ? 'Cash-out enviado a revisión de riesgo.' : 'Payment contabilizado en el ledger sandbox.');
       event.currentTarget.reset();

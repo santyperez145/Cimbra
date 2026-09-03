@@ -2262,6 +2262,45 @@ try {
   assert.equal(protectedBookExecution.bookTransfer.status, 'settled');
   cookie = ownerCookieAfterRequest;
 
+  const paymentPolicy = await json(await request('/api/platform/approval-policy', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actionType: 'payment.create', enabled: true, expiresInMinutes: 1440 }),
+  }), 200);
+  assert.equal(paymentPolicy.policy.actionType, 'payment.create');
+  assert.equal(paymentPolicy.policy.enabled, true);
+  const protectedPaymentPayload = {
+    accountId: account.id, direction: 'cash_out', counterparty: 'QA Protected Cash-out',
+    description: 'Maker checker payment', amount: '15.00', currency: 'ARS',
+    signals: { deviceReference, identityReference, deviceTrust: 'trusted', identityVerified: true },
+  };
+  const protectedPayment = await json(await request('/api/v1/payments', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-protected-payment-${runId}` },
+    body: JSON.stringify(protectedPaymentPayload),
+  }), 202);
+  assert.equal(protectedPayment.requiresApproval, true);
+  assert.equal(protectedPayment.approval.actionType, 'payment.create');
+  assert.equal(protectedPayment.approval.resourceType, 'payment');
+  const protectedPaymentReplay = await json(await request('/api/v1/payments', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-protected-payment-${runId}` },
+    body: JSON.stringify(protectedPaymentPayload),
+  }), 202);
+  assert.equal(protectedPaymentReplay.replayed, true);
+  assert.equal(protectedPaymentReplay.approval.id, protectedPayment.approval.id);
+  cookie = checkerCookie;
+  const protectedPaymentExecution = await json(await request(`/api/v1/approvals/${protectedPayment.approval.id}/approve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-payment-checker-${runId}` },
+    body: JSON.stringify({ reason: 'Independent payment checker' }),
+  }), 200);
+  assert.equal(protectedPaymentExecution.approval.status, 'executed');
+  assert.equal(protectedPaymentExecution.payment.id, protectedPayment.approval.resourceId);
+  assert.equal(protectedPaymentExecution.payment.status, 'settled');
+  cookie = ownerCookieAfterRequest;
+  const disabledPaymentPolicy = await json(await request('/api/platform/approval-policy', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actionType: 'payment.create', enabled: false, expiresInMinutes: 1440 }),
+  }), 200);
+  assert.equal(disabledPaymentPolicy.policy.enabled, false);
+
   const unfundedTransfer = await json(await request('/api/v1/transfers', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-protected-unfunded-${runId}` },
     body: JSON.stringify({ counterparty: 'QA Protected Supplier', description: 'Approval-time balance recheck', amount: '9000000', currency: 'ARS' }),

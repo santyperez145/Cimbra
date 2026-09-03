@@ -115,7 +115,17 @@ test('el SDK crea payments regionales con idempotencia automática', async () =>
   const result = await client.payments.create({ accountId: 'acc_1', direction: 'cash_in', counterparty: 'Sponsor', description: 'Ingreso', amount: '100.00', currency: 'ARS' });
   assert.equal(requestUrl, 'https://api.test/api/v1/payments');
   assert.match(idempotencyKey, /^idem_[a-f0-9]{32}$/);
-  assert.equal(result.data.payment.id, 'pay_1');
+  if (!result.data.requiresApproval) assert.equal(result.data.payment.id, 'pay_1');
+});
+
+test('el SDK representa payments pendientes de aprobación humana', async () => {
+  const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', fetch: async () => Response.json({
+    ok: true, requiresApproval: true, replayed: false, deduplicated: false,
+    approval: { id: 'approval_pay_1', actionType: 'payment.create', resourceType: 'payment', resourceId: 'pay_pending', status: 'pending' },
+  }, { status: 202 }) });
+  const result = await client.payments.create({ accountId: 'acc_1', direction: 'cash_out', counterparty: 'Beneficiario', description: 'Egreso', amount: '10.00', currency: 'ARS' });
+  assert.equal(result.data.requiresApproval, true);
+  if (result.data.requiresApproval) assert.equal(result.data.approval.actionType, 'payment.create');
 });
 
 test('el SDK cablea la reversa canónica de payments', async () => {

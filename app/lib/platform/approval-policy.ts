@@ -3,6 +3,7 @@ import type { OrganizationRole } from './access-policy';
 export const APPROVAL_ACTION_TYPES = [
   'settlement.execute',
   'transfer.create',
+  'payment.create',
   'payout_batch.execute',
   'risk.case.resolve',
   'reconciliation.exception.resolve',

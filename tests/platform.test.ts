@@ -707,6 +707,7 @@ test('la cola operativa valida cambios, SLA, comentarios y evidencia', () => {
 test('maker/checker exige otro actor privilegiado con MFA y políticas acotadas', () => {
   assert.equal(approvalActionType('settlement.execute'), 'settlement.execute');
   assert.equal(approvalActionType('transfer.create'), 'transfer.create');
+  assert.equal(approvalActionType('payment.create'), 'payment.create');
   assert.equal(approvalActionType('payout_batch.execute'), 'payout_batch.execute');
   assert.equal(approvalActionType('risk.case.resolve'), 'risk.case.resolve');
   assert.equal(approvalActionType('reconciliation.exception.resolve'), 'reconciliation.exception.resolve');

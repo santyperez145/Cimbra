@@ -160,6 +160,18 @@ test('abrir cuentas exige KYC/KYB aprobado y la consola no simula payments', () 
   assert.doesNotMatch(capabilities, /límites, fees/);
 });
 
+test('cash-in/out usa maker/checker opt-in payment.create', () => {
+  const approvals = readFileSync(join(root, 'db', 'approvals.ts'), 'utf8');
+  const payments = readFileSync(join(root, 'app', 'api', 'v1', 'payments', 'route.ts'), 'utf8');
+  const panel = readFileSync(join(root, 'app', 'console', 'approvals-panel.tsx'), 'utf8');
+  const migration = readFileSync(join(root, 'drizzle-postgres', '0049_payment_create_approval.sql'), 'utf8');
+  assert.match(approvals, /createAccountPaymentWithApprovalPolicy/);
+  assert.match(approvals, /payment\.create/);
+  assert.match(payments, /createAccountPaymentWithApprovalPolicy/);
+  assert.match(panel, /payment\.create/);
+  assert.match(migration, /payment\.create/);
+});
+
 test('help-center documenta Compliance, Aprobaciones y Disputas con límites honestos', () => {
   const help = readFileSync(join(root, 'app', 'lib', 'platform', 'help-center.ts'), 'utf8');
   assert.match(help, /id: 'compliance-kyc'/);

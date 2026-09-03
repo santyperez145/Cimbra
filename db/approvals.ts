@@ -6,7 +6,7 @@ import type { Currency } from '@/app/lib/ledger/money';
 import type { DisputeEvent, DisputeStatus } from '@/app/lib/platform/disputes';
 import { parseProtectedRiskSignals, publicRiskSignals } from '@/app/lib/platform/risk-signals';
 import { type DatabaseClient, getDatabaseClient } from './client';
-import { createTransferInTransaction, findTransferByIdempotency, LedgerError, resolveHold, type TransferCreationInput } from './ledger';
+import { createTransferInTransaction, findPaymentByIdempotency, findTransferByIdempotency, LedgerError, resolveHold, createAccountPaymentInTransaction, type AccountPaymentInput, type TransferCreationInput } from './ledger';
 import { enqueueWebhookEvent } from './platform';
 import { ReconciliationError, resolveReconciliationException } from './reconciliation';
 import { getRiskCaseForResolution, resolveRiskCase, RiskError } from './risk';
@@ -22,7 +22,7 @@ export class ApprovalError extends Error {
 
 type ApprovalRow = {
   id: string; actionType: ApprovalActionType;
-  resourceType: 'settlement_cycle' | 'transfer' | 'book_transfer' | 'payout_batch' | 'risk_case' | 'reconciliation_exception' | 'dispute'; resourceId: string;
+  resourceType: 'settlement_cycle' | 'transfer' | 'book_transfer' | 'payment' | 'payout_batch' | 'risk_case' | 'reconciliation_exception' | 'dispute'; resourceId: string;
   status: ApprovalStatus; requestFingerprint: string; requestPayload: string; requestedBy: string; requestedByName: string;
   resolvedBy: string | null; resolvedByName: string | null; resolutionReason: string | null;
   expiresAt: string; resolvedAt: string | null; executedAt: string | null; createdAt: string; updatedAt: string;
@@ -111,7 +111,7 @@ export async function getApprovalPolicies(organizationId: string) {
        WHERE m.organization_id = ? AND m.role IN ('owner', 'admin') AND u.mfa_enabled = 1`,
     ).bind(organizationId).first<{ count: number }>(),
   ]);
-  return (['settlement.execute', 'transfer.create', 'payout_batch.execute', 'risk.case.resolve', 'reconciliation.exception.resolve', 'dispute.resolve'] as const).map((actionType) => {
+  return (['settlement.execute', 'transfer.create', 'payment.create', 'payout_batch.execute', 'risk.case.resolve', 'reconciliation.exception.resolve', 'dispute.resolve'] as const).map((actionType) => {
     const policy = policies.results.find((item) => item.actionType === actionType);
     return { id: policy?.id ?? null, actionType, enabled: policy?.enabled === 1,
       expiresInMinutes: policy?.expiresInMinutes ?? 1440, eligibleApprovers: approvers?.count ?? 0,
@@ -375,6 +375,63 @@ export async function createBookTransferWithApprovalPolicy(input: BookTransferIn
   });
 }
 
+export async function createAccountPaymentWithApprovalPolicy(input: AccountPaymentInput & {
+  authentication: 'session' | 'api_key'; apiKeyId: string | null;
+}) {
+  const fingerprint = await sha256(JSON.stringify({
+    actionType: 'payment.create', accountId: input.accountId, direction: input.direction,
+    counterparty: input.counterparty, description: input.description,
+    amountMinor: input.amountMinor.toString(), currency: input.currency, signals: input.signals ?? {},
+  }));
+  return getDatabaseClient().transaction(async (database) => {
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:payment:${input.idempotencyKey}`).first();
+    const existingPayment = await findPaymentByIdempotency(input, database);
+    if (existingPayment) return { requiresApproval: false as const, payment: existingPayment, replayed: true };
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:approval:${input.idempotencyKey}`).first();
+    const existingApproval = await database.prepare(
+      `${approvalSelect} WHERE ar.organization_id = ? AND ar.idempotency_key = ? LIMIT 1`,
+    ).bind(input.organizationId, input.idempotencyKey).first<ApprovalRow>();
+    if (existingApproval) {
+      if (existingApproval.requestFingerprint !== fingerprint || existingApproval.resourceType !== 'payment') {
+        throw new ApprovalError('La Idempotency-Key ya fue usada para otra operación.', 409, 'idempotency_mismatch');
+      }
+      return { requiresApproval: true as const, approval: serializeApproval(existingApproval), replayed: true, deduplicated: false };
+    }
+    await database.prepare('SELECT pg_advisory_xact_lock_shared(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:approval-policy:payment.create`).first();
+    const policy = await database.prepare(
+      `SELECT expires_in_minutes AS "expiresInMinutes" FROM approval_policies
+       WHERE organization_id = ? AND action_type = 'payment.create' AND enabled = 1 LIMIT 1`,
+    ).bind(input.organizationId).first<{ expiresInMinutes: number }>();
+    if (!policy) {
+      const result = await createAccountPaymentInTransaction(input, database);
+      return { requiresApproval: false as const, ...result };
+    }
+    const id = crypto.randomUUID(); const resourceId = crypto.randomUUID(); const now = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + policy.expiresInMinutes * 60_000).toISOString();
+    const payload = {
+      accountId: input.accountId, direction: input.direction, counterparty: input.counterparty,
+      description: input.description, amountMinor: input.amountMinor.toString(), currency: input.currency,
+      signals: input.signals ?? {}, origin: input.authentication, apiKeyId: input.apiKeyId, sandbox: true,
+    };
+    await database.prepare(
+      `INSERT INTO approval_requests
+        (id, organization_id, action_type, resource_type, resource_id, idempotency_key, request_fingerprint, status,
+         request_payload, requested_by, expires_at, created_at, updated_at)
+       VALUES (?, ?, 'payment.create', 'payment', ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
+    ).bind(id, input.organizationId, resourceId, input.idempotencyKey, fingerprint, JSON.stringify(payload), input.actor.userId,
+      expiresAt, now, now).run();
+    await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId, action: 'approval.request_created',
+      resourceType: 'approval_request', resourceId: id, payload: { actionType: 'payment.create', resourceType: 'payment',
+        resourceId, expiresAt, ...publicApprovalPayload(payload) } });
+    const approval = await approvalById(database, input.organizationId, id);
+    if (!approval) throw new ApprovalError('No pudimos recuperar la solicitud.', 500, 'approval_create_failed');
+    return { requiresApproval: true as const, approval, replayed: false, deduplicated: false };
+  });
+}
+
 function transferPayload(row: ApprovalRow) {
   try {
     const payload = JSON.parse(row.requestPayload) as Record<string, unknown>;
@@ -418,6 +475,24 @@ function bookTransferPayload(row: ApprovalRow) {
     return { externalReference: payload.externalReference, sourceAccountId: payload.sourceAccountId,
       destinationAccountId: payload.destinationAccountId, description: payload.description, amountMinor,
       currency: payload.currency as Currency, signals };
+  } catch { return null; }
+}
+
+function paymentPayload(row: ApprovalRow) {
+  try {
+    const payload = JSON.parse(row.requestPayload) as Record<string, unknown>;
+    if (typeof payload.accountId !== 'string' || (payload.direction !== 'cash_in' && payload.direction !== 'cash_out') ||
+      typeof payload.counterparty !== 'string' || typeof payload.description !== 'string' ||
+      typeof payload.amountMinor !== 'string' ||
+      !['ARS', 'MXN', 'COP', 'BRL', 'CLP', 'PEN', 'USD'].includes(String(payload.currency))) return null;
+    const amountMinor = BigInt(payload.amountMinor);
+    const signals = parseProtectedRiskSignals(payload.signals);
+    if (amountMinor <= 0n || !signals) return null;
+    return {
+      accountId: payload.accountId, direction: payload.direction as 'cash_in' | 'cash_out',
+      counterparty: payload.counterparty, description: payload.description, amountMinor,
+      currency: payload.currency as Currency, signals,
+    };
   } catch { return null; }
 }
 
@@ -632,6 +707,7 @@ export async function decideApprovalRequest(input: {
     let executedCycle: Awaited<ReturnType<typeof executeSettlementCycleInTransaction>>['cycle'] | undefined;
     let executedTransfer: Awaited<ReturnType<typeof findTransferByIdempotency>> | undefined;
     let executedBookTransfer: Awaited<ReturnType<typeof findBookTransferByIdempotency>> | undefined;
+    let executedPayment: Awaited<ReturnType<typeof findPaymentByIdempotency>> | undefined;
     let executedPayoutBatch: Awaited<ReturnType<typeof authorizePayoutBatchInTransaction>> | undefined;
     let executedRiskCase: Awaited<ReturnType<typeof resolveRiskCase>> | undefined;
     let executedException: Awaited<ReturnType<typeof resolveReconciliationException>> | undefined;
@@ -680,6 +756,20 @@ export async function decideApprovalRequest(input: {
             if (error instanceof LedgerError && error.status === 422) failure = { message: error.message, code: error.code, status: error.status };
             else throw error;
           }
+        }
+      } else if (row.actionType === 'payment.create') {
+        const payload = paymentPayload(row);
+        if (!payload) throw new ApprovalError('El payload protegido del payment es inválido.', 500, 'approval_payload_invalid');
+        try {
+          const execution = await createAccountPaymentInTransaction({
+            organizationId: input.organizationId, actor: input.actor, idempotencyKey: `approval:${row.id}`,
+            paymentId: row.resourceId, approvalContext: { requestId: row.id, requestedBy: row.requestedBy }, ...payload,
+          }, database);
+          if ('declined' in execution) failure = { message: 'La política de riesgo rechazó el payment aprobado.', code: 'risk_declined', status: 422 };
+          else executedPayment = execution.payment;
+        } catch (error) {
+          if (error instanceof LedgerError && error.status < 500) failure = { message: error.message, code: error.code, status: error.status };
+          else throw error;
         }
       } else if (row.actionType === 'payout_batch.execute') {
         try {
@@ -755,7 +845,7 @@ export async function decideApprovalRequest(input: {
     const approval = await approvalById(database, input.organizationId, row.id);
     if (!approval) throw new ApprovalError('No pudimos recuperar la decisión.', 500, 'approval_decision_failed');
     return { approval, cycle: executedCycle, transaction: executedTransfer, bookTransfer: executedBookTransfer,
-      payoutBatch: executedPayoutBatch, case: executedRiskCase,
+      payment: executedPayment, payoutBatch: executedPayoutBatch, case: executedRiskCase,
       exception: executedException, dispute: executedDispute, failed: failure, replayed: false, expired: false };
   });
 }

@@ -239,12 +239,13 @@ export type SettlementCycle = {
   status: 'ready' | 'scheduled' | 'settled'; scheduledFor: string | null; settledAt: string | null; createdAt: string; updatedAt: string;
 };
 export type ApprovalRequest = {
-  id: string; actionType: 'settlement.execute' | 'transfer.create' | 'payout_batch.execute' | 'risk.case.resolve' | 'reconciliation.exception.resolve' | 'dispute.resolve';
-  resourceType: 'settlement_cycle' | 'transfer' | 'book_transfer' | 'payout_batch' | 'risk_case' | 'reconciliation_exception' | 'dispute'; resourceId: string;
+  id: string; actionType: 'settlement.execute' | 'transfer.create' | 'payment.create' | 'payout_batch.execute' | 'risk.case.resolve' | 'reconciliation.exception.resolve' | 'dispute.resolve';
+  resourceType: 'settlement_cycle' | 'transfer' | 'book_transfer' | 'payment' | 'payout_batch' | 'risk_case' | 'reconciliation_exception' | 'dispute'; resourceId: string;
   status: 'pending' | 'executed' | 'rejected' | 'cancelled' | 'expired' | 'failed'; requestPayload: {
     name?: string; rail?: ReconciliationRun['source']; currency?: Currency; netMinor?: string; differenceMinor?: string;
     scheduledFor?: string | null; executionMode?: 'manual' | 'scheduled'; counterparty?: string; description?: string;
     amountMinor?: string; origin?: 'session' | 'api_key'; apiKeyId?: string | null; sandbox?: boolean;
+    accountId?: string; direction?: 'cash_in' | 'cash_out';
     signals?: RiskSignals;
     resolution?: 'approved' | 'declined' | 'corrected' | 'accepted' | DisputeEventName; note?: string; priority?: RiskCase['priority']; score?: number;
     externalReference?: string; sourceAccountId?: string; destinationAccountId?: string; bookTransfer?: boolean;
@@ -527,6 +528,9 @@ export type DepositEcheqInput = {
   accountId: string; taxId: string; destinationKind?: 'cimbra_account' | 'cbu' | 'cvu' | 'coelsa'; signals?: RiskSignalsInput;
 };
 export type CreatePaymentInput = { accountId: string; direction: 'cash_in' | 'cash_out'; counterparty: string; description: string; amount: string; currency: Currency; signals?: RiskSignalsInput };
+export type PaymentCreationResult =
+  | { ok: true; requiresApproval?: false; payment: Transaction; replayed: boolean }
+  | { ok: true; requiresApproval: true; approval: ApprovalRequest; replayed: boolean; deduplicated: boolean };
 export type CreateBillerInput = {
   code: string; name: string; country: string; category: Biller['category']; serviceType: Biller['serviceType']; currency: Currency;
   amountMode: Biller['amountMode']; minAmount?: string; maxAmount?: string; contractReference?: string;
