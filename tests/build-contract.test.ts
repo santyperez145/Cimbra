@@ -160,6 +160,17 @@ test('abrir cuentas exige KYC/KYB aprobado y la consola no simula payments', () 
   assert.doesNotMatch(capabilities, /límites, fees/);
 });
 
+test('help-center documenta Compliance, Aprobaciones y Disputas con límites honestos', () => {
+  const help = readFileSync(join(root, 'app', 'lib', 'platform', 'help-center.ts'), 'utf8');
+  assert.match(help, /id: 'compliance-kyc'/);
+  assert.match(help, /customer_kyc_required/);
+  assert.match(help, /id: 'approvals'/);
+  assert.match(help, /maker\/checker/);
+  assert.match(help, /id: 'disputes'/);
+  assert.match(help, /crédito compensatorio/);
+  assert.doesNotMatch(help, /Visa\/Mastercard live/);
+});
+
 test('identity libera asignaciones vía risk/reconcil y el alta de org vía tenants', () => {
   const access = readFileSync(join(root, 'db', 'access.ts'), 'utf8');
   const risk = readFileSync(join(root, 'db', 'risk.ts'), 'utf8');

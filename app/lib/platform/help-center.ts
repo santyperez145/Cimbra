@@ -54,6 +54,24 @@ export const HELP_ARTICLES = [
     body: 'Cash-in/out usa POST /api/v1/payments y la reversa compensatoria POST /api/v1/payments/{id}/reverse. Contabiliza ingreso o egreso contra la cuenta de settlement interna. No llama bancos ni BaaS competidores. El historial se lee de journals cash_in/cash_out; la reversa genérica de transfers responde 409 payment_reverse_required.',
   },
   {
+    id: 'compliance-kyc',
+    title: 'Compliance KYC/KYB',
+    summary: 'Expediente, evidencia, checks y decisión maker/checker con MFA.',
+    body: 'Compliance opera el expediente due diligence del cliente: partes, documentos (POST /api/v1/compliance/documents), checks y submit. La decisión humana (approve/reject) es session-only con MFA y doble control; el SDK no decide. Sin expediente aprobado y vigente, cuentas y wallets responden 409 customer_kyc_required. No consulta AFIP ni un registro mercantil certificado.',
+  },
+  {
+    id: 'approvals',
+    title: 'Aprobaciones maker/checker',
+    summary: 'Cola de operaciones que exigen otro actor privilegiado.',
+    body: 'Aprobaciones lista solicitudes pendientes (transferencias, book transfers, payouts, settlements y políticas). Approve/reject exige otro usuario con MFA cuando la política lo pide. No es un workflow externo: vive en el tenant y deja auditoría. Viewer no aprueba.',
+  },
+  {
+    id: 'disputes',
+    title: 'Disputas y chargebacks',
+    summary: 'Lifecycle nativo sobre transacciones elegibles del ledger.',
+    body: 'Disputas abre casos sobre movimientos settled, adjunta evidencia y resuelve con crédito compensatorio cuando corresponde. No es una red de tarjetas ni un chargeback Visa/Mastercard: es el dominio sandbox de Cimbra hasta processing/acquiring live.',
+  },
+  {
     id: 'wallets',
     title: 'Wallets y bolsillos',
     summary: 'Programas, wallets y movimientos entre pockets del tenant.',
