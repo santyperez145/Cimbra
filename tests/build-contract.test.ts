@@ -321,6 +321,22 @@ test('collection pay usa maker/checker opt-in collection.pay', () => {
   assert.match(migration, /collection\.pay/);
 });
 
+test('collection till credit usa maker/checker opt-in collection.till_credit', () => {
+  const approvals = readFileSync(join(root, 'db', 'approvals.ts'), 'utf8');
+  const inboundRoute = readFileSync(join(root, 'app', 'api', 'v1', 'collection-tills', '[id]', 'inbound', 'route.ts'), 'utf8');
+  const panel = readFileSync(join(root, 'app', 'console', 'approvals-panel.tsx'), 'utf8');
+  const collectionsPanel = readFileSync(join(root, 'app', 'console', 'collections-panel.tsx'), 'utf8');
+  const help = readFileSync(join(root, 'app', 'lib', 'platform', 'help-center.ts'), 'utf8');
+  const migration = readFileSync(join(root, 'drizzle-postgres', '0060_collection_till_credit_approval.sql'), 'utf8');
+  assert.match(approvals, /creditCollectionTillWithApprovalPolicy/);
+  assert.match(approvals, /collection\.till_credit/);
+  assert.match(inboundRoute, /creditCollectionTillWithApprovalPolicy/);
+  assert.match(panel, /collection\.till_credit/);
+  assert.match(collectionsPanel, /collection\.till_credit/);
+  assert.match(help, /collection\.till_credit/);
+  assert.match(migration, /collection\.till_credit/);
+});
+
 test('help-center documenta Compliance, Aprobaciones y Disputas con límites honestos', () => {
   const help = readFileSync(join(root, 'app', 'lib', 'platform', 'help-center.ts'), 'utf8');
   assert.match(help, /id: 'compliance-kyc'/);

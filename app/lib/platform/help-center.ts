@@ -63,7 +63,7 @@ export const HELP_ARTICLES = [
     id: 'approvals',
     title: 'Aprobaciones maker/checker',
     summary: 'Cola de operaciones que exigen otro actor privilegiado.',
-    body: 'Aprobaciones lista solicitudes pendientes (transferencias y book transfers, sus reversas, cash-in/out y sus reversas, pagos de servicios y sus reversas, altas y devoluciones de transferencias instantáneas, aceptación de débitos internos, pago de QR Cimbra, depósito de ECHEQ, cobros y devoluciones de payment links, altas y reanudación de mandatos recurrentes, payouts, settlements y políticas). Approve/reject exige otro usuario con MFA cuando la política lo pide. No es un workflow externo: vive en el tenant y deja auditoría. Viewer no aprueba.',
+    body: 'Aprobaciones lista solicitudes pendientes (transferencias y book transfers, sus reversas, cash-in/out y sus reversas, pagos de servicios y sus reversas, altas y devoluciones de transferencias instantáneas, aceptación de débitos internos, pago de QR Cimbra, depósito de ECHEQ, cobros e inbounds a tills, devoluciones de payment links, altas y reanudación de mandatos recurrentes, payouts, settlements y políticas). Approve/reject exige otro usuario con MFA cuando la política lo pide. No es un workflow externo: vive en el tenant y deja auditoría. Viewer no aprueba.',
   },
   {
     id: 'bill-payments',
@@ -87,7 +87,7 @@ export const HELP_ARTICLES = [
     id: 'collections',
     title: 'Cobranzas',
     summary: 'Links, QR Cimbra, tills y eco cerrado en sandbox.',
-    body: 'Cobranzas opera payment links, QR dinámico/estático/deuda y collection tills con CVU sandbox. Con payment_qr.pay o collection.pay activos, esos cobros quedan pendientes de maker/checker. No es POS, EMVCo ni PCT Coelsa. Las devoluciones son compensatorias; si collection.refund está activo, también pasan por Aprobaciones.',
+    body: 'Cobranzas opera payment links, QR dinámico/estático/deuda y collection tills con CVU sandbox. Con payment_qr.pay, collection.pay o collection.till_credit activos, esos cobros e inbounds quedan pendientes de maker/checker. No es POS, EMVCo ni PCT Coelsa. Las devoluciones son compensatorias; si collection.refund está activo, también pasan por Aprobaciones.',
   },
   {
     id: 'pagos-ar',

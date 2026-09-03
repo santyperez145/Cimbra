@@ -1108,87 +1108,103 @@ export async function disableCollectionTill(input: {
 export async function creditCollectionTill(input: {
   organizationId: string; actor: AuthUser; tillId: string; idempotencyKey: string;
   inbound: NormalizedCollectionTillInboundInput; signals?: ProtectedRiskSignals;
+  approvalContext?: { requestId: string; requestedBy: string };
 }) {
+  return getDatabaseClient().transaction((database) => creditCollectionTillInTransaction(input, database));
+}
+
+export async function creditCollectionTillInTransaction(input: {
+  organizationId: string; actor: AuthUser; tillId: string; idempotencyKey: string;
+  inbound: NormalizedCollectionTillInboundInput; signals?: ProtectedRiskSignals;
+  approvalContext?: { requestId: string; requestedBy: string };
+}, database: DatabaseClient) {
   await assertSandboxLedgerOrCertifiedRail('collections', CollectionError);
   const fingerprint = await sha256(JSON.stringify({
     tillId: input.tillId, ...input.inbound, amountMinor: input.inbound.amountMinor.toString(), signals: input.signals ?? {},
   }));
-  return getDatabaseClient().transaction(async (database) => {
-    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
-      .bind(`${input.organizationId}:collection-till-inbound:${input.idempotencyKey}`).first();
-    const existing = await database.prepare(
-      'SELECT id FROM instant_transfers WHERE organization_id = ? AND idempotency_key = ? LIMIT 1',
-    ).bind(input.organizationId, input.idempotencyKey).first<{ id: string }>();
-    if (existing) {
-      const stored = await database.prepare(
-        'SELECT request_fingerprint AS "requestFingerprint", collection_till_id AS "collectionTillId" FROM instant_transfers WHERE id = ? LIMIT 1',
-      ).bind(existing.id).first<{ requestFingerprint: string; collectionTillId: string | null }>();
-      if (!stored || stored.requestFingerprint !== fingerprint || stored.collectionTillId !== input.tillId) {
-        throw new CollectionError('La Idempotency-Key ya fue usada con otro inbound de recaudación.', 409, 'idempotency_mismatch');
-      }
-      const row = await retrieveTillRow(input.organizationId, input.tillId, database);
-      const transfer = await retrieveInstantTransfer(input.organizationId, existing.id, database);
-      if (!row || !transfer) {
-        throw new CollectionError('La Idempotency-Key ya fue usada con otro inbound de recaudación.', 409, 'idempotency_mismatch');
-      }
-      return { till: serializeTill(row), transfer, replayed: true };
+  const approvalAudit = {
+    approvalRequestId: input.approvalContext?.requestId ?? null,
+    requestedBy: input.approvalContext?.requestedBy ?? null,
+  };
+  await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+    .bind(`${input.organizationId}:collection-till-inbound:${input.idempotencyKey}`).first();
+  const existing = await database.prepare(
+    'SELECT id FROM instant_transfers WHERE organization_id = ? AND idempotency_key = ? LIMIT 1',
+  ).bind(input.organizationId, input.idempotencyKey).first<{ id: string }>();
+  if (existing) {
+    const stored = await database.prepare(
+      'SELECT request_fingerprint AS "requestFingerprint", collection_till_id AS "collectionTillId" FROM instant_transfers WHERE id = ? LIMIT 1',
+    ).bind(existing.id).first<{ requestFingerprint: string; collectionTillId: string | null }>();
+    if (!stored || stored.requestFingerprint !== fingerprint || stored.collectionTillId !== input.tillId) {
+      throw new CollectionError('La Idempotency-Key ya fue usada con otro inbound de recaudación.', 409, 'idempotency_mismatch');
     }
-    const row = await database.prepare(`${tillSelect} WHERE ct.organization_id = ? AND ct.id = ? LIMIT 1 FOR UPDATE OF ct`)
-      .bind(input.organizationId, input.tillId).first<TillRow>();
-    if (!row) throw new CollectionError('Punto de recaudación no encontrado.', 404, 'collection_till_not_found');
-    if (row.status !== 'active') throw new CollectionError('El punto de recaudación no está activo.', 409, 'collection_till_disabled');
-    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
-      .bind(`${input.organizationId}:instant-ref:${input.inbound.externalReference}`).first();
-    const referenceOwner = await database.prepare(
-      'SELECT id FROM instant_transfers WHERE organization_id = ? AND external_reference = ? LIMIT 1',
-    ).bind(input.organizationId, input.inbound.externalReference).first<{ id: string }>();
-    if (referenceOwner) {
-      throw new CollectionError('La referencia externa ya pertenece a otra transferencia instantánea.', 409, 'external_reference_conflict');
+    const row = await retrieveTillRow(input.organizationId, input.tillId, database);
+    const transfer = await retrieveInstantTransfer(input.organizationId, existing.id, database);
+    if (!row || !transfer) {
+      throw new CollectionError('La Idempotency-Key ya fue usada con otro inbound de recaudación.', 409, 'idempotency_mismatch');
     }
-    const merchant = await loadAccount(database, input.organizationId, row.accountId, true);
-    assertCollector(merchant);
-    let payment;
-    try {
-      payment = await createAccountPaymentInTransaction({
-        organizationId: input.organizationId, actor: input.actor, idempotencyKey: `till-in-${input.idempotencyKey}`,
-        accountId: merchant.id, direction: 'cash_in', counterparty: `till:${railLast4(row.cvu)}`,
-        description: input.inbound.description, amountMinor: input.inbound.amountMinor, currency: 'ARS', signals: input.signals,
-      }, database);
-    } catch (error) {
-      if (error instanceof LedgerError) throw new CollectionError(error.message, error.status, error.code);
-      throw error;
-    }
-    if ('declined' in payment) return { declined: payment.declined, replayed: payment.replayed };
-    const id = crypto.randomUUID();
-    const createdAt = new Date().toISOString();
-    const hash = await sha256(row.cvu);
-    await database.prepare(`INSERT INTO instant_transfers
-      (id, organization_id, idempotency_key, request_fingerprint, scheme, direction, source_account_id, destination_account_id,
-       counterparty_kind, counterparty_hash, counterparty_last4, counterparty_holder_name, counterparty_tax_last4,
-       amount_minor, currency, description, external_reference, status, rail, transaction_id, reversal_transaction_id,
-       qr_payload, expires_at, collection_till_id, created_by, created_at, updated_at)
-      VALUES (?, ?, ?, ?, 'credit_push', 'inbound', NULL, ?, 'cvu', ?, ?, ?, ?, ?, 'ARS', ?, ?, ?, 'cimbra_sandbox', ?, NULL, NULL, NULL, ?, ?, ?, ?)`)
-      .bind(
-        id, input.organizationId, input.idempotencyKey, fingerprint, merchant.id, hash, railLast4(row.cvu),
-        merchant.customerName, merchant.taxIdLast4, input.inbound.amountMinor.toString(), input.inbound.description,
-        input.inbound.externalReference, payment.payment.status === 'review' ? 'pending' : 'settled', payment.payment.id,
-        row.id, input.actor.userId, createdAt, createdAt,
-      ).run();
-    await insertAudit(database, {
-      organizationId: input.organizationId, actorId: input.actor.userId, action: 'collection.till_credited',
-      resourceType: 'collection_till', resourceId: row.id,
-      payload: { transferId: id, amountMinor: input.inbound.amountMinor.toString(), direction: 'inbound' },
-    });
-    await insertAudit(database, {
-      organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.transfer_created',
-      resourceType: 'instant_transfer', resourceId: id,
-      payload: { scheme: 'credit_push', direction: 'inbound', collectionTillId: row.id, amountMinor: input.inbound.amountMinor.toString() },
-    });
-    return {
-      till: serializeTill(row),
-      transfer: await retrieveInstantTransfer(input.organizationId, id, database),
-      replayed: false,
-    };
+    return { till: serializeTill(row), transfer, replayed: true };
+  }
+  const row = await database.prepare(`${tillSelect} WHERE ct.organization_id = ? AND ct.id = ? LIMIT 1 FOR UPDATE OF ct`)
+    .bind(input.organizationId, input.tillId).first<TillRow>();
+  if (!row) throw new CollectionError('Punto de recaudación no encontrado.', 404, 'collection_till_not_found');
+  if (row.status !== 'active') throw new CollectionError('El punto de recaudación no está activo.', 409, 'collection_till_disabled');
+  await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+    .bind(`${input.organizationId}:instant-ref:${input.inbound.externalReference}`).first();
+  const referenceOwner = await database.prepare(
+    'SELECT id FROM instant_transfers WHERE organization_id = ? AND external_reference = ? LIMIT 1',
+  ).bind(input.organizationId, input.inbound.externalReference).first<{ id: string }>();
+  if (referenceOwner) {
+    throw new CollectionError('La referencia externa ya pertenece a otra transferencia instantánea.', 409, 'external_reference_conflict');
+  }
+  const merchant = await loadAccount(database, input.organizationId, row.accountId, true);
+  assertCollector(merchant);
+  let payment;
+  try {
+    payment = await createAccountPaymentInTransaction({
+      organizationId: input.organizationId, actor: input.actor, idempotencyKey: `till-in-${input.idempotencyKey}`,
+      accountId: merchant.id, direction: 'cash_in', counterparty: `till:${railLast4(row.cvu)}`,
+      description: input.inbound.description, amountMinor: input.inbound.amountMinor, currency: 'ARS', signals: input.signals,
+    }, database);
+  } catch (error) {
+    if (error instanceof LedgerError) throw new CollectionError(error.message, error.status, error.code);
+    throw error;
+  }
+  if ('declined' in payment) return { declined: payment.declined, replayed: payment.replayed };
+  const id = crypto.randomUUID();
+  const createdAt = new Date().toISOString();
+  const hash = await sha256(row.cvu);
+  await database.prepare(`INSERT INTO instant_transfers
+    (id, organization_id, idempotency_key, request_fingerprint, scheme, direction, source_account_id, destination_account_id,
+     counterparty_kind, counterparty_hash, counterparty_last4, counterparty_holder_name, counterparty_tax_last4,
+     amount_minor, currency, description, external_reference, status, rail, transaction_id, reversal_transaction_id,
+     qr_payload, expires_at, collection_till_id, created_by, created_at, updated_at)
+    VALUES (?, ?, ?, ?, 'credit_push', 'inbound', NULL, ?, 'cvu', ?, ?, ?, ?, ?, 'ARS', ?, ?, ?, 'cimbra_sandbox', ?, NULL, NULL, NULL, ?, ?, ?, ?)`)
+    .bind(
+      id, input.organizationId, input.idempotencyKey, fingerprint, merchant.id, hash, railLast4(row.cvu),
+      merchant.customerName, merchant.taxIdLast4, input.inbound.amountMinor.toString(), input.inbound.description,
+      input.inbound.externalReference, payment.payment.status === 'review' ? 'pending' : 'settled', payment.payment.id,
+      row.id, input.actor.userId, createdAt, createdAt,
+    ).run();
+  await insertAudit(database, {
+    organizationId: input.organizationId, actorId: input.actor.userId, action: 'collection.till_credited',
+    resourceType: 'collection_till', resourceId: row.id,
+    payload: {
+      transferId: id, amountMinor: input.inbound.amountMinor.toString(), direction: 'inbound', ...approvalAudit,
+    },
   });
+  await insertAudit(database, {
+    organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.transfer_created',
+    resourceType: 'instant_transfer', resourceId: id,
+    payload: {
+      scheme: 'credit_push', direction: 'inbound', collectionTillId: row.id,
+      amountMinor: input.inbound.amountMinor.toString(), ...approvalAudit,
+    },
+  });
+  return {
+    till: serializeTill(row),
+    transfer: await retrieveInstantTransfer(input.organizationId, id, database),
+    replayed: false,
+  };
 }
 

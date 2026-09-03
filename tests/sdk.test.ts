@@ -390,6 +390,19 @@ test('paymentLinks.pay tipa maker/checker opt-in', async () => {
   if (result.data.requiresApproval) assert.equal(result.data.approval.actionType, 'collection.pay');
 });
 
+test('collectionTills.inbound tipa maker/checker opt-in', async () => {
+  const client = new Cimbra({ baseUrl: 'https://api.test', apiKey: 'cim_test', fetch: async () =>
+    Response.json({
+      ok: true, requiresApproval: true, replayed: false, deduplicated: false,
+      approval: { id: 'approval_till_1', actionType: 'collection.till_credit', resourceType: 'collection_till', resourceId: 'till_1', status: 'pending' },
+    }, { status: 202 }) });
+  const result = await client.collectionTills.inbound('till_1', {
+    externalReference: 'TILL-IN-1', description: 'Inbound MC', amount: '10.00', currency: 'ARS',
+  });
+  assert.equal(result.data.requiresApproval, true);
+  if (result.data.requiresApproval) assert.equal(result.data.approval.actionType, 'collection.till_credit');
+});
+
 test('el SDK cablea links de cobro, eco cerrado, inbound sandbox y devoluciones', async () => {
   const calls: string[] = [];
   const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async (input, init) => {

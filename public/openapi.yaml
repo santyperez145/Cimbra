@@ -1407,7 +1407,7 @@ paths:
     post:
       operationId: creditCollectionTill
       summary: Credit a collection till with a sandbox inbound cash-in
-      description: Ledger cash-in to the collector account attributed to this till. Creates an inbound instant transfer with collectionTillId. Not a Coelsa credit.
+      description: Ledger cash-in to the collector account attributed to this till. Creates an inbound instant transfer with collectionTillId. When collection.till_credit maker/checker is enabled, returns 202 with a pending approval instead of settling immediately. Not a Coelsa credit.
       security: [{ session: [] }, { bearerApiKey: [] }]
       parameters:
         - $ref: '#/components/parameters/ResourceId'
@@ -1430,6 +1430,7 @@ paths:
                 currency: { type: string, enum: [ARS] }
       responses:
         '201': { description: Till credited }
+        '202': { description: Pending human approval when collection.till_credit policy is enabled }
         '200': { description: Idempotent replay }
         '400': { description: Invalid payload }
         '403': { description: Missing payments:write scope or finance.write permission }
@@ -3170,7 +3171,7 @@ paths:
               type: object
               required: [enabled, expiresInMinutes]
               properties:
-                actionType: { type: string, enum: [settlement.execute, transfer.create, transfer.reverse, payment.create, payment.reverse, bill_payment.create, bill_payment.reverse, instant_transfer.create, instant_transfer.return, collection.pay, collection.refund, recurring_mandate.create, recurring_mandate.resume, debit_request.accept, payment_qr.pay, echeq.deposit, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve], default: settlement.execute }
+                actionType: { type: string, enum: [settlement.execute, transfer.create, transfer.reverse, payment.create, payment.reverse, bill_payment.create, bill_payment.reverse, instant_transfer.create, instant_transfer.return, collection.pay, collection.till_credit, collection.refund, recurring_mandate.create, recurring_mandate.resume, debit_request.accept, payment_qr.pay, echeq.deposit, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve], default: settlement.execute }
                 enabled: { type: boolean }
                 expiresInMinutes: { type: integer, minimum: 15, maximum: 10080 }
       responses:
@@ -4517,8 +4518,8 @@ components:
       required: [id, actionType, resourceType, resourceId, status, requestPayload, requestedBy, requestedByName, expiresAt, createdAt, updatedAt]
       properties:
         id: { type: string, format: uuid }
-        actionType: { type: string, enum: [settlement.execute, transfer.create, transfer.reverse, payment.create, payment.reverse, bill_payment.create, bill_payment.reverse, instant_transfer.create, instant_transfer.return, collection.pay, collection.refund, recurring_mandate.create, recurring_mandate.resume, debit_request.accept, payment_qr.pay, echeq.deposit, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve] }
-        resourceType: { type: string, enum: [settlement_cycle, transfer, book_transfer, payment, bill_payment, instant_transfer, payment_link, payment_qr, echeq, recurring_payment_mandate, payout_batch, risk_case, reconciliation_exception, dispute] }
+        actionType: { type: string, enum: [settlement.execute, transfer.create, transfer.reverse, payment.create, payment.reverse, bill_payment.create, bill_payment.reverse, instant_transfer.create, instant_transfer.return, collection.pay, collection.till_credit, collection.refund, recurring_mandate.create, recurring_mandate.resume, debit_request.accept, payment_qr.pay, echeq.deposit, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve] }
+        resourceType: { type: string, enum: [settlement_cycle, transfer, book_transfer, payment, bill_payment, instant_transfer, payment_link, payment_qr, echeq, collection_till, recurring_payment_mandate, payout_batch, risk_case, reconciliation_exception, dispute] }
         resourceId: { type: string, format: uuid }
         status: { type: string, enum: [pending, executed, rejected, cancelled, expired, failed] }
         requestPayload: { type: object, additionalProperties: true }

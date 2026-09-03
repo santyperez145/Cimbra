@@ -421,6 +421,13 @@
       "when": 1788402000000,
       "tag": "0059_collection_pay_approval",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1788403200000,
+      "tag": "0060_collection_till_credit_approval",
+      "breakpoints": true
     }
   ]
 }

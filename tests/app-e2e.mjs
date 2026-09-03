@@ -2559,6 +2559,39 @@ try {
     body: JSON.stringify({ actionType: 'collection.pay', enabled: false, expiresInMinutes: 1440 }),
   }), 200);
 
+  const tillCreditPolicy = await json(await request('/api/platform/approval-policy', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actionType: 'collection.till_credit', enabled: true, expiresInMinutes: 1440 }),
+  }), 200);
+  assert.equal(tillCreditPolicy.policy.actionType, 'collection.till_credit');
+  const protectedTill = await json(await request('/api/v1/collection-tills', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-till-mc-${runId}` },
+    body: JSON.stringify({
+      accountId: destinationAccount.id, externalReference: `TILL-MC-${runId}`, name: 'Till MC QA',
+    }),
+  }), 201);
+  const protectedTillInbound = await json(await request(`/api/v1/collection-tills/${protectedTill.till.id}/inbound`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-till-mc-in-${runId}` },
+    body: JSON.stringify({
+      externalReference: `TILL-MC-IN-${runId}`, description: 'MC till inbound', amount: '2.75', currency: 'ARS',
+    }),
+  }), 202);
+  assert.equal(protectedTillInbound.requiresApproval, true);
+  assert.equal(protectedTillInbound.approval.actionType, 'collection.till_credit');
+  cookie = checkerCookie;
+  const protectedTillInboundExecution = await json(await request(`/api/v1/approvals/${protectedTillInbound.approval.id}/approve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-till-mc-checker-${runId}` },
+    body: JSON.stringify({ reason: 'Independent till inbound checker' }),
+  }), 200);
+  assert.equal(protectedTillInboundExecution.approval.status, 'executed');
+  assert.equal(protectedTillInboundExecution.transfer.direction, 'inbound');
+  assert.equal(protectedTillInboundExecution.transfer.collectionTillId, protectedTill.till.id);
+  cookie = ownerCookieAfterRequest;
+  await json(await request('/api/platform/approval-policy', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actionType: 'collection.till_credit', enabled: false, expiresInMinutes: 1440 }),
+  }), 200);
+
   const collectionRefundPolicy = await json(await request('/api/platform/approval-policy', {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ actionType: 'collection.refund', enabled: true, expiresInMinutes: 1440 }),

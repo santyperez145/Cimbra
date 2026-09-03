@@ -9,7 +9,7 @@ import type {
   CreateBookTransferInput, CreateRecurringPaymentMandateInput, CreateSettlementCycleInput, CreateTransferInput, CreateWebhookInput,
   CreatePayoutBatchInput, CreatePayoutBeneficiaryInput, CreateWalletInput, CreateWalletPocketTransferInput, CreateWalletProgramInput,
   AssignRailAliasInput, CreateDebitRequestInput, CreateInstantTransferInput, CreatePaymentQrInput, CreateQrDebtInput, CreateQrSaleOrderInput, IssueRailInstrumentInput, PayPaymentQrInput,
-  CreatePaymentLinkInput, PayPaymentLinkInput, RefundPaymentLinkInput, InstantTransferCreationResult, InstantTransferReturnResult, DebitRequestRespondResult, PaymentQrPayResult, PaymentLinkPayResult, PaymentLinkRefundResult, PaymentLink, CollectionTill, CreateCollectionTillInput, CreditCollectionTillInput,
+  CreatePaymentLinkInput, PayPaymentLinkInput, RefundPaymentLinkInput, InstantTransferCreationResult, InstantTransferReturnResult, DebitRequestRespondResult, PaymentQrPayResult, PaymentLinkPayResult, CollectionTillCreditResult, PaymentLinkRefundResult, PaymentLink, CollectionTill, CreateCollectionTillInput, CreditCollectionTillInput,
   CreateEcheqInput, AcceptEcheqInput, EndorseEcheqInput, DepositEcheqInput, EcheqDepositResult, Echeq,
   InstantTransfer, PaymentQr, QrDebt, QrSaleOrder, RailDirectoryPreview, RailInstrument,
   PayoutBatch, PayoutBeneficiary,
@@ -406,7 +406,7 @@ export class Cimbra {
       this.del<{ ok: true; till: CollectionTill; replayed: boolean }>(
         `/api/v1/collection-tills/${encodeURIComponent(id)}`, options),
     inbound: (id: string, input: CreditCollectionTillInput, options?: RequestOptions) =>
-      this.post<{ ok: true; till: CollectionTill; transfer: InstantTransfer; replayed: boolean }>(
+      this.post<CollectionTillCreditResult>(
         `/api/v1/collection-tills/${encodeURIComponent(id)}/inbound`, input, options, true),
     issueStaticQr: (id: string, options?: RequestOptions) =>
       this.post<{ ok: true; till: CollectionTill; replayed: boolean }>(

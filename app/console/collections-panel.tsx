@@ -199,9 +199,10 @@ export default function CollectionsPanel({ role, accounts }: { role: Organizatio
         amount: data.get('amount'), currency: 'ARS',
       }),
     });
-    const result = await response.json() as { error?: unknown };
+    const result = await response.json() as { requiresApproval?: boolean; error?: unknown };
     setBusy(false);
     if (!response.ok) { setFeedback(apiError(result, 'No pudimos acreditar el punto de recaudación.')); return; }
+    if (result.requiresApproval) setFeedback('Inbound del till enviado a Aprobaciones (maker/checker).');
     form.reset();
     await load().catch((error: Error) => setFeedback(error.message));
   }
@@ -245,7 +246,7 @@ export default function CollectionsPanel({ role, accounts }: { role: Organizatio
       <article><span>Devueltos</span><strong>{refundedCount}</strong></article>
       <article><span>Puntos activos</span><strong>{activeTills}</strong></article>
     </div>
-    <p className="role-boundary-copy">El link sandbox se paga con una cuenta Cimbra, un inbound ledger, el QR de una deuda asociada o el CVU de un till. Sólo el medio cimbra_cvu admite parciales, varios créditos o un importe mayor al restante. Con política collection.pay el cobro pasa por Aprobaciones. La devolución puede ser total o parcial; con política collection.refund también. Un link CVU puede volver a cobrar si queda restante. Un inbound suelto al till no cierra el link. No procesa tarjetas, POS, Tap to Phone, checkout PCI ni QR interoperable.</p>
+    <p className="role-boundary-copy">El link sandbox se paga con una cuenta Cimbra, un inbound ledger, el QR de una deuda asociada o el CVU de un till. Sólo el medio cimbra_cvu admite parciales, varios créditos o un importe mayor al restante. Con política collection.pay el cobro pasa por Aprobaciones; con collection.till_credit el inbound suelto al till también. La devolución puede ser total o parcial; con política collection.refund también. Un link CVU puede volver a cobrar si queda restante. Un inbound suelto al till no cierra el link. No procesa tarjetas, POS, Tap to Phone, checkout PCI ni QR interoperable.</p>
     {pendingCount > 0 && <p className="role-boundary-copy">{pendingCount} links en revisión, expirados o cancelados.</p>}
 
     {canOperate && <div className="compliance-grid wallets-grid">

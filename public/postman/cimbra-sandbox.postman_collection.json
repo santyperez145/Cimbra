@@ -1042,7 +1042,7 @@
               }
             ],
             "url": "{{baseUrl}}/api/v1/collection-tills/:id/inbound",
-            "description": "Ledger cash-in to the collector account attributed to this till. Creates an inbound instant transfer with collectionTillId. Not a Coelsa credit.\n\noperationId: creditCollectionTill\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "description": "Ledger cash-in to the collector account attributed to this till. Creates an inbound instant transfer with collectionTillId. When collection.till_credit maker/checker is enabled, returns 202 with a pending approval instead of settling immediately. Not a Coelsa credit.\n\noperationId: creditCollectionTill\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \n}\n",
