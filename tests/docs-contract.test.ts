@@ -98,6 +98,26 @@ test('el SDK descargable coincide con su versión y checksum publicados', () => 
   assert.match(readFileSync(join(root, 'packages', 'sdk', 'README.md'), 'utf8'), new RegExp(`https://cimbra-rose\\.vercel\\.app/sdk/${fileName}`));
 });
 
+test('la colección Postman se genera desde OpenAPI y se publica en developers', () => {
+  const collectionPath = join(root, 'public', 'postman', 'cimbra-sandbox.postman_collection.json');
+  assert.equal(existsSync(collectionPath), true);
+  const collection = JSON.parse(readFileSync(collectionPath, 'utf8')) as {
+    info: { name: string; schema: string };
+    variable: Array<{ key: string; value: string }>;
+    item: Array<{ item?: Array<{ request?: { method?: string; url?: string } }> }>;
+  };
+  assert.equal(collection.info.name, 'Cimbra API sandbox');
+  assert.match(collection.info.schema, /collection\/v2\.1\.0/);
+  assert.equal(collection.variable.some((item) => item.key === 'baseUrl' && item.value === spec.servers[0].url), true);
+  assert.equal(collection.variable.some((item) => item.key === 'apiKey'), true);
+  const requests = collection.item.flatMap((folder) => folder.item ?? []);
+  assert.equal(requests.length, contractOperations().length);
+  assert.equal(requests.every((item) => item.request?.method && item.request?.url), true);
+  const page = readFileSync(join(root, 'app', 'developers', 'page.tsx'), 'utf8');
+  assert.match(page, /\/postman\/cimbra-sandbox\.postman_collection\.json/);
+  assert.doesNotMatch(page, /Postman Collection[\s\S]*No publicada/);
+});
+
 test('consola y docs consumen scopes y eventos desde fuentes canónicas', () => {
   const panel = readFileSync(join(root, 'app', 'console', 'developers-panel.tsx'), 'utf8');
   const page = readFileSync(join(root, 'app', 'developers', 'page.tsx'), 'utf8');

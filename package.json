@@ -21,6 +21,7 @@
     "test:e2e": "node --env-file-if-exists=.env.local tests/app-e2e.mjs",
     "sdk:build": "npm run build --workspace @cimbra/sdk",
     "sdk:artifact": "node scripts/build-sdk-artifact.mjs",
+    "postman:artifact": "node scripts/build-postman-collection.mjs",
     "sdk:pack": "npm pack --workspace @cimbra/sdk --dry-run",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node --env-file-if-exists=.env.local scripts/migrate.mjs"

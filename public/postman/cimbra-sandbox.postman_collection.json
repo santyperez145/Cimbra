@@ -1,0 +1,5032 @@
+{
+  "info": {
+    "name": "Cimbra API sandbox",
+    "description": "Generated from public/openapi.yaml. Import into Postman and set collection variables.\n\nOpenAPI version 2026-09-01 · 194 operations.\n\nEnvironment is sandbox: use cim_sk_test_ API keys. Live stays fail-closed until a production hostname and Go Live evidence exist.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_postman_id": "cimbra-sandbox-openapi"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://cimbra-rose.vercel.app"
+    },
+    {
+      "key": "apiKey",
+      "value": "cim_sk_test_replace_me"
+    }
+  ],
+  "item": [
+    {
+      "name": "accounts",
+      "item": [
+        {
+          "name": "List accounts with cursor pagination",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/accounts",
+            "description": "operationId: listAccounts\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Open an account",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/accounts",
+            "description": "operationId: createAccount\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Retrieve a ledger-backed account statement",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/accounts/:id/statement",
+            "description": "Returns immutable postings for one tenant account plus opening and closing balances for an ISO-8601 period of at most 366 days. Reversals appear as separate compensating entries.\n\noperationId: getAccountStatement\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Retrieve an account by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/accounts/:id",
+            "description": "operationId: retrieveAccount\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        }
+      ]
+    },
+    {
+      "name": "approvals",
+      "item": [
+        {
+          "name": "Approve and atomically execute a protected operation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/approvals/:id/approve",
+            "description": "Requires a different owner/admin with MFA and a console session. API keys are rejected.\n\noperationId: approveRequest\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Cancel a pending request as its maker",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/approvals/:id/cancel",
+            "description": "operationId: cancelApprovalRequest\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "List maker/checker requests for the tenant",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/approvals",
+            "description": "API keys require approvals:read. Decisions remain session-only so an S2S credential cannot act as a human checker.\n\noperationId: listApprovalRequests\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Reject a protected operation with a reason",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/approvals/:id/reject",
+            "description": "operationId: rejectApprovalRequest\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Retrieve one tenant approval request",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/approvals/:id",
+            "description": "operationId: retrieveApprovalRequest\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        }
+      ]
+    },
+    {
+      "name": "auth",
+      "item": [
+        {
+          "name": "Create a first-party account and session",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/register",
+            "description": "operationId: registerUser\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Read the authenticated user",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/me",
+            "description": "operationId: getCurrentUser\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Revoke the current session",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/logout",
+            "description": "operationId: logoutUser\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Start a session with email/username and password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/login",
+            "description": "operationId: loginUser\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        }
+      ]
+    },
+    {
+      "name": "bill payments",
+      "item": [
+        {
+          "name": "List bill-payment, top-up and gift-card orders",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/bill-payments",
+            "description": "operationId: listBillPaymentOrders\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Pay an obligation or execute a top-up",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/bill-payments",
+            "description": "Uses the canonical account, double-entry ledger, risk evaluation, holds and settlement path. A review response remains pending until its hold is captured or released.\n\noperationId: createBillPaymentOrder\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Retrieve a bill-payment or top-up order",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/bill-payments/:id",
+            "description": "operationId: retrieveBillPaymentOrder\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Reverse a settled bill-payment or top-up order",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/bill-payments/:id/reverse",
+            "description": "Creates a compensating ledger transaction and reopens a linked obligation; financial postings are never destructively mutated.\n\noperationId: reverseBillPaymentOrder\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        }
+      ]
+    },
+    {
+      "name": "billers",
+      "item": [
+        {
+          "name": "Activate or suspend a biller",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/billers/:id/status",
+            "description": "Owner/Admin only for sessions. Lifecycle changes are idempotent, audited and emitted as events.\n\noperationId: updateBillerStatus\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Issue a debt for a bill-payment biller",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/billers/:id/obligations",
+            "description": "Direct originator ingestion only. Cimbra persists the canonical obligation and never fabricates an external debt query.\n\noperationId: createBillerObligation\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "List debts issued by a tenant biller",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/billers/:id/obligations",
+            "description": "An optional raw subscriber reference is normalized and hashed inside the tenant boundary; only its last four characters are returned.\n\noperationId: listBillerObligations\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "List the tenant biller and top-up catalog",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/billers",
+            "description": "Returns Cimbra-owned catalog records. It never proxies or simulates a competitor or external biller response.\n\noperationId: listBillers\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Register a directly contracted or internal sandbox biller",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/billers",
+            "description": "Owner/Admin only for sessions. The record is tenant-scoped, idempotent, audited and emitted as an event.\n\noperationId: createBiller\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Retrieve a tenant biller",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/billers/:id",
+            "description": "operationId: retrieveBiller\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        }
+      ]
+    },
+    {
+      "name": "book transfers",
+      "item": [
+        {
+          "name": "Atomically move balance between two Cimbra accounts",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/book-transfers",
+            "description": "Locks both tenant accounts, validates status, currency and available balance, evaluates risk, and either creates a source hold or posts an atomic debit/credit pair. The existing transfer.create maker/checker policy protects this operation when enabled.\n\noperationId: createBookTransfer\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "List native book transfers with cursor pagination",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/book-transfers",
+            "description": "Tenant-scoped account-to-account movements backed by paired ledger postings. This sandbox operation does not use an external rail or move real funds.\n\noperationId: listBookTransfers\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Retrieve a native book transfer",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/book-transfers/:id",
+            "description": "operationId: retrieveBookTransfer\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Reverse a settled book transfer with compensating postings",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/book-transfers/:id/reverse",
+            "description": "Never mutates the original postings. When transfer.reverse maker/checker is enabled, returns 202 with a pending approval instead of posting compensation immediately. Creates an opposite journal, links the reversal transaction and preserves the full account statement history.\n\noperationId: reverseBookTransfer\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        }
+      ]
+    },
+    {
+      "name": "capabilities",
+      "item": [
+        {
+          "name": "List Cimbra-native financial infrastructure services and their real availability",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/capabilities",
+            "description": "Competitors are benchmark inputs only. Every returned service is owned by Cimbra; networkBoundary identifies the direct regulated-rail boundary required for live money movement.\n\noperationId: listPlatformCapabilities\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        }
+      ]
+    },
+    {
+      "name": "card programs",
+      "item": [
+        {
+          "name": "Create an immutable card issuing program definition",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/card-programs",
+            "description": "Session users must be owner or admin. API keys require cards:write. Name uniqueness is enforced per tenant under a transaction lock.\n\noperationId: createCardProgram\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "List tenant card programs",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/card-programs",
+            "description": "Returns native Cimbra program definitions. No network, sponsor or competitor integration is implied.\n\noperationId: listCardPrograms\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Retrieve a tenant card program",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/card-programs/:id",
+            "description": "operationId: retrieveCardProgram\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        }
+      ]
+    },
+    {
+      "name": "cards",
+      "item": [
+        {
+          "name": "Append a complete new version of card controls",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/cards/:id/controls",
+            "description": "Limits use decimal major-unit strings at the boundary and BIGINT minor units in storage. Control versions are append-only; this sandbox records policy but does not claim network authorization enforcement.\n\noperationId: replaceCardControls\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Apply a validated card lifecycle transition",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/cards/:id/lifecycle",
+            "description": "Valid transitions depend on the current state. Terminated is irreversible. Every transition is tenant-scoped, idempotent, audited and emitted as a webhook event.\n\noperationId: transitionCardStatus\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Issue a native sandbox card from a program",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/cards",
+            "description": "Physical instruments start in created and require activation; virtual instruments start active. Only last4 is generated and returned. Cimbra never creates or exposes PAN or CVV in this sandbox.\n\noperationId: createCard\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "List cards with cursor pagination",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/cards",
+            "description": "operationId: listCards\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "List the append-only lifecycle of a card",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/cards/:id/lifecycle",
+            "description": "operationId: listCardLifecycle\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Retrieve a card by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/cards/:id",
+            "description": "operationId: retrieveCard\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Retrieve the current version of card controls",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/cards/:id/controls",
+            "description": "operationId: retrieveCardControls\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        }
+      ]
+    },
+    {
+      "name": "collection tills",
+      "item": [
+        {
+          "name": "Assign or change the tenant alias of a collection till",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/collection-tills/:id/alias",
+            "description": "Uniqueness is tenant-scoped against rail instruments and other tills. A real change is limited to once per 24 hours; the first assignment does not start that window.\n\noperationId: assignCollectionTillAlias\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Create a collection till with its own sandbox CVU",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/collection-tills",
+            "description": "Own Cimbra contract. Issues a sandbox CVU (000+9999) attributed to this till, not a second CVU of the collector account. Optional static QR of the same account, or issueStaticQr to mint a till-owned cimbra:qr:static:v1 that does not consume the account's one static QR. closedAmountOnly requires a pending sale order to pay that QR. presence is present or not_present attribution, not POS. Optional alias. Not a BIND caja, Coelsa CVU, EMVCo QR or POS.\n\noperationId: createCollectionTill\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Credit a collection till with a sandbox inbound cash-in",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/collection-tills/:id/inbound",
+            "description": "Ledger cash-in to the collector account attributed to this till. Creates an inbound instant transfer with collectionTillId. Not a Coelsa credit.\n\noperationId: creditCollectionTill\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Disable a collection till and its sandbox CVU",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/collection-tills/:id",
+            "description": "Irreversible. The CVU and alias stop resolving in the tenant directory. A new POST creates another till. Returns 200 JSON, including idempotent replay. Not a Coelsa disable.\n\noperationId: disableCollectionTill\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Issue the till-owned static QR of a collection till",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/collection-tills/:id/static-qr",
+            "description": "Own Cimbra contract. Mints one cimbra:qr:static:v1 owned by this till. The payload never changes. Paying it attributes the transfer to collectionTillId. If closedAmountOnly is true, a pending sale order is required. Not interoperable, EMVCo, PCT or a BIND caja QR.\n\noperationId: issueCollectionTillStaticQr\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "List sandbox collection tills",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/collection-tills",
+            "description": "operationId: listCollectionTills\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Retrieve a collection till",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/collection-tills/:id",
+            "description": "operationId: retrieveCollectionTill\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        }
+      ]
+    },
+    {
+      "name": "compliance",
+      "item": [
+        {
+          "name": "Upload private compliance evidence",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/compliance/documents",
+            "description": "operationId: uploadComplianceDocument\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        }
+      ]
+    },
+    {
+      "name": "customers",
+      "item": [
+        {
+          "name": "Create a customer",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/customers",
+            "description": "operationId: createCustomer\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "List customers with cursor pagination",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/customers",
+            "description": "operationId: listCustomers\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Retrieve a customer by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/customers/:id",
+            "description": "operationId: retrieveCustomer\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        }
+      ]
+    },
+    {
+      "name": "debit requests",
+      "item": [
+        {
+          "name": "Accept or reject a pending internal debit request",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/debit-requests/:id/respond",
+            "description": "operationId: respondDebitRequest\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "List internal debit-pull requests",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/debit-requests",
+            "description": "operationId: listDebitRequests\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Request an internal debit from another Cimbra account in the tenant",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/debit-requests",
+            "description": "External CBU/CVU debit is rejected with external_debit_not_supported. This is not DEBIN over Coelsa.\n\noperationId: createDebitRequest\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "disputes",
+      "item": [
+        {
+          "name": "Apply an allowed dispute lifecycle transition",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/disputes/:id/events",
+            "description": "Validates the state machine, posts or compensates dispute credits in the double-entry ledger, and emits audit and webhook events. network_ready never means sent to a real card network.\n\noperationId: transitionDispute\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "List disputes and eligible settled debits",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/disputes",
+            "description": "Returns tenant-scoped native Cimbra disputes plus debits that remain eligible under the 90-day sandbox window.\n\noperationId: listDisputes\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Open a partial or full dispute for a settled debit",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/disputes",
+            "description": "Creates one dispute per transaction. The original transaction and postings remain immutable. A requested provisional credit is posted only when review begins.\n\noperationId: createDispute\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Retrieve a dispute with its immutable timeline",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/disputes/:id",
+            "description": "operationId: retrieveDispute\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        }
+      ]
+    },
+    {
+      "name": "due diligence",
+      "item": [
+        {
+          "name": "Append a subject or KYB related party while the case is in draft",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/due-diligence/cases/:id/parties",
+            "description": "operationId: addDueDiligenceParty\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Append an evidence-backed KYC/KYB check while the case is in draft",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/due-diligence/cases/:id/checks",
+            "description": "Check history is append-only. New checks supersede older observations by check type without mutating prior evidence.\n\noperationId: recordDueDiligenceCheck\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Approve or reject an in-review case under mandatory maker-checker control",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/due-diligence/cases/:id/decide",
+            "description": "Session-only decision. Requires an owner or admin with MFA who is different from the submitter. Approval also requires every latest required check to have passed.\n\noperationId: decideDueDiligenceCase\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Cancel a draft or in-review KYC/KYB case with a reason",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/due-diligence/cases/:id/cancel",
+            "description": "operationId: cancelDueDiligenceCase\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Create a KYC or KYB case from the canonical customer type",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/due-diligence/cases",
+            "description": "Individual customers produce KYC cases and business customers produce KYB cases. Only one non-expired active case is allowed per customer.\n\noperationId: createDueDiligenceCase\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Read the tenant KYC/KYB policy, metrics, cases, customers and evidence inventory",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/due-diligence",
+            "description": "Returns Cimbra's native due-diligence orchestration state. It records evidence and controlled decisions but does not claim biometric, government-registry or regulated approval without a direct certified source.\n\noperationId: getDueDiligenceState\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Retrieve one KYC/KYB case with parties, append-only checks and lifecycle events",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/due-diligence/cases/:id",
+            "description": "operationId: retrieveDueDiligenceCase\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Submit a complete draft to the independent review queue",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/due-diligence/cases/:id/submit",
+            "description": "Every required check must have a non-pending observation; KYB also requires a legal representative and beneficial owner.\n\noperationId: submitDueDiligenceCase\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        }
+      ]
+    },
+    {
+      "name": "echeqs",
+      "item": [
+        {
+          "name": "Accept a sandbox ECHEQ as the current beneficiary",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/echeqs/:id/accept",
+            "description": "operationId: acceptEcheq\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Cancel an issued sandbox ECHEQ before acceptance",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/echeqs/:id/cancel",
+            "description": "operationId: cancelEcheq\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Deposit a sandbox ECHEQ into a Cimbra account",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/echeqs/:id/deposit",
+            "description": "Settles immediately on the Cimbra ledger. Deposit to CBU/CVU/Coelsa returns 422. Insufficient drawer funds mark the ECHEQ rejected.\n\noperationId: depositEcheq\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Endorse an accepted to-order sandbox ECHEQ",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/echeqs/:id/endorse",
+            "description": "operationId: endorseEcheq\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Issue a sandbox ECHEQ against an Argentine ARS account",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/echeqs",
+            "description": "Payload format cimbra:echeq:v1 is not a CMC7 or Coelsa identifier. Discount, custody, USD and chamber clearing return 422. Only current-account holders can issue real ECHEQ.\n\noperationId: issueEcheq\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "List sandbox electronic checks",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/echeqs",
+            "description": "operationId: listEcheqs\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Retrieve a sandbox ECHEQ",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/echeqs/:id",
+            "description": "operationId: retrieveEcheq\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Return an accepted or endorsed sandbox ECHEQ before deposit",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/echeqs/:id/return",
+            "description": "operationId: returnEcheq\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        }
+      ]
+    },
+    {
+      "name": "events",
+      "item": [
+        {
+          "name": "List the immutable tenant audit log",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/events",
+            "description": "operationId: listAuditEvents\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        }
+      ]
+    },
+    {
+      "name": "health",
+      "item": [
+        {
+          "name": "Platform health",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/health",
+            "description": "operationId: getHealth\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        }
+      ]
+    },
+    {
+      "name": "holds",
+      "item": [
+        {
+          "name": "Capture an active hold and post its financial journal",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/holds/:id/capture",
+            "description": "operationId: captureHold\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Release an active hold without posting a financial journal",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/holds/:id/release",
+            "description": "operationId: releaseHold\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        }
+      ]
+    },
+    {
+      "name": "instant transfers",
+      "item": [
+        {
+          "name": "Create a sandbox credit push with holder confirmation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/instant-transfers",
+            "description": "Internal CVU/alias settles between product accounts. External CBU/CVU posts cash-out to settlement. Inbound credits a Cimbra CVU from an external originator. Rail is cimbra_sandbox, not Coelsa.\n\noperationId: createInstantTransfer\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "List sandbox instant transfers",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/instant-transfers",
+            "description": "operationId: listInstantTransfers\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Retrieve an instant transfer",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/instant-transfers/:id",
+            "description": "operationId: retrieveInstantTransfer\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Return a settled instant transfer with compensating postings",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/instant-transfers/:id/return",
+            "description": "operationId: returnInstantTransfer\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        }
+      ]
+    },
+    {
+      "name": "ledger",
+      "item": [
+        {
+          "name": "Read currency-isolated balances, journals and active holds",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/ledger",
+            "description": "operationId: getLedger\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        }
+      ]
+    },
+    {
+      "name": "live readiness",
+      "item": [
+        {
+          "name": "Read sandbox vs production hosts, Pomelo go-live stages, catalog products, official rail connections, the AR PSPCP fintech path and the USD 500 Gate 1 capital plan",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/live-readiness",
+            "description": "liveReady is true only when a production hostname is provisioned, at least one product is in go_live, every required official rail of that product is live, and a Cimbra adapter is registered. CIMBRA_OPERATING_MODE=live does not move funds without that. Products homologate independently. Rails are BCRA, Coelsa, sponsor banks or schemes — never BIND, Dock, tapi, Pismo, Pomelo or Wibond. capitalPlan is the authorized USD 500 Gate 1 envelope; spending it does not set liveReady.\n\noperationId: getLiveReadiness\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        }
+      ]
+    },
+    {
+      "name": "operations",
+      "item": [
+        {
+          "name": "Add an immutable comment to a work item",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/operations/work-items/:type/:id/notes",
+            "description": "operationId: addOperationalWorkItemNote\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Assign, prioritize, schedule or escalate an open work item",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/operations/work-items/:type/:id",
+            "description": "operationId: updateOperationalWorkItem\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Link a private compliance document to a work item",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/operations/work-items/:type/:id/evidence",
+            "description": "operationId: linkOperationalWorkItemEvidence\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "List the unified risk, reconciliation and disputes work queue",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/operations/work-items",
+            "description": "Returns tenant-scoped work items, assignable members, private document metadata, notes and evidence links for an operational console.\n\noperationId: listOperationalWorkItems\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        }
+      ]
+    },
+    {
+      "name": "ops",
+      "item": [
+        {
+          "name": "Answer a tenant support case as Cimbra",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/ops/support/cases/:id/messages",
+            "description": "Adds a platform-authored message and moves the case to pending_tenant.\n\noperationId: replyPlatformSupportCase\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Move a commercial lead through its pipeline status",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/ops/leads/:id",
+            "description": "operationId: updatePlatformLead\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Move any tenant support case to another status",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/ops/support/cases/:id",
+            "description": "operationId: updatePlatformSupportCase\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Platform superadmin overview across every tenant",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/ops/overview",
+            "description": "Restricted to platform operators provisioned in CIMBRA_PLATFORM_OPERATOR_EMAILS. Sessions only, never API keys.\n\noperationId: getPlatformOverview\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Retrieve any tenant support case with its conversation",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/ops/support/cases/:id",
+            "description": "Restricted to platform operators provisioned in CIMBRA_PLATFORM_OPERATOR_EMAILS. Sessions only.\n\noperationId: retrievePlatformSupportCase\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        }
+      ]
+    },
+    {
+      "name": "organization",
+      "item": [
+        {
+          "name": "Retrieve the tenant profile and member count",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/organization",
+            "description": "operationId: retrieveOrganization\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Update the tenant display name or country",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/organization",
+            "description": "Requires an owner or admin role, or the organization:write scope. Emits an audit event and an organization.updated webhook.\n\noperationId: updateOrganization\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "payment links",
+      "item": [
+        {
+          "name": "Cancel an open collection link",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/payment-links/:id/cancel",
+            "description": "operationId: cancelPaymentLink\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Collect a sandbox payment link",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/payment-links/:id/pay",
+            "description": "internal debits another Cimbra account in the tenant. sandbox_inbound posts a cash-in against settlement. cimbra_qr pays the associated closed QR debt. cimbra_cvu credits the associated till CVU. amount is accepted only for cimbra_cvu; omit it to credit the remaining balance. Partial credits, several credits and overpayment are allowed until collectedMinor >= amountMinor. Card acquiring is not supported.\n\noperationId: payPaymentLink\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Create a sandbox collection link against an Argentine ARS account",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/payment-links",
+            "description": "Payload format cimbra:link:v1 is not a card network checkout. Allowed methods are internal Cimbra accounts, sandbox inbound cash-in, Cimbra QR of an associated open debt (cimbra_qr) or the sandbox CVU of an associated collection till (cimbra_cvu). Optional items are checkout display only and do not change the amount to collect. Card, POS, hosted PCI checkout, successUrl/errorUrl and interoperable QR return 422 or 400. Only cimbra_cvu accepts partial credits, multiple credits or an amount above the remaining balance. QR and internal collection stay closed-amount.\n\noperationId: createPaymentLink\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "List sandbox collection payment links",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/payment-links",
+            "description": "operationId: listPaymentLinks\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Refund a settled collection in full or in part with compensating ledger entries",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/payment-links/:id/refund",
+            "description": "Omitting amount returns the remaining collected balance. amount refunds that ARS value from CVU credits in chronological order, or from the single closed-amount collection. creditId limits the refund to one CVU credit. A CVU link can reopen while collected remains below the original amount. Internal, QR and inbound stay closed after a partial refund. Not a card chargeback or BIND contracargo.\n\noperationId: refundPaymentLink\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Retrieve a collection payment link",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/payment-links/:id",
+            "description": "The response embeds informational checkout items, CVU credits and partiallyCollected. Items do not change the amount to collect.\n\noperationId: retrievePaymentLink\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        }
+      ]
+    },
+    {
+      "name": "payment qrs",
+      "item": [
+        {
+          "name": "Cancel an active Cimbra QR so it can no longer be paid",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/payment-qrs/:id/cancel",
+            "description": "Stops a reusable static QR or an unused dynamic QR. Does not reverse settled payments. Not a Coelsa or competitor caja command.\n\noperationId: cancelPaymentQr\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Create a Cimbra-owned QR payload for an account",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/payment-qrs",
+            "description": "Dynamic payloads use cimbra:qr:v1 and expire after one payment. Static payloads use cimbra:qr:static:v1, require an active sandbox CVU, stay open-amount and reusable until cancelled, and allow one active static QR per account. Neither payload is the Argentine interoperable QR.\n\noperationId: createPaymentQr\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "List Cimbra QR collection payloads",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/payment-qrs",
+            "description": "operationId: listPaymentQrs\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Pay a Cimbra QR from another account in the tenant",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/payment-qrs/:id/pay",
+            "description": "operationId: payPaymentQr\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "payments",
+      "item": [
+        {
+          "name": "Create a cash-in or cash-out against an account",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/payments",
+            "description": "Posts to the tenant ledger settlement account. When payment.create maker/checker is enabled, returns 202 with a pending approval instead of settling immediately.\n\noperationId: createPayment\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Retrieve a cash-in or cash-out by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/payments/:id",
+            "description": "operationId: retrievePayment\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Reverse a settled cash-in or cash-out with compensating ledger postings",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/payments/:id/reverse",
+            "description": "Canonical payment reversal. When payment.reverse maker/checker is enabled, returns 202 with a pending approval instead of posting compensation immediately. Generic transfer reverse returns 409 payment_reverse_required for cash movements.\n\noperationId: reversePayment\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        }
+      ]
+    },
+    {
+      "name": "payout batches",
+      "item": [
+        {
+          "name": "Cancel a draft or scheduled payout batch",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/payout-batches/:id/cancel",
+            "description": "Pending approvals are cancelled through the approval request. Processing and terminal batches cannot be cancelled destructively.\n\noperationId: cancelPayoutBatch\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Create an immutable payout batch draft",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/payout-batches",
+            "description": "Accepts 1-100 items. Every beneficiary, account and currency is validated inside the tenant before persistence.\n\noperationId: createPayoutBatch\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Download the real per-item payout result file",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/payout-batches/:id/result",
+            "description": "CSV contains protected beneficiary data, amounts, transaction links, terminal/current states and failure codes from the sandbox worker.\n\noperationId: downloadPayoutBatchResult\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "List payout batches with per-item results",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/payout-batches",
+            "description": "operationId: listPayoutBatches\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Retrieve a payout batch and all item results",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/payout-batches/:id",
+            "description": "operationId: retrievePayoutBatch\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Submit a payout batch for approval, scheduling or execution",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/payout-batches/:id/submit",
+            "description": "Returns 202. When dual control is enabled, a different Owner/Admin with MFA must authorize the batch. Otherwise a leased worker processes each item independently through risk and the ledger.\n\noperationId: submitPayoutBatch\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        }
+      ]
+    },
+    {
+      "name": "payout beneficiaries",
+      "item": [
+        {
+          "name": "Activate or suspend a payout beneficiary",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/payout-beneficiaries/:id/status",
+            "description": "operationId: updatePayoutBeneficiaryStatus\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Create a protected payout beneficiary",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/payout-beneficiaries",
+            "description": "Owner/Admin only for sessions. Cimbra persists a tenant-scoped digest and last four characters, not the raw destination.\n\noperationId: createPayoutBeneficiary\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "List tenant-scoped payout beneficiaries",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/payout-beneficiaries",
+            "description": "Returns only a protected destination type and last four characters; the original destination is never returned.\n\noperationId: listPayoutBeneficiaries\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Retrieve one payout beneficiary",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/payout-beneficiaries/:id",
+            "description": "operationId: retrievePayoutBeneficiary\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        }
+      ]
+    },
+    {
+      "name": "platform",
+      "item": [
+        {
+          "name": "Atomically replace and revoke an API key",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/platform/api-keys/:id/rotate",
+            "description": "operationId: rotateApiKey\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Change a member role within the owner/admin hierarchy",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/platform/access/members/:id",
+            "description": "operationId: updateOrganizationMemberRole\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Create an S2S API key; the secret is returned once",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/platform/api-keys",
+            "description": "operationId: createApiKey\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Enable or disable dual approval as owner with MFA",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/platform/approval-policy",
+            "description": "Enabling requires another owner/admin with MFA. Disabling is blocked while requests are pending.\n\noperationId: configureApprovalPolicy\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Invite an email to the tenant with an assignable role",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/platform/access",
+            "description": "The invitation expires after seven days. A verified email is required before membership is accepted automatically.\n\noperationId: inviteOrganizationMember\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "List safe API key metadata",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/platform/api-keys",
+            "description": "operationId: listApiKeys\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "List tenant members and invitation history for owner or admin",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/platform/access",
+            "description": "operationId: listOrganizationAccess\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Read dual-control policies for money movement and sensitive operational decisions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/platform/approval-policy",
+            "description": "operationId: getApprovalPolicies\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Remove a member from the tenant without deleting their identity",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/platform/access/members/:id",
+            "description": "operationId: removeOrganizationMember\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Revoke a pending organization invitation",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/platform/access/invitations/:id",
+            "description": "operationId: revokeOrganizationInvitation\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Revoke an API key immediately",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/platform/api-keys/:id",
+            "description": "operationId: revokeApiKey\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        }
+      ]
+    },
+    {
+      "name": "qr debts",
+      "item": [
+        {
+          "name": "Create a Cimbra QR debt with a closed amount and one payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/qr-debts",
+            "description": "Resource is the debt, not an overlay on a static QR. Payload cimbra:qr:debt:v1. Requires an active sandbox CVU on the collecting account. Sandbox settles synchronously in the same transaction. Not BIND deuda, EMVCo or Coelsa PCT.\n\noperationId: createQrDebt\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Delete an open Cimbra QR debt so the QR can no longer be paid",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/qr-debts/:id",
+            "description": "Does not reverse a settled payment. A paid debt is not reopened. Not a Coelsa or competitor deuda command.\n\noperationId: cancelQrDebt\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "List Cimbra QR debts with a closed amount and a single payment",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/qr-debts",
+            "description": "operationId: listQrDebts\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Retrieve a Cimbra QR debt by id",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/qr-debts/:id",
+            "description": "operationId: retrieveQrDebt\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        }
+      ]
+    },
+    {
+      "name": "qr sale orders",
+      "item": [
+        {
+          "name": "Delete a pending Cimbra sale order and return the static QR to open amount",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/qr-sale-orders/:id",
+            "description": "Does not reverse settled payments. Not a Coelsa or competitor caja command.\n\noperationId: cancelQrSaleOrder\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "List Cimbra sale orders overlaid on static QRs",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/qr-sale-orders",
+            "description": "operationId: listQrSaleOrders\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Overlay a closed amount on an active Cimbra static QR",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/qr-sale-orders",
+            "description": "One pending sale order per static QR. Creating another supersedes the pending one. Not a BIND caja, EMVCo or Transferencias 3.0 order.\n\noperationId: createQrSaleOrder\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Retrieve a Cimbra sale order by id",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/qr-sale-orders/:id",
+            "description": "operationId: retrieveQrSaleOrder\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        }
+      ]
+    },
+    {
+      "name": "rail directory",
+      "item": [
+        {
+          "name": "Preview holder data for a CBU, CVU or alias",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/rail-directory",
+            "description": "Tenant-scoped lookup. Internal hits return holder name and tax last4. External CBU/CVU return last4 only. There is no national alias directory.\n\noperationId: lookupRailDirectory\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        }
+      ]
+    },
+    {
+      "name": "rail instruments",
+      "item": [
+        {
+          "name": "Assign or change the tenant alias of an existing sandbox CVU",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/rail-instruments/:id/alias",
+            "description": "Own Cimbra contract. Assigns or replaces the alias of a CVU already issued in the tenant. Uniqueness is tenant-scoped, not a national directory. A real change is limited to once per 24 hours; issuing the CVU or the first assignment does not start that window. Repeating the same alias returns 200 without moving the clock.\n\noperationId: assignRailAlias\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Delete a sandbox CVU without touching the account or ledger",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/rail-instruments/:id",
+            "description": "Own Cimbra contract. Marks the CVU and its tenant alias as revoked so they cannot receive or send. The ARS account and its balance remain. A later issue call reactivates the same sandbox CVU for that account.\n\noperationId: revokeRailInstrument\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Issue a sandbox CVU and optional alias for an ARS Argentine account",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/rail-instruments",
+            "description": "operationId: issueRailInstruments\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "List sandbox CVU and tenant aliases",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/rail-instruments",
+            "description": "Instruments issued by Cimbra as a sandbox PSP. Prefix 0009999 is not a Coelsa assignment. Aliases resolve only inside the tenant.\n\noperationId: listRailInstruments\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Retrieve a rail instrument owned by the tenant",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/rail-instruments/:id",
+            "description": "operationId: retrieveRailInstrument\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        }
+      ]
+    },
+    {
+      "name": "reconciliation",
+      "item": [
+        {
+          "name": "Compare an external batch with Cimbra transactions",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/reconciliation/runs",
+            "description": "Produces exact matches, amount mismatches, missing internal records and missing external records. The maximum period is 31 days and each request accepts at most 500 entries.\n\noperationId: createReconciliationRun\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Correct or explicitly accept an exception",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/reconciliation/exceptions/:id/resolve",
+            "description": "operationId: resolveReconciliationException\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Import a canonical UTF-8 CSV and reconcile it atomically",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/reconciliation/imports",
+            "description": "The raw file is parsed in memory and discarded. Cimbra persists its SHA-256 checksum, safe filename and normalized entries. Maximum size is 2 MB and 500 data rows.\n\noperationId: importReconciliationCsv\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "List reconciliation runs and exception queue",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/reconciliation",
+            "description": "operationId: getReconciliationState\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Retrieve a run with every compared item",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/reconciliation/runs/:id",
+            "description": "operationId: retrieveReconciliationRun\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        }
+      ]
+    },
+    {
+      "name": "recurring mandates",
+      "item": [
+        {
+          "name": "Create a weekly or monthly payment mandate",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/recurring-mandates",
+            "description": "Persists consent evidence, limits, cadence and retry policy. It does not claim homologated direct debit or a live biller rail.\n\noperationId: createRecurringPaymentMandate\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "List execution attempts for a recurring mandate",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/recurring-mandates/:id/executions",
+            "description": "Returns sandbox charge attempts (settled, skipped, failed). Does not imply a live direct-debit rail.\n\noperationId: listRecurringPaymentMandateExecutions\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "List recurring payment mandates",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/recurring-mandates",
+            "description": "operationId: listRecurringPaymentMandates\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Pause, resume or cancel a recurring mandate",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/recurring-mandates/:id/status",
+            "description": "Lifecycle actions are tenant-scoped, idempotent, audited and emitted as webhook events. Cancelled is terminal.\n\noperationId: updateRecurringPaymentMandateStatus\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Retrieve a recurring payment mandate",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/recurring-mandates/:id",
+            "description": "operationId: retrieveRecurringPaymentMandate\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        }
+      ]
+    },
+    {
+      "name": "risk",
+      "item": [
+        {
+          "name": "Add a tenant-scoped counterparty, device or identity decision-list entry",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/risk/lists",
+            "description": "The subject is converted to a tenant-scoped one-way digest before persistence; only a digest-derived preview is returned.\n\noperationId: createRiskListEntry\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Append a confirmed legitimate or fraud outcome to an evaluation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/risk/evaluations/:id/outcomes",
+            "description": "Corrections are immutable revisions and must identify the active outcome being superseded. Raw device and identity references are never returned.\n\noperationId: reportRiskOutcome\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Atomically promote a challenger and archive its previous champion",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/risk/rules/:id/promote",
+            "description": "operationId: promoteRiskRule\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Compare a challenger against live champions without changing production decisions",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/risk/simulations",
+            "description": "Accepts up to 50 samples and persists only aggregate decision summaries, never the raw sample payload.\n\noperationId: simulateRiskRule\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Create a client-managed OTP challenge for an evaluation in review",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/risk/evaluations/:id/step-up-challenges",
+            "description": "Cimbra generates and protects the OTP. The credential is returned only by this authenticated create request and its identical replay while pending; it is absent from lists, audit events and webhooks. This is a rail-agnostic sandbox control, not 3DS or an ACS.\n\noperationId: createRiskStepUpChallenge\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Create an immutable challenger version in an existing policy family",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/risk/rules/:id/versions",
+            "description": "operationId: createRiskRuleVersion\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Create the first active champion of a tenant risk-policy family",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/risk/rules",
+            "description": "operationId: createRiskRule\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Disable an active tenant risk-list entry",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/risk/lists/:id",
+            "description": "operationId: disableRiskListEntry\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Disable an active tenant rule",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/risk/rules/:id",
+            "description": "operationId: disableRiskRule\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "List OTP step-up challenges for one risk evaluation",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/risk/evaluations/:id/step-up-challenges",
+            "description": "Returns lifecycle metadata only. Credentials, hashes and encrypted values are never exposed by reads.\n\noperationId: listRiskStepUpChallenges\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "List system policies, tenant rules, evaluations and cases",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/risk",
+            "description": "operationId: getRiskState\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Resolve a case and capture or release its linked hold",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/risk/cases/:id/resolve",
+            "description": "operationId: resolveRiskCase\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Run and persist an explainable risk decision",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/risk/evaluations",
+            "description": "operationId: createRiskEvaluation\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Verify one OTP attempt under lock and persist its result",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/risk/evaluations/:id/step-up-challenges/:challengeId/verify",
+            "description": "Attempts are append-only, idempotent and limited. A successful step-up becomes evidence for the risk case but never bypasses case resolution or maker/checker policy.\n\noperationId: verifyRiskStepUpChallenge\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "services",
+      "item": [
+        {
+          "name": "Return the service catalog, ownership boundaries and extraction debt",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/services",
+            "description": "Every table and data-access module belongs to exactly one domain service. Services run in a shared runtime until a documented volume or risk gate justifies extracting them, and the cross-service write debt is reported explicitly.\n\noperationId: getServiceTopology\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        }
+      ]
+    },
+    {
+      "name": "settlements",
+      "item": [
+        {
+          "name": "Create one sandbox settlement cycle from a completed reconciliation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/settlements",
+            "description": "This records and schedules an operational acknowledgement. It does not move real funds or connect to a rail.\n\noperationId: createSettlementCycle\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Execute a due sandbox settlement cycle idempotently",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/settlements/:id/execute",
+            "description": "operationId: executeSettlementCycle\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "List tenant settlement cycles",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/settlements",
+            "description": "operationId: listSettlementCycles\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Retrieve a tenant settlement cycle",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/settlements/:id",
+            "description": "operationId: retrieveSettlementCycle\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        }
+      ]
+    },
+    {
+      "name": "support",
+      "item": [
+        {
+          "name": "Add a tenant message to an open support case",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/support/cases/:id/messages",
+            "description": "Moves the case to pending_cimbra. Closed and resolved cases reject new messages.\n\noperationId: replySupportCase\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "List the tenant support cases with their status and message count",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/support/cases",
+            "description": "Support cases are tenant-scoped. A viewer can read them; opening or replying requires an operator role or the support:write scope.\n\noperationId: listSupportCases\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Move a support case to another status",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/support/cases/:id",
+            "description": "operationId: updateSupportCaseStatus\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Open a support case with its first message",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/support/cases",
+            "description": "Limited to 20 open cases per tenant. Emits an audit event and a support.case_opened webhook.\n\noperationId: createSupportCase\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Retrieve a support case with its full conversation",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/support/cases/:id",
+            "description": "operationId: retrieveSupportCase\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        }
+      ]
+    },
+    {
+      "name": "transfers",
+      "item": [
+        {
+          "name": "Create an idempotent sandbox transfer",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/transfers",
+            "description": "When the tenant enables transfer dual control, this returns 202 without reserving funds. A different owner/admin with MFA must approve in a human session; balance and risk are re-evaluated atomically at approval time.\n\noperationId: createTransfer\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "List transfers with cursor pagination",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/transfers",
+            "description": "operationId: listTransfers\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Retrieve a transfer by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/transfers/:id",
+            "description": "operationId: retrieveTransfer\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Reverse a settled transfer with a compensating journal",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/transfers/:id/reverse",
+            "description": "When transfer.reverse maker/checker is enabled, returns 202 with a pending approval instead of posting compensation immediately.\n\noperationId: reverseTransfer\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        }
+      ]
+    },
+    {
+      "name": "wallet programs",
+      "item": [
+        {
+          "name": "Create a tenant wallet program",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/wallet-programs",
+            "description": "Owner/Admin configure display name, currencies and pocket kinds. Pockets always include available and map to product ledger accounts.\n\noperationId: createWalletProgram\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "List native wallet programs",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/wallet-programs",
+            "description": "Tenant-scoped white-label wallet programs. Branding is stored configuration, not a consumer app or custodial license.\n\noperationId: listWalletPrograms\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Retrieve a wallet program",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/wallet-programs/:id",
+            "description": "operationId: retrieveWalletProgram\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        }
+      ]
+    },
+    {
+      "name": "wallets",
+      "item": [
+        {
+          "name": "Freeze, unfreeze or close a wallet",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/wallets/:id/lifecycle",
+            "description": "Frozen and closed wallets mark pocket accounts inactive. Closing requires zero available balance and no active holds.\n\noperationId: transitionWallet\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "List append-only wallet lifecycle events",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/wallets/:id/lifecycle",
+            "description": "operationId: listWalletLifecycle\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "List customer wallets with cursor pagination",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/wallets",
+            "description": "operationId: listWallets\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "List wallet pockets with ledger balances",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/wallets/:id/pockets",
+            "description": "operationId: listWalletPockets\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Move balance between pockets of the same wallet",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/wallets/:id/transfers",
+            "description": "Resolves pocket IDs to product accounts and executes a native book transfer with the same risk, holds and transfer.create maker/checker policy.\n\noperationId: createWalletPocketTransfer\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Open a customer wallet with ledger-backed pockets",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/wallets",
+            "description": "Creates one product account per program pocket kind. Does not custody real funds or issue an end-user app.\n\noperationId: createWallet\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Retrieve a wallet and its pockets",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/wallets/:id",
+            "description": "operationId: retrieveWallet\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        }
+      ]
+    },
+    {
+      "name": "webhooks",
+      "item": [
+        {
+          "name": "Disable an endpoint and cancel pending deliveries",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/webhooks/:id",
+            "description": "operationId: disableWebhook\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "List endpoints, deliveries and attempt logs",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/webhooks",
+            "description": "operationId: listWebhooks\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Register a public HTTPS webhook and return its signing secret once",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/webhooks",
+            "description": "operationId: createWebhook\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \n}\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Requeue a webhook delivery while retaining prior attempt logs",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/webhooks/deliveries/:id/replay",
+            "description": "operationId: replayWebhookDelivery\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        },
+        {
+          "name": "Rotate a webhook signing secret",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{apiKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/webhooks/:id/rotate",
+            "description": "operationId: rotateWebhookSecret\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+          }
+        }
+      ]
+    }
+  ]
+}

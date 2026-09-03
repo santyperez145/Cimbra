@@ -569,7 +569,7 @@ await cimbra.paymentLinks.refund(link.data.link.id, { amount: '3.00' });`;
         <div className="artifact-matrix">
           <div><span>OpenAPI YAML</span><b className="available">Disponible</b><a href="/openapi.yaml">Descargar</a></div>
           <div><span>SDK TypeScript {sdk.version}</span><b className="preview">Preview verificable</b><a href={sdk.downloadPath}>Descargar</a></div>
-          <div><span>Postman Collection</span><b className="unavailable">No publicada</b><span>Backlog</span></div>
+          <div><span>Postman Collection</span><b className="available">Disponible</b><a href="/postman/cimbra-sandbox.postman_collection.json">Descargar</a></div>
           <div><span>SDKs Java / Python / Go</span><b className="unavailable">No publicados</b><span>Backlog</span></div>
         </div>
       </section>
