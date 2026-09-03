@@ -160,19 +160,25 @@ test('abrir cuentas exige KYC/KYB aprobado y la consola no simula payments', () 
   assert.doesNotMatch(capabilities, /límites, fees/);
 });
 
-test('identity libera asignaciones vía risk y reconciliation sin deuda cruzada', () => {
+test('identity libera asignaciones vía risk/reconcil y el alta de org vía tenants', () => {
   const access = readFileSync(join(root, 'db', 'access.ts'), 'utf8');
   const risk = readFileSync(join(root, 'db', 'risk.ts'), 'utf8');
   const reconciliation = readFileSync(join(root, 'db', 'reconciliation.ts'), 'utf8');
+  const organization = readFileSync(join(root, 'db', 'organization.ts'), 'utf8');
   const catalog = readFileSync(join(root, 'app', 'lib', 'platform', 'service-catalog.ts'), 'utf8');
   assert.match(access, /clearOpenRiskCaseAssignments/);
   assert.match(access, /clearOpenReconciliationAssignments/);
+  assert.match(access, /createSandboxOrganizationInTransaction/);
+  assert.doesNotMatch(access, /INSERT\s+INTO\s+organizations/i);
   assert.doesNotMatch(access, /UPDATE risk_cases SET assigned_to/);
   assert.doesNotMatch(access, /UPDATE reconciliation_exceptions SET assigned_to/);
   assert.match(risk, /clearOpenRiskCaseAssignments/);
   assert.match(reconciliation, /clearOpenReconciliationAssignments/);
+  assert.match(organization, /createSandboxOrganizationInTransaction/);
+  assert.match(organization, /INSERT\s+INTO\s+organizations/i);
   assert.doesNotMatch(catalog, /table: 'risk_cases', owner: 'risk'/);
   assert.doesNotMatch(catalog, /table: 'reconciliation_exceptions', owner: 'reconciliation'/);
+  assert.doesNotMatch(catalog, /table: 'organizations', owner: 'tenants'/);
 });
 
 test('la consola opera la auditoría del tenant sobre GET /api/v1/events', () => {

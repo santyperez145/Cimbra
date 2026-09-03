@@ -1,10 +1,22 @@
 import type { AuthUser } from '@/app/lib/auth/types';
 import { ORGANIZATION_COUNTRIES } from '@/app/lib/platform/support-input.ts';
-import { getDatabaseClient } from './client';
+import { type DatabaseClient, getDatabaseClient } from './client';
 import { enqueueWebhookEvent } from './platform';
 
 export class OrganizationAdminError extends Error {
   constructor(message: string, readonly status = 400, readonly code = 'organization_error') { super(message); }
+}
+
+/** Alta sandbox del tenant: propiedad del servicio tenants; identity no escribe organizations. */
+export async function createSandboxOrganizationInTransaction(
+  database: DatabaseClient,
+  input: { id: string; name: string; slug: string; country?: string; createdAt: string },
+) {
+  const country = input.country ?? 'AR';
+  await database.prepare(
+    'INSERT INTO organizations (id, name, slug, country, status, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+  ).bind(input.id, input.name, input.slug, country, 'sandbox', input.createdAt).run();
+  return { id: input.id, name: input.name, slug: input.slug, country, status: 'sandbox' as const };
 }
 
 export async function getOrganizationProfile(organizationId: string) {

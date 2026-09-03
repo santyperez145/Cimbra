@@ -1,6 +1,7 @@
 import type { AuthUser } from '@/app/lib/auth/types';
 import { canManageRole, normalizeAccessEmail, type AssignableRole, type OrganizationRole } from '@/app/lib/platform/access-policy';
 import { type DatabaseClient, getDatabaseClient } from './client';
+import { createSandboxOrganizationInTransaction } from './organization';
 import { enqueueWebhookEvent } from './platform';
 import { clearOpenReconciliationAssignments } from './reconciliation';
 import { clearOpenRiskCaseAssignments } from './risk';
@@ -80,9 +81,13 @@ export async function ensureOrganizationMembership(user: AuthUser) {
     }
     const organizationId = crypto.randomUUID();
     const safeBase = email.split('@')[0].replace(/[^a-z0-9]+/gi, '-').toLowerCase() || 'workspace';
-    await database.prepare(
-      'INSERT INTO organizations (id, name, slug, country, status, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-    ).bind(organizationId, 'Cimbra Sandbox', `${safeBase}-${organizationId.slice(0, 6)}`, 'AR', 'sandbox', now).run();
+    await createSandboxOrganizationInTransaction(database, {
+      id: organizationId,
+      name: 'Cimbra Sandbox',
+      slug: `${safeBase}-${organizationId.slice(0, 6)}`,
+      country: 'AR',
+      createdAt: now,
+    });
     await database.prepare(
       'INSERT INTO members (id, organization_id, external_user_id, email, role, created_at) VALUES (?, ?, ?, ?, ?, ?)',
     ).bind(crypto.randomUUID(), organizationId, user.userId, email, 'owner', now).run();

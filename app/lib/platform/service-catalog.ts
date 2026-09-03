@@ -45,9 +45,7 @@ export const SERVICE_CATALOG: readonly ServiceDefinition[] = [
     publishes: ['organization.invitation_', 'organization.member_'],
     extractionGate: 'Se extrae cuando el tenant exija SSO empresarial propio o el volumen de verificación de credenciales degrade la latencia del resto de los servicios.',
     benchmark: 'Los emisores comparables aíslan identidad del procesamiento para poder rotar credenciales sin tocar el core transaccional.',
-    extractionDebt: [
-      { table: 'organizations', owner: 'tenants', reason: 'El alta de cuenta crea la organización en la misma transacción que el usuario.' },
-    ],
+    extractionDebt: [],
   },
   {
     id: 'tenants',
