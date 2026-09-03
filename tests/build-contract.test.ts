@@ -138,6 +138,23 @@ test('ops registra el envelope Gate 1 sin abrir liveReady', () => {
   assert.match(overview, /capital,/);
 });
 
+test('abrir cuentas exige KYC/KYB aprobado y la consola no simula payments', () => {
+  const accountsRoute = readFileSync(join(root, 'app', 'api', 'sandbox', 'accounts', 'route.ts'), 'utf8');
+  const dueDiligence = readFileSync(join(root, 'db', 'due-diligence.ts'), 'utf8');
+  const wallets = readFileSync(join(root, 'db', 'wallets.ts'), 'utf8');
+  const consoleClient = readFileSync(join(root, 'app', 'console', 'console-client.tsx'), 'utf8');
+  const capabilities = readFileSync(join(root, 'app', 'lib', 'platform', 'capabilities.ts'), 'utf8');
+  assert.match(dueDiligence, /assertCustomerDueDiligenceApproved/);
+  assert.match(dueDiligence, /customer_kyc_required/);
+  assert.match(accountsRoute, /assertCustomerDueDiligenceApproved/);
+  assert.match(wallets, /assertCustomerDueDiligenceApproved/);
+  assert.doesNotMatch(consoleClient, /paymentOpen/);
+  assert.doesNotMatch(consoleClient, /Simulá una transferencia/);
+  assert.match(consoleClient, /setActive\('Riesgo'\)/);
+  assert.doesNotMatch(capabilities, /payment intents/);
+  assert.doesNotMatch(capabilities, /límites, fees/);
+});
+
 test('la consola opera la auditoría del tenant sobre GET /api/v1/events', () => {
   const consoleClient = readFileSync(join(root, 'app', 'console', 'console-client.tsx'), 'utf8');
   const panel = readFileSync(join(root, 'app', 'console', 'audit-panel.tsx'), 'utf8');

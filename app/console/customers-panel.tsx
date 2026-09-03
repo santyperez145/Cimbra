@@ -168,7 +168,7 @@ export default function CustomersPanel({ role }: { role: OrganizationRole }) {
           </div>
           <section className="case-thread">
             <h3>Límites honestos</h3>
-            <p>Cimbra no verifica CUIT/CUIL contra AFIP ni razón social contra un registro mercantil. El last4 alcanza para correlacionar wallets, cuentas y expedientes del tenant. El KYC/KYB se opera en Compliance y no habilita dinero real.</p>
+            <p>Cimbra no verifica CUIT/CUIL contra AFIP ni razón social contra un registro mercantil. El last4 alcanza para correlacionar wallets, cuentas y expedientes del tenant. Abrí Compliance, completá el expediente y aprobalo: sin KYC/KYB vigente la API rechaza cuentas y wallets con customer_kyc_required.</p>
           </section>
         </>}
       </aside>

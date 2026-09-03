@@ -10,6 +10,7 @@ import {
 import { ApprovalError, createBookTransferWithApprovalPolicy } from './approvals';
 import { BookTransferError } from './book-transfers';
 import { type DatabaseClient, getDatabaseClient } from './client';
+import { assertCustomerDueDiligenceApproved, DueDiligenceError } from './due-diligence';
 import { accountBalanceMinor, activeHoldsMinor, createProductLedgerAccount } from './ledger';
 import { enqueueWebhookEvent } from './platform';
 
@@ -237,6 +238,14 @@ export async function createWallet(input: {
     ).bind(input.organizationId, input.wallet.customerId).first<{ id: string; name: string; country: string; status: string }>();
     if (!customer) throw new WalletError('El cliente no pertenece a la organización.', 404, 'customer_not_found');
     if (customer.status !== 'active') throw new WalletError('El cliente debe estar activo para abrir una wallet.', 409, 'customer_inactive');
+    try {
+      await assertCustomerDueDiligenceApproved(input.organizationId, input.wallet.customerId, database);
+    } catch (error) {
+      if (error instanceof DueDiligenceError) {
+        throw new WalletError(error.message, error.status, error.code);
+      }
+      throw error;
+    }
     const duplicate = await database.prepare(
       'SELECT id FROM wallets WHERE organization_id = ? AND program_id = ? AND customer_id = ? LIMIT 1',
     ).bind(input.organizationId, input.wallet.programId, input.wallet.customerId).first<{ id: string }>();

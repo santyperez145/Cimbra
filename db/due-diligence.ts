@@ -475,3 +475,26 @@ export async function cancelDueDiligenceCase(input: {
     return { case: await hydratedCase(database, input.organizationId, input.caseId), replayed: false };
   });
 }
+
+/** Gate de producto: cuentas y wallets exigen expediente aprobado y no vencido. */
+export async function assertCustomerDueDiligenceApproved(
+  organizationId: string,
+  customerId: string,
+  database: DatabaseClient = getDatabaseClient(),
+) {
+  await expireDueDiligenceCases(20, organizationId);
+  const now = new Date().toISOString();
+  const row = await database.prepare(
+    `SELECT id FROM due_diligence_cases
+     WHERE organization_id = ? AND customer_id = ? AND status = 'approved' AND expires_at > ?
+     ORDER BY COALESCE(resolved_at, updated_at) DESC, id DESC LIMIT 1`,
+  ).bind(organizationId, customerId, now).first<{ id: string }>();
+  if (!row) {
+    throw new DueDiligenceError(
+      'El cliente necesita un expediente KYC/KYB aprobado y vigente para abrir productos.',
+      409,
+      'customer_kyc_required',
+    );
+  }
+  return row.id;
+}

@@ -175,6 +175,7 @@ export default function AccountsPanel({ role, balances }: { role: OrganizationRo
       <label>País de la cuenta<select name="country" value={draftCountry} onChange={(event) => setDraftCountry(event.target.value)}>{ORGANIZATION_COUNTRIES.map((country) => <option key={country} value={country}>{COUNTRY_LABELS[country]}</option>)}</select></label>
       <div className="case-actions"><button disabled={busy || activeCustomers.length === 0}>Abrir cuenta</button></div>
       {activeCustomers.length === 0 && <p className="operations-empty">Primero da de alta un cliente activo en Clientes.</p>}
+      <p className="operations-empty">Requiere expediente KYC/KYB aprobado en Compliance. Sin eso la API responde customer_kyc_required.</p>
     </form>}
     {!canWrite && <p className="operations-empty">Tu rol puede consultar cuentas y estados de cuenta, pero no abrirlas.</p>}
     <div className="operations-layout">

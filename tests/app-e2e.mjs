@@ -479,6 +479,28 @@ try {
   assert.equal(customerReplay.customer.id, customer.id);
   const accountKey = `qa-account-${runId}`;
   const accountPayload = { customerId: customer.id, currency: 'ARS', country: 'AR' };
+  const blockedAccount = await json(await request('/api/v1/accounts', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-account-kyc-${runId}` },
+    body: JSON.stringify(accountPayload),
+  }), 409);
+  assert.equal(blockedAccount.error.code, 'customer_kyc_required');
+  const [seedUser] = await sql`SELECT id FROM users WHERE email = ${email} LIMIT 1`;
+  const [seedMember] = await sql`SELECT organization_id FROM members WHERE external_user_id = ${seedUser.id} LIMIT 1`;
+  assert.ok(seedUser?.id && seedMember?.organization_id);
+  userId = seedUser.id;
+  organizationId = seedMember.organization_id;
+  const kycNow = new Date().toISOString();
+  const kycExpires = new Date(Date.now() + 365 * 86_400_000).toISOString();
+  await sql`
+    INSERT INTO due_diligence_cases (
+      id, organization_id, customer_id, idempotency_key, request_fingerprint, kind, jurisdiction, policy_version,
+      required_checks, status, risk_rating, expires_at, created_by, resolved_by, resolution_note, resolved_at, created_at, updated_at
+    ) VALUES (
+      ${randomUUID()}, ${organizationId}, ${customer.id}, ${`qa-seed-kyc-${runId}`}, ${`qa-seed-fp-${runId}`},
+      'kyb', 'AR', '2026-09-01', ${JSON.stringify(['business_registry', 'sanctions', 'pep', 'beneficial_ownership'])},
+      'approved', 'low', ${kycExpires}, ${userId}, ${userId}, 'E2E seed approved', ${kycNow}, ${kycNow}, ${kycNow}
+    )
+  `;
   const account = (await json(await request('/api/v1/accounts', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': accountKey },
     body: JSON.stringify(accountPayload),

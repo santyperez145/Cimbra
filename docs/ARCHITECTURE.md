@@ -74,7 +74,7 @@ Los deployments productivos de Vercel ejecutan las migraciones versionadas antes
 El ledger actual es el núcleo financiero real. El host de despliegue sigue en sandbox, como BIND APIBANK, Pismo `sandbox.pismolabs.io` y Pomelo `sandbox.api.pomelo.la`. Production no tiene hostname: Pismo lo entrega el representante, BIND no publica la URL y Pomelo usa `api.pomelo.la` después de homologar. La plataforma de producción se separa en seis dominios desplegables:
 
 - Identity & Tenancy: organizaciones, roles, permisos, claves, políticas y segregación.
-- Financial Core: cuentas, ledger de doble partida, holds, límites, fees, intereses y cierres.
+- Financial Core: cuentas, ledger de doble partida, holds, book transfers, statements, reversas y balances derivados.
 - Payment Orchestration: intents, routing, conectores directos a rieles, webhooks, conciliación y settlement.
 - Cards & Lending: emisión/procesamiento y ciclo de crédito como dominios separados.
 - Risk & Compliance: KYC/KYB, screening, rules engine, casos, evidencia y reportes.

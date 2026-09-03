@@ -5,6 +5,7 @@ import { IdempotencyError, requestIdempotencyKey } from '@/app/lib/platform/idem
 import { decodePageCursor, pageLimit, paginatedResponse } from '@/app/lib/platform/pagination';
 import { normalizeCurrency } from '@/app/lib/ledger/money';
 import { createProductLedgerAccount } from '@/db/ledger';
+import { assertCustomerDueDiligenceApproved, DueDiligenceError } from '@/db/due-diligence';
 import { ensureDatabase, getDatabase, OrganizationAccessError, recordAuditEvent } from '@/db/runtime';
 
 export async function GET(request: Request) {
@@ -50,6 +51,14 @@ export async function POST(request: Request) {
     const db = getDatabase();
     const customer = await db.prepare('SELECT id FROM customers WHERE id = ? AND organization_id = ? LIMIT 1').bind(customerId, organizationId).first();
     if (!customer) return NextResponse.json({ error: 'El cliente no pertenece a esta organización.' }, { status: 404 });
+    try {
+      await assertCustomerDueDiligenceApproved(organizationId, customerId, db);
+    } catch (error) {
+      if (error instanceof DueDiligenceError) {
+        return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
+      }
+      throw error;
+    }
     const id = crypto.randomUUID();
     const accountReference = `${country}-${currency}-${String(crypto.getRandomValues(new Uint32Array(1))[0]).padStart(10, '0').slice(-10)}`;
     const createdAt = new Date().toISOString();

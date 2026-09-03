@@ -123,6 +123,13 @@ test('el catálogo sólo declara servicios propios y estados verificables', () =
   }
   assert.equal(PLATFORM_CAPABILITIES.every((capability) => capability.availability !== 'live'), true);
   assert.deepEqual([...PLATFORM_SUMMARY.availabilityModel], ['live', 'sandbox', 'foundation', 'roadmap']);
+  const financialCore = PLATFORM_CAPABILITIES.find((item) => item.id === 'financial-core');
+  assert.equal(financialCore?.summary.includes('fees'), false);
+  assert.equal(financialCore?.summary.includes('límites'), false);
+  const payments = PLATFORM_CAPABILITIES.find((item) => item.id === 'payment-orchestration');
+  assert.equal(payments?.features.includes('payment intents'), false);
+  assert.equal(payments?.features.includes('routing por reglas'), false);
+  assert.ok(PLATFORM_CAPABILITIES.some((item) => item.id === 'customers-kyc' && item.features.includes('gate a cuentas y wallets')));
 });
 
 test('live permanece fail-closed y el catálogo cita productos públicos de BIND, Pomelo y tapi', () => {

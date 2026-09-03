@@ -25,20 +25,20 @@ export const PLATFORM_CAPABILITIES: readonly PlatformCapability[] = [
   },
   {
     id: 'customers-kyc', name: 'Customers, KYC & KYB', domain: 'risk', availability: 'sandbox', delivery: 'cimbra_native',
-    summary: 'Expedientes KYC/KYB versionados con partes, evidencia, checks append-only, vencimiento y decisión maker/checker.',
-    features: ['customers y businesses', 'KYC/KYB derivado del tipo de cliente', 'partes y beneficiarios finales', 'documentos privados', 'checks append-only', 'policy snapshots', 'expiración', 'decisión owner/admin con MFA'],
+    summary: 'Expedientes KYC/KYB versionados; un aprobado vigente es condición para abrir cuentas y wallets.',
+    features: ['customers y businesses', 'KYC/KYB derivado del tipo de cliente', 'partes y beneficiarios finales', 'documentos privados', 'checks append-only', 'gate a cuentas y wallets', 'expiración', 'decisión owner/admin con MFA'],
     interfaces: ['rest_api', 'webhooks', 'sdk', 'console'], regulatoryBoundary: 'El sandbox orquesta evidencia y decisiones. Verificación biométrica, registros oficiales, listas regulatorias y aprobación productiva requieren fuentes directas certificadas y responsables habilitados por jurisdicción.',
   },
   {
     id: 'financial-core', name: 'Financial Core & Ledger', domain: 'core', availability: 'sandbox', delivery: 'cimbra_native',
-    summary: 'Cuentas, ledger de doble partida, holds, límites, fees, reversas y balances derivados.',
+    summary: 'Cuentas, ledger de doble partida, holds, book transfers, reversas y balances derivados.',
     features: ['multi-currency', 'double-entry ledger', 'native book transfers', 'account statements', 'holds y captures', 'reversas compensatorias', 'idempotencia'],
     interfaces: ['rest_api', 'webhooks', 'sdk', 'console'], regulatoryBoundary: 'El sandbox no custodia dinero. Cuentas transaccionales reales requieren licencia propia o patrocinio regulado y safeguarding.',
   },
   {
     id: 'payment-orchestration', name: 'Payment Orchestration', domain: 'payments', availability: 'sandbox', delivery: 'cimbra_native',
-    summary: 'Intents, cash-in, cash-out, transferencias, routing, estados, reintentos y reversas.',
-    features: ['payment intents', 'cash-in/cash-out', 'routing por reglas', 'idempotencia', 'state machine', 'transfer dual approval'],
+    summary: 'Cash-in, cash-out, transferencias, estados, reintentos y reversas sobre el ledger propio.',
+    features: ['cash-in/cash-out', 'book and rail transfers', 'idempotencia', 'state machine', 'transfer dual approval'],
     interfaces: ['rest_api', 'webhooks', 'sdk', 'console'], regulatoryBoundary: 'Para liquidar dinero real Cimbra debe conectarse directamente a bancos, cámaras, esquemas o sponsors autorizados; no a plataformas competidoras.',
   },
   {
