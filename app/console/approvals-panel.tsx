@@ -5,11 +5,11 @@ import { roleCan, type OrganizationRole } from '@/app/lib/platform/access-policy
 import { authenticatedFetch } from '@/app/lib/platform/client-http';
 
 type Role = OrganizationRole;
-type ApprovalActionType = 'settlement.execute' | 'transfer.create' | 'transfer.reverse' | 'payment.create' | 'payment.reverse' | 'bill_payment.create' | 'bill_payment.reverse' | 'instant_transfer.create' | 'instant_transfer.return' | 'collection.refund' | 'recurring_mandate.create' | 'recurring_mandate.resume' | 'payout_batch.execute' | 'risk.case.resolve' | 'reconciliation.exception.resolve' | 'dispute.resolve';
+type ApprovalActionType = 'settlement.execute' | 'transfer.create' | 'transfer.reverse' | 'payment.create' | 'payment.reverse' | 'bill_payment.create' | 'bill_payment.reverse' | 'instant_transfer.create' | 'instant_transfer.return' | 'collection.refund' | 'recurring_mandate.create' | 'recurring_mandate.resume' | 'debit_request.accept' | 'payment_qr.pay' | 'payout_batch.execute' | 'risk.case.resolve' | 'reconciliation.exception.resolve' | 'dispute.resolve';
 type ApprovalStatus = 'pending' | 'executed' | 'rejected' | 'cancelled' | 'expired' | 'failed';
 type Approval = {
   id: string; actionType: ApprovalActionType;
-  resourceType: 'settlement_cycle' | 'transfer' | 'book_transfer' | 'payment' | 'bill_payment' | 'instant_transfer' | 'payment_link' | 'recurring_payment_mandate' | 'payout_batch' | 'risk_case' | 'reconciliation_exception' | 'dispute'; resourceId: string; status: ApprovalStatus;
+  resourceType: 'settlement_cycle' | 'transfer' | 'book_transfer' | 'payment' | 'bill_payment' | 'instant_transfer' | 'payment_link' | 'payment_qr' | 'recurring_payment_mandate' | 'payout_batch' | 'risk_case' | 'reconciliation_exception' | 'dispute'; resourceId: string; status: ApprovalStatus;
   requestPayload: { name?: string; rail?: string; currency?: string; netMinor?: string; amountMinor?: string; differenceMinor?: string;
     executionMode?: string; counterparty?: string; description?: string; origin?: string; resolution?: string; note?: string;
     accountId?: string; direction?: 'cash_in' | 'cash_out' | string; paymentId?: string; billerId?: string; orderId?: string;
@@ -17,7 +17,8 @@ type Approval = {
     itemCount?: number; runName?: string; priority?: string; score?: number; reason?: string; creditStatus?: string;
     destinationReferenceLast4?: string; amount?: string; transferId?: string; linkId?: string; counterpartyLast4?: string;
     scheme?: string; creditId?: string | null; collectedMinor?: string; frequency?: string; amountLimit?: string;
-    nextChargeAt?: string; consentReference?: string; maxRetries?: number; mandateId?: string; subscriberReferenceLast4?: string };
+    nextChargeAt?: string; consentReference?: string; maxRetries?: number; mandateId?: string; subscriberReferenceLast4?: string;
+    debitId?: string; qrId?: string; kind?: string; qrAmountMinor?: string | null };
   requestedBy: string; requestedByName: string; resolvedBy: string | null; resolvedByName: string | null;
   resolutionReason: string | null; expiresAt: string; resolvedAt: string | null; executedAt: string | null; createdAt: string;
 };
@@ -40,6 +41,8 @@ const policyLabels: Record<ApprovalActionType, { title: string; direct: string }
   'collection.refund': { title: 'Devolución de cobranzas', direct: 'Compensación directa en ledger' },
   'recurring_mandate.create': { title: 'Alta de mandatos recurrentes', direct: 'Alta directa con consentimiento declarado' },
   'recurring_mandate.resume': { title: 'Reanudación de mandatos', direct: 'Reactivación directa de cargos programados' },
+  'debit_request.accept': { title: 'Aceptación de débitos internos', direct: 'Liquidación directa debit-pull sandbox' },
+  'payment_qr.pay': { title: 'Pago de QR Cimbra', direct: 'Cobro directo entre cuentas del tenant' },
   'payout_batch.execute': { title: 'Ejecución de lotes de payouts', direct: 'Envío asíncrono por ítem' },
   'risk.case.resolve': { title: 'Resolución de casos de riesgo', direct: 'Resolución directa por operador' },
   'reconciliation.exception.resolve': { title: 'Resolución de excepciones', direct: 'Resolución directa por operador' },
@@ -73,6 +76,12 @@ function approvalTitle(item: Approval) {
   }
   if (item.actionType === 'recurring_mandate.resume') {
     return `Reanudar · ${item.requestPayload.mandateId ?? item.resourceId}`;
+  }
+  if (item.actionType === 'debit_request.accept') {
+    return `Débito · ${item.requestPayload.description ?? item.requestPayload.externalReference ?? item.resourceId}`;
+  }
+  if (item.actionType === 'payment_qr.pay') {
+    return `QR · ${item.requestPayload.description ?? item.requestPayload.externalReference ?? item.resourceId}`;
   }
   if (item.actionType === 'bill_payment.create') return `Servicio · ${item.requestPayload.billerId ?? 'orden'}`;
   if (item.actionType === 'bill_payment.reverse') return `Reversa servicio · ${item.requestPayload.orderId ?? item.resourceId}`;
@@ -113,6 +122,12 @@ function approvalChannel(item: Approval) {
   if (item.actionType === 'recurring_mandate.resume') {
     return `${item.requestPayload.frequency ?? 'cadencia'} · •••• ${item.requestPayload.subscriberReferenceLast4 ?? '----'} · ${item.requestPayload.origin === 'api_key' ? 'API key' : 'consola'}`;
   }
+  if (item.actionType === 'debit_request.accept') {
+    return `${item.requestPayload.externalReference ?? 'débito'} · accept · ${item.requestPayload.origin === 'api_key' ? 'API key' : 'consola'}`;
+  }
+  if (item.actionType === 'payment_qr.pay') {
+    return `${item.requestPayload.kind ?? 'qr'} · ${item.requestPayload.origin === 'api_key' ? 'API key' : 'consola'}`;
+  }
   if (item.actionType === 'bill_payment.create' || item.actionType === 'bill_payment.reverse') {
     return `${item.requestPayload.destinationReferenceLast4 ? `•••• ${item.requestPayload.destinationReferenceLast4}` : 'servicio'} · ${item.requestPayload.origin === 'api_key' ? 'API key' : 'consola'}`;
   }
@@ -142,6 +157,8 @@ function approvalIcon(item: Approval) {
   if (item.actionType === 'recurring_mandate.create') return '↻';
   if (item.actionType === 'recurring_mandate.resume') return '▶';
   if (item.actionType === 'instant_transfer.create') return '↗';
+  if (item.actionType === 'debit_request.accept') return '↓';
+  if (item.actionType === 'payment_qr.pay') return '▣';
   if (item.actionType === 'bill_payment.reverse' || item.actionType === 'transfer.reverse' || item.actionType === 'payment.reverse'
     || item.actionType === 'instant_transfer.return' || item.actionType === 'collection.refund') return '↺';
   if (item.resourceType === 'book_transfer') return '⇄';

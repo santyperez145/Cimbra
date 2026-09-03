@@ -239,8 +239,8 @@ export type SettlementCycle = {
   status: 'ready' | 'scheduled' | 'settled'; scheduledFor: string | null; settledAt: string | null; createdAt: string; updatedAt: string;
 };
 export type ApprovalRequest = {
-  id: string; actionType: 'settlement.execute' | 'transfer.create' | 'transfer.reverse' | 'payment.create' | 'payment.reverse' | 'bill_payment.create' | 'bill_payment.reverse' | 'instant_transfer.create' | 'instant_transfer.return' | 'collection.refund' | 'recurring_mandate.create' | 'recurring_mandate.resume' | 'payout_batch.execute' | 'risk.case.resolve' | 'reconciliation.exception.resolve' | 'dispute.resolve';
-  resourceType: 'settlement_cycle' | 'transfer' | 'book_transfer' | 'payment' | 'bill_payment' | 'instant_transfer' | 'payment_link' | 'recurring_payment_mandate' | 'payout_batch' | 'risk_case' | 'reconciliation_exception' | 'dispute'; resourceId: string;
+  id: string; actionType: 'settlement.execute' | 'transfer.create' | 'transfer.reverse' | 'payment.create' | 'payment.reverse' | 'bill_payment.create' | 'bill_payment.reverse' | 'instant_transfer.create' | 'instant_transfer.return' | 'collection.refund' | 'recurring_mandate.create' | 'recurring_mandate.resume' | 'debit_request.accept' | 'payment_qr.pay' | 'payout_batch.execute' | 'risk.case.resolve' | 'reconciliation.exception.resolve' | 'dispute.resolve';
+  resourceType: 'settlement_cycle' | 'transfer' | 'book_transfer' | 'payment' | 'bill_payment' | 'instant_transfer' | 'payment_link' | 'payment_qr' | 'recurring_payment_mandate' | 'payout_batch' | 'risk_case' | 'reconciliation_exception' | 'dispute'; resourceId: string;
   status: 'pending' | 'executed' | 'rejected' | 'cancelled' | 'expired' | 'failed'; requestPayload: {
     name?: string; rail?: ReconciliationRun['source']; currency?: Currency; netMinor?: string; differenceMinor?: string;
     scheduledFor?: string | null; executionMode?: 'manual' | 'scheduled'; counterparty?: string; description?: string;
@@ -528,6 +528,12 @@ export type InstantTransferCreationResult =
   | { ok: true; requiresApproval: true; approval: ApprovalRequest; replayed: boolean; deduplicated: boolean };
 export type InstantTransferReturnResult =
   | { ok: true; requiresApproval?: false; transfer: InstantTransfer; reversal: Transaction; replayed: boolean }
+  | { ok: true; requiresApproval: true; approval: ApprovalRequest; replayed: boolean; deduplicated: boolean };
+export type DebitRequestRespondResult =
+  | { ok: true; requiresApproval?: false; debit: InstantTransfer; replayed: boolean }
+  | { ok: true; requiresApproval: true; approval: ApprovalRequest; replayed: boolean; deduplicated: boolean };
+export type PaymentQrPayResult =
+  | { ok: true; requiresApproval?: false; transfer: InstantTransfer; replayed: boolean }
   | { ok: true; requiresApproval: true; approval: ApprovalRequest; replayed: boolean; deduplicated: boolean };
 export type PaymentLinkRefundResult =
   | { ok: true; requiresApproval?: false; link: PaymentLink; reversal?: Transaction; replayed: boolean }

@@ -99,8 +99,9 @@ export function normalizeDebitResponse(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const body = value as Record<string, unknown>;
   if (!hasOnlyKeys(body, ['decision', 'signals'])) return null;
-  const decision = body.decision === 'accept' || body.decision === 'reject' ? body.decision : null;
-  return decision ? { decision } : null;
+  if (body.decision === 'accept') return { decision: 'accept' as const };
+  if (body.decision === 'reject') return { decision: 'reject' as const };
+  return null;
 }
 
 export function normalizePaymentQrInput(value: unknown) {

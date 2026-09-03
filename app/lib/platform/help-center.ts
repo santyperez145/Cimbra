@@ -63,7 +63,7 @@ export const HELP_ARTICLES = [
     id: 'approvals',
     title: 'Aprobaciones maker/checker',
     summary: 'Cola de operaciones que exigen otro actor privilegiado.',
-    body: 'Aprobaciones lista solicitudes pendientes (transferencias y book transfers, sus reversas, cash-in/out y sus reversas, pagos de servicios y sus reversas, altas y devoluciones de transferencias instantáneas, altas de mandatos recurrentes, devoluciones de cobranzas, payouts, settlements y políticas). Approve/reject exige otro usuario con MFA cuando la política lo pide. No es un workflow externo: vive en el tenant y deja auditoría. Viewer no aprueba.',
+    body: 'Aprobaciones lista solicitudes pendientes (transferencias y book transfers, sus reversas, cash-in/out y sus reversas, pagos de servicios y sus reversas, altas y devoluciones de transferencias instantáneas, aceptación de débitos internos, pago de QR Cimbra, altas y reanudación de mandatos recurrentes, devoluciones de cobranzas, payouts, settlements y políticas). Approve/reject exige otro usuario con MFA cuando la política lo pide. No es un workflow externo: vive en el tenant y deja auditoría. Viewer no aprueba.',
   },
   {
     id: 'bill-payments',
@@ -87,13 +87,13 @@ export const HELP_ARTICLES = [
     id: 'collections',
     title: 'Cobranzas',
     summary: 'Links, QR Cimbra, tills y eco cerrado en sandbox.',
-    body: 'Cobranzas opera payment links, QR dinámico/estático/deuda y collection tills con CVU sandbox. No es POS, EMVCo ni PCT Coelsa. Las devoluciones son compensatorias; si collection.refund está activo, quedan pendientes de maker/checker en Aprobaciones.',
+    body: 'Cobranzas opera payment links, QR dinámico/estático/deuda y collection tills con CVU sandbox. Con payment_qr.pay activo, el cobro del QR queda pendiente de maker/checker. No es POS, EMVCo ni PCT Coelsa. Las devoluciones son compensatorias; si collection.refund está activo, quedan pendientes de maker/checker en Aprobaciones.',
   },
   {
     id: 'pagos-ar',
     title: 'Pagos AR',
     summary: 'Instrumentos locales sandbox: CVU, alias, DEBIN e instant transfers internos.',
-    body: 'Pagos AR usa el riel sandbox Cimbra (prefijo 0009999). No consulta el directorio nacional ni mueve Transferencias 3.0 reales. Con política instant_transfer.create el alta queda pendiente de maker/checker; la devolución canónica es POST /api/v1/instant-transfers/{id}/return y con instant_transfer.return también pasa por Aprobaciones. Live exige Coelsa u otro riel oficial.',
+    body: 'Pagos AR usa el riel sandbox Cimbra (prefijo 0009999). No consulta el directorio nacional ni mueve Transferencias 3.0 reales. Con política instant_transfer.create el alta queda pendiente de maker/checker; debit_request.accept protege la aceptación de débitos internos (el reject sigue directo); la devolución canónica es POST /api/v1/instant-transfers/{id}/return y con instant_transfer.return también pasa por Aprobaciones. Live exige Coelsa u otro riel oficial.',
   },
   {
     id: 'echeq',

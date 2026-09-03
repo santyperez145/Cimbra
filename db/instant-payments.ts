@@ -804,63 +804,74 @@ export async function createDebitRequest(input: {
 export async function respondDebitRequest(input: {
   organizationId: string; actor: AuthUser; debitId: string; idempotencyKey: string;
   response: NormalizedDebitResponse; signals?: ProtectedRiskSignals;
+  approvalContext?: { requestId: string; requestedBy: string };
 }) {
+  return getDatabaseClient().transaction((database) => respondDebitRequestInTransaction(input, database));
+}
+
+export async function respondDebitRequestInTransaction(input: {
+  organizationId: string; actor: AuthUser; debitId: string; idempotencyKey: string;
+  response: NormalizedDebitResponse; signals?: ProtectedRiskSignals;
+  approvalContext?: { requestId: string; requestedBy: string };
+}, database: DatabaseClient) {
   const fingerprint = await sha256(JSON.stringify(input.response));
-  return getDatabaseClient().transaction(async (database) => {
-    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
-      .bind(`${input.organizationId}:instant-debit-respond:${input.debitId}`).first();
-    const debit = await database.prepare(
-      `SELECT id, status, expires_at AS "expiresAt", source_account_id AS "sourceAccountId",
-        destination_account_id AS "destinationAccountId", amount_minor::text AS "amountMinor", description,
-        external_reference AS "externalReference"
-       FROM instant_transfers WHERE organization_id = ? AND id = ? AND scheme = 'debit_pull' FOR UPDATE`,
-    ).bind(input.organizationId, input.debitId).first<{
-      id: string; status: string; expiresAt: string | null; sourceAccountId: string | null; destinationAccountId: string | null;
-      amountMinor: string; description: string; externalReference: string;
-    }>();
-    if (!debit) throw new InstantPaymentError('Solicitud de débito no encontrada.', 404, 'debit_request_not_found');
-    if (debit.status !== 'pending') {
-      const current = await retrieveTransferRow(input.organizationId, debit.id, database);
-      if (current && current.requestFingerprint === fingerprint) return { debit: serializeTransfer(current), replayed: true };
-      throw new InstantPaymentError('La solicitud ya no está pendiente.', 409, 'debit_not_pending');
-    }
-    if (debit.expiresAt && debit.expiresAt <= new Date().toISOString()) {
-      await database.prepare("UPDATE instant_transfers SET status = 'expired', updated_at = ? WHERE id = ?")
-        .bind(new Date().toISOString(), debit.id).run();
-      throw new InstantPaymentError('La solicitud de débito expiró.', 409, 'debit_expired');
-    }
-    const now = new Date().toISOString();
-    if (input.response.decision === 'reject') {
-      await database.prepare("UPDATE instant_transfers SET status = 'rejected', request_fingerprint = ?, updated_at = ? WHERE id = ?")
-        .bind(fingerprint, now, debit.id).run();
-      await insertAudit(database, {
-        organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.debit_rejected',
-        resourceType: 'instant_transfer', resourceId: debit.id, payload: { decision: 'reject' },
-      });
-      return { debit: await retrieveInstantTransfer(input.organizationId, debit.id, database), replayed: false };
-    }
-    if (!debit.sourceAccountId || !debit.destinationAccountId) {
-      throw new InstantPaymentError('La solicitud de débito no tiene cuentas internas.', 409, 'debit_incomplete');
-    }
-    const source = await loadAccount(database, input.organizationId, debit.sourceAccountId, true);
-    const destination = await loadAccount(database, input.organizationId, debit.destinationAccountId, true);
-    assertArsAccount(source); assertArsAccount(destination);
-    const movement = await postInternalMovement(database, {
-      organizationId: input.organizationId, actor: input.actor, operationKey: `instant-debit:${input.idempotencyKey}`,
-      source, destination, amountMinor: BigInt(debit.amountMinor), description: debit.description,
-      counterparty: `debit:${destination.accountReference}`, signals: input.signals,
-    });
-    if ('declined' in movement) return { declined: movement.declined, replayed: movement.replayed };
-    await database.prepare(
-      `UPDATE instant_transfers SET status = ?, transaction_id = ?, request_fingerprint = ?, updated_at = ? WHERE id = ?`,
-    ).bind(movement.status, movement.transactionId, fingerprint, now, debit.id).run();
+  await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+    .bind(`${input.organizationId}:instant-debit-respond:${input.debitId}`).first();
+  const debit = await database.prepare(
+    `SELECT id, status, expires_at AS "expiresAt", source_account_id AS "sourceAccountId",
+      destination_account_id AS "destinationAccountId", amount_minor::text AS "amountMinor", description,
+      external_reference AS "externalReference"
+     FROM instant_transfers WHERE organization_id = ? AND id = ? AND scheme = 'debit_pull' FOR UPDATE`,
+  ).bind(input.organizationId, input.debitId).first<{
+    id: string; status: string; expiresAt: string | null; sourceAccountId: string | null; destinationAccountId: string | null;
+    amountMinor: string; description: string; externalReference: string;
+  }>();
+  if (!debit) throw new InstantPaymentError('Solicitud de débito no encontrada.', 404, 'debit_request_not_found');
+  if (debit.status !== 'pending') {
+    const current = await retrieveTransferRow(input.organizationId, debit.id, database);
+    if (current && current.requestFingerprint === fingerprint) return { debit: serializeTransfer(current), replayed: true };
+    throw new InstantPaymentError('La solicitud ya no está pendiente.', 409, 'debit_not_pending');
+  }
+  if (debit.expiresAt && debit.expiresAt <= new Date().toISOString()) {
+    await database.prepare("UPDATE instant_transfers SET status = 'expired', updated_at = ? WHERE id = ?")
+      .bind(new Date().toISOString(), debit.id).run();
+    throw new InstantPaymentError('La solicitud de débito expiró.', 409, 'debit_expired');
+  }
+  const now = new Date().toISOString();
+  if (input.response.decision === 'reject') {
+    await database.prepare("UPDATE instant_transfers SET status = 'rejected', request_fingerprint = ?, updated_at = ? WHERE id = ?")
+      .bind(fingerprint, now, debit.id).run();
     await insertAudit(database, {
-      organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.debit_accepted',
-      resourceType: 'instant_transfer', resourceId: debit.id,
-      payload: { decision: 'accept', status: movement.status, transactionId: movement.transactionId },
+      organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.debit_rejected',
+      resourceType: 'instant_transfer', resourceId: debit.id, payload: { decision: 'reject' },
     });
     return { debit: await retrieveInstantTransfer(input.organizationId, debit.id, database), replayed: false };
+  }
+  if (!debit.sourceAccountId || !debit.destinationAccountId) {
+    throw new InstantPaymentError('La solicitud de débito no tiene cuentas internas.', 409, 'debit_incomplete');
+  }
+  const source = await loadAccount(database, input.organizationId, debit.sourceAccountId, true);
+  const destination = await loadAccount(database, input.organizationId, debit.destinationAccountId, true);
+  assertArsAccount(source); assertArsAccount(destination);
+  const movement = await postInternalMovement(database, {
+    organizationId: input.organizationId, actor: input.actor, operationKey: `instant-debit:${input.idempotencyKey}`,
+    source, destination, amountMinor: BigInt(debit.amountMinor), description: debit.description,
+    counterparty: `debit:${destination.accountReference}`, signals: input.signals,
   });
+  if ('declined' in movement) return { declined: movement.declined, replayed: movement.replayed };
+  await database.prepare(
+    `UPDATE instant_transfers SET status = ?, transaction_id = ?, request_fingerprint = ?, updated_at = ? WHERE id = ?`,
+  ).bind(movement.status, movement.transactionId, fingerprint, now, debit.id).run();
+  await insertAudit(database, {
+    organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.debit_accepted',
+    resourceType: 'instant_transfer', resourceId: debit.id,
+    payload: {
+      decision: 'accept', status: movement.status, transactionId: movement.transactionId,
+      approvalRequestId: input.approvalContext?.requestId ?? null,
+      requestedBy: input.approvalContext?.requestedBy ?? null,
+    },
+  });
+  return { debit: await retrieveInstantTransfer(input.organizationId, debit.id, database), replayed: false };
 }
 
 export async function listPaymentQrs(input: { organizationId: string; limit: number; cursor?: { createdAt: string; id: string } }) {
@@ -937,162 +948,173 @@ export async function createPaymentQr(input: {
 export async function payPaymentQr(input: {
   organizationId: string; actor: AuthUser; qrId: string; idempotencyKey: string;
   payment: NormalizedQrPayInput; signals?: ProtectedRiskSignals;
+  transferId?: string; approvalContext?: { requestId: string; requestedBy: string };
 }) {
   await assertSandboxLedgerOrCertifiedRail('qr_interoperable', InstantPaymentError);
+  return getDatabaseClient().transaction((database) => payPaymentQrInTransaction(input, database));
+}
+
+export async function payPaymentQrInTransaction(input: {
+  organizationId: string; actor: AuthUser; qrId: string; idempotencyKey: string;
+  payment: NormalizedQrPayInput; signals?: ProtectedRiskSignals;
+  transferId?: string; approvalContext?: { requestId: string; requestedBy: string };
+}, database: DatabaseClient) {
   const fingerprint = await sha256(JSON.stringify({
     qrId: input.qrId, ...input.payment, amountMinor: input.payment.amountMinor?.toString() ?? null, signals: input.signals ?? {},
   }));
-  return getDatabaseClient().transaction(async (database) => {
-    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
-      .bind(`${input.organizationId}:instant:${input.idempotencyKey}`).first();
-    const existing = await database.prepare(`${transferSelect} WHERE it.organization_id = ? AND it.idempotency_key = ? LIMIT 1`)
-      .bind(input.organizationId, input.idempotencyKey).first<TransferRow>();
-    if (existing) {
-      if (existing.requestFingerprint !== fingerprint) {
-        throw new InstantPaymentError('La Idempotency-Key ya fue usada con otro pago QR.', 409, 'idempotency_mismatch');
-      }
-      return { transfer: serializeTransfer(existing), replayed: true };
+  await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+    .bind(`${input.organizationId}:instant:${input.idempotencyKey}`).first();
+  const existing = await database.prepare(`${transferSelect} WHERE it.organization_id = ? AND it.idempotency_key = ? LIMIT 1`)
+    .bind(input.organizationId, input.idempotencyKey).first<TransferRow>();
+  if (existing) {
+    if (existing.requestFingerprint !== fingerprint) {
+      throw new InstantPaymentError('La Idempotency-Key ya fue usada con otro pago QR.', 409, 'idempotency_mismatch');
     }
-    const qrPeek = await database.prepare(
-      'SELECT kind FROM payment_qrs WHERE organization_id = ? AND id = ? LIMIT 1',
-    ).bind(input.organizationId, input.qrId).first<{ kind: string }>();
-    if (qrPeek?.kind === 'debt') {
-      const debtPeek = await database.prepare(
-        'SELECT id FROM qr_debts WHERE organization_id = ? AND payment_qr_id = ? LIMIT 1',
-      ).bind(input.organizationId, input.qrId).first<{ id: string }>();
-      if (debtPeek) {
-        await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
-          .bind(`${input.organizationId}:debt-settle:${debtPeek.id}`).first();
-      }
+    return { transfer: serializeTransfer(existing), replayed: true };
+  }
+  const qrPeek = await database.prepare(
+    'SELECT kind FROM payment_qrs WHERE organization_id = ? AND id = ? LIMIT 1',
+  ).bind(input.organizationId, input.qrId).first<{ kind: string }>();
+  if (qrPeek?.kind === 'debt') {
+    const debtPeek = await database.prepare(
+      'SELECT id FROM qr_debts WHERE organization_id = ? AND payment_qr_id = ? LIMIT 1',
+    ).bind(input.organizationId, input.qrId).first<{ id: string }>();
+    if (debtPeek) {
+      await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+        .bind(`${input.organizationId}:debt-settle:${debtPeek.id}`).first();
     }
-    const qr = await database.prepare(
-      `SELECT id, account_id AS "accountId", amount_minor::text AS "amountMinor", description, payload, kind, status, expires_at AS "expiresAt"
-       FROM payment_qrs WHERE organization_id = ? AND id = ? FOR UPDATE`,
-    ).bind(input.organizationId, input.qrId).first<{
-      id: string; accountId: string; amountMinor: string | null; description: string; payload: string;
-      kind: 'dynamic' | 'static' | 'debt'; status: string; expiresAt: string | null;
-    }>();
-    if (!qr) throw new InstantPaymentError('QR no encontrado.', 404, 'payment_qr_not_found');
-    if (qr.status !== 'active') throw new InstantPaymentError('El QR ya no está activo.', 409, 'qr_not_active');
-    if ((qr.kind === 'dynamic' || qr.kind === 'debt') && (!qr.expiresAt || qr.expiresAt <= new Date().toISOString())) {
-      await database.prepare("UPDATE payment_qrs SET status = 'expired', updated_at = ? WHERE id = ?")
-        .bind(new Date().toISOString(), qr.id).run();
-      if (qr.kind === 'debt') {
-        await database.prepare("UPDATE qr_debts SET status = 'expired', updated_at = ? WHERE organization_id = ? AND payment_qr_id = ? AND status = 'open'")
-          .bind(new Date().toISOString(), input.organizationId, qr.id).run();
-      }
-      throw new InstantPaymentError('El QR expiró.', 409, 'qr_expired');
+  }
+  const qr = await database.prepare(
+    `SELECT id, account_id AS "accountId", amount_minor::text AS "amountMinor", description, payload, kind, status, expires_at AS "expiresAt"
+     FROM payment_qrs WHERE organization_id = ? AND id = ? FOR UPDATE`,
+  ).bind(input.organizationId, input.qrId).first<{
+    id: string; accountId: string; amountMinor: string | null; description: string; payload: string;
+    kind: 'dynamic' | 'static' | 'debt'; status: string; expiresAt: string | null;
+  }>();
+  if (!qr) throw new InstantPaymentError('QR no encontrado.', 404, 'payment_qr_not_found');
+  if (qr.status !== 'active') throw new InstantPaymentError('El QR ya no está activo.', 409, 'qr_not_active');
+  if ((qr.kind === 'dynamic' || qr.kind === 'debt') && (!qr.expiresAt || qr.expiresAt <= new Date().toISOString())) {
+    await database.prepare("UPDATE payment_qrs SET status = 'expired', updated_at = ? WHERE id = ?")
+      .bind(new Date().toISOString(), qr.id).run();
+    if (qr.kind === 'debt') {
+      await database.prepare("UPDATE qr_debts SET status = 'expired', updated_at = ? WHERE organization_id = ? AND payment_qr_id = ? AND status = 'open'")
+        .bind(new Date().toISOString(), input.organizationId, qr.id).run();
     }
-    await expireStaleSaleOrders(database, input.organizationId, qr.id);
-    await expireStaleDebts(database, input.organizationId, qr.id);
-    const till = await database.prepare(
-      `SELECT id, status, closed_amount_only AS "closedAmountOnly" FROM collection_tills
-       WHERE organization_id = ? AND payment_qr_id = ? LIMIT 1 FOR UPDATE`,
-    ).bind(input.organizationId, qr.id).first<{ id: string; status: string; closedAmountOnly: number | string }>();
-    if (till && till.status !== 'active') {
-      throw new InstantPaymentError('El punto de recaudación asociado al QR no está activo.', 409, 'collection_till_disabled');
-    }
-    const saleOrder = qr.kind === 'static'
-      ? await database.prepare(
-        `${saleOrderSelect} WHERE so.organization_id = ? AND so.payment_qr_id = ? AND so.status = 'pending' LIMIT 1 FOR UPDATE OF so`,
-      ).bind(input.organizationId, qr.id).first<SaleOrderRow>()
-      : null;
-    if (till && Number(till.closedAmountOnly) === 1 && !saleOrder) {
-      throw new InstantPaymentError('Este punto sólo admite cobro con una orden de venta pendiente.', 409, 'sale_order_required');
-    }
-    const debt = qr.kind === 'debt'
-      ? await database.prepare(
-        `${debtSelect} WHERE d.organization_id = ? AND d.payment_qr_id = ? AND d.status = 'open' LIMIT 1 FOR UPDATE OF d`,
-      ).bind(input.organizationId, qr.id).first<DebtRow>()
-      : null;
-    if (qr.kind === 'debt' && !debt) {
-      throw new InstantPaymentError('La deuda asociada ya no está abierta.', 409, 'debt_not_open');
-    }
-    const amountMinor = saleOrder
-      ? BigInt(saleOrder.amountMinor)
-      : qr.amountMinor ? BigInt(qr.amountMinor) : input.payment.amountMinor;
-    if (!amountMinor) throw new InstantPaymentError('El QR de monto abierto requiere un importe.', 400, 'qr_amount_required');
-    if (saleOrder && input.payment.amountMinor && input.payment.amountMinor !== amountMinor) {
-      throw new InstantPaymentError('El importe no coincide con la orden de venta.', 422, 'sale_order_amount_mismatch');
-    }
-    if (!saleOrder && qr.amountMinor && input.payment.amountMinor && input.payment.amountMinor !== amountMinor) {
-      throw new InstantPaymentError('El importe no coincide con el QR.', 422, 'qr_amount_mismatch');
-    }
-    if (input.payment.sourceAccountId === qr.accountId) {
-      throw new InstantPaymentError('No se puede pagar un QR con la misma cuenta cobradora.', 400, 'same_account');
-    }
-    const referenceOwner = await database.prepare(
-      'SELECT id FROM instant_transfers WHERE organization_id = ? AND external_reference = ? LIMIT 1',
-    ).bind(input.organizationId, input.payment.externalReference).first<{ id: string }>();
-    if (referenceOwner) throw new InstantPaymentError('La referencia externa ya pertenece a otra transferencia instantánea.', 409, 'external_reference_conflict');
-    const source = await loadAccount(database, input.organizationId, input.payment.sourceAccountId, true);
-    const destination = await loadAccount(database, input.organizationId, qr.accountId, true);
-    assertArsAccount(source); assertArsAccount(destination);
-    const movement = await postInternalMovement(database, {
-      organizationId: input.organizationId, actor: input.actor, operationKey: `instant:${input.idempotencyKey}`,
-      source, destination, amountMinor, description: saleOrder?.description ?? qr.description, counterparty: `qr:${destination.accountReference}`,
-      signals: input.signals,
-    });
-    if ('declined' in movement) return { declined: movement.declined, replayed: movement.replayed };
-    const id = crypto.randomUUID();
-    const createdAt = new Date().toISOString();
-    await insertTransfer(database, {
-      id, organizationId: input.organizationId, idempotencyKey: input.idempotencyKey, fingerprint, scheme: 'qr_collect',
-      direction: 'internal', sourceAccountId: source.id, destinationAccountId: destination.id, counterpartyKind: 'alias',
-      counterpartyValue: qr.payload.replace(/[^A-Z0-9]/gi, '').slice(0, 20).padEnd(6, 'X'), holderName: destination.customerName,
-      taxIdLast4: destination.taxIdLast4, amountMinor, description: saleOrder?.description ?? qr.description, externalReference: input.payment.externalReference,
-      status: movement.status, transactionId: movement.transactionId, qrPayload: qr.payload, expiresAt: null,
-      actorId: input.actor.userId, createdAt, collectionTillId: till?.id ?? null,
-    });
-    if (movement.status === 'settled' && (qr.kind === 'dynamic' || qr.kind === 'debt')) {
-      await database.prepare("UPDATE payment_qrs SET status = 'paid', paid_transfer_id = ?, updated_at = ? WHERE id = ?")
-        .bind(id, createdAt, qr.id).run();
-    }
-    if (movement.status === 'settled' && saleOrder) {
-      await database.prepare("UPDATE qr_sale_orders SET status = 'paid', paid_transfer_id = ?, updated_at = ? WHERE id = ?")
-        .bind(id, createdAt, saleOrder.id).run();
-      await insertAudit(database, {
-        organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.sale_order_paid',
-        resourceType: 'qr_sale_order', resourceId: saleOrder.id,
-        payload: { transferId: id, paymentQrId: qr.id, amountMinor: amountMinor.toString() },
-      });
-    }
-    if (movement.status === 'settled' && debt) {
-      await database.prepare("UPDATE qr_debts SET status = 'paid', paid_transfer_id = ?, updated_at = ? WHERE id = ?")
-        .bind(id, createdAt, debt.id).run();
-      await insertAudit(database, {
-        organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.debt_paid',
-        resourceType: 'qr_debt', resourceId: debt.id,
-        payload: { transferId: id, paymentQrId: qr.id, amountMinor: amountMinor.toString() },
-      });
-      const linked = await database.prepare(
-        `SELECT id FROM payment_links WHERE organization_id = ? AND qr_debt_id = ? AND status IN ('open', 'pending') LIMIT 1`,
-      ).bind(input.organizationId, debt.id).first<{ id: string }>();
-      if (linked) {
-        await database.prepare(`UPDATE payment_links SET status = 'paid', paid_method = 'cimbra_qr',
-          payer_account_id = ?, transaction_id = ?, collected_minor = amount_minor, updated_at = ? WHERE id = ?`)
-          .bind(source.id, movement.transactionId, createdAt, linked.id).run();
-        await insertAudit(database, {
-          organizationId: input.organizationId, actorId: input.actor.userId, action: 'collection.link_paid',
-          resourceType: 'payment_link', resourceId: linked.id,
-          payload: { method: 'cimbra_qr', status: 'paid', transactionId: movement.transactionId, via: 'payment_qr' },
-        });
-      }
-    }
-    await insertAudit(database, {
-      organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.qr_paid',
-      resourceType: 'payment_qr', resourceId: qr.id,
-      payload: { transferId: id, status: movement.status, amountMinor: amountMinor.toString(), kind: qr.kind, collectionTillId: till?.id ?? null },
-    });
-    if (till && movement.status === 'settled') {
-      await insertAudit(database, {
-        organizationId: input.organizationId, actorId: input.actor.userId, action: 'collection.till_credited',
-        resourceType: 'collection_till', resourceId: till.id,
-        payload: { transferId: id, amountMinor: amountMinor.toString(), direction: 'qr_collect' },
-      });
-    }
-    return { transfer: await retrieveInstantTransfer(input.organizationId, id, database), replayed: false };
+    throw new InstantPaymentError('El QR expiró.', 409, 'qr_expired');
+  }
+  await expireStaleSaleOrders(database, input.organizationId, qr.id);
+  await expireStaleDebts(database, input.organizationId, qr.id);
+  const till = await database.prepare(
+    `SELECT id, status, closed_amount_only AS "closedAmountOnly" FROM collection_tills
+     WHERE organization_id = ? AND payment_qr_id = ? LIMIT 1 FOR UPDATE`,
+  ).bind(input.organizationId, qr.id).first<{ id: string; status: string; closedAmountOnly: number | string }>();
+  if (till && till.status !== 'active') {
+    throw new InstantPaymentError('El punto de recaudación asociado al QR no está activo.', 409, 'collection_till_disabled');
+  }
+  const saleOrder = qr.kind === 'static'
+    ? await database.prepare(
+      `${saleOrderSelect} WHERE so.organization_id = ? AND so.payment_qr_id = ? AND so.status = 'pending' LIMIT 1 FOR UPDATE OF so`,
+    ).bind(input.organizationId, qr.id).first<SaleOrderRow>()
+    : null;
+  if (till && Number(till.closedAmountOnly) === 1 && !saleOrder) {
+    throw new InstantPaymentError('Este punto sólo admite cobro con una orden de venta pendiente.', 409, 'sale_order_required');
+  }
+  const debt = qr.kind === 'debt'
+    ? await database.prepare(
+      `${debtSelect} WHERE d.organization_id = ? AND d.payment_qr_id = ? AND d.status = 'open' LIMIT 1 FOR UPDATE OF d`,
+    ).bind(input.organizationId, qr.id).first<DebtRow>()
+    : null;
+  if (qr.kind === 'debt' && !debt) {
+    throw new InstantPaymentError('La deuda asociada ya no está abierta.', 409, 'debt_not_open');
+  }
+  const amountMinor = saleOrder
+    ? BigInt(saleOrder.amountMinor)
+    : qr.amountMinor ? BigInt(qr.amountMinor) : input.payment.amountMinor;
+  if (!amountMinor) throw new InstantPaymentError('El QR de monto abierto requiere un importe.', 400, 'qr_amount_required');
+  if (saleOrder && input.payment.amountMinor && input.payment.amountMinor !== amountMinor) {
+    throw new InstantPaymentError('El importe no coincide con la orden de venta.', 422, 'sale_order_amount_mismatch');
+  }
+  if (!saleOrder && qr.amountMinor && input.payment.amountMinor && input.payment.amountMinor !== amountMinor) {
+    throw new InstantPaymentError('El importe no coincide con el QR.', 422, 'qr_amount_mismatch');
+  }
+  if (input.payment.sourceAccountId === qr.accountId) {
+    throw new InstantPaymentError('No se puede pagar un QR con la misma cuenta cobradora.', 400, 'same_account');
+  }
+  const referenceOwner = await database.prepare(
+    'SELECT id FROM instant_transfers WHERE organization_id = ? AND external_reference = ? LIMIT 1',
+  ).bind(input.organizationId, input.payment.externalReference).first<{ id: string }>();
+  if (referenceOwner) throw new InstantPaymentError('La referencia externa ya pertenece a otra transferencia instantánea.', 409, 'external_reference_conflict');
+  const source = await loadAccount(database, input.organizationId, input.payment.sourceAccountId, true);
+  const destination = await loadAccount(database, input.organizationId, qr.accountId, true);
+  assertArsAccount(source); assertArsAccount(destination);
+  const movement = await postInternalMovement(database, {
+    organizationId: input.organizationId, actor: input.actor, operationKey: `instant:${input.idempotencyKey}`,
+    source, destination, amountMinor, description: saleOrder?.description ?? qr.description, counterparty: `qr:${destination.accountReference}`,
+    signals: input.signals,
   });
+  if ('declined' in movement) return { declined: movement.declined, replayed: movement.replayed };
+  const id = input.transferId ?? crypto.randomUUID();
+  const createdAt = new Date().toISOString();
+  const approvalAudit = {
+    approvalRequestId: input.approvalContext?.requestId ?? null,
+    requestedBy: input.approvalContext?.requestedBy ?? null,
+  };
+  await insertTransfer(database, {
+    id, organizationId: input.organizationId, idempotencyKey: input.idempotencyKey, fingerprint, scheme: 'qr_collect',
+    direction: 'internal', sourceAccountId: source.id, destinationAccountId: destination.id, counterpartyKind: 'alias',
+    counterpartyValue: qr.payload.replace(/[^A-Z0-9]/gi, '').slice(0, 20).padEnd(6, 'X'), holderName: destination.customerName,
+    taxIdLast4: destination.taxIdLast4, amountMinor, description: saleOrder?.description ?? qr.description, externalReference: input.payment.externalReference,
+    status: movement.status, transactionId: movement.transactionId, qrPayload: qr.payload, expiresAt: null,
+    actorId: input.actor.userId, createdAt, collectionTillId: till?.id ?? null,
+  });
+  if (movement.status === 'settled' && (qr.kind === 'dynamic' || qr.kind === 'debt')) {
+    await database.prepare("UPDATE payment_qrs SET status = 'paid', paid_transfer_id = ?, updated_at = ? WHERE id = ?")
+      .bind(id, createdAt, qr.id).run();
+  }
+  if (movement.status === 'settled' && saleOrder) {
+    await database.prepare("UPDATE qr_sale_orders SET status = 'paid', paid_transfer_id = ?, updated_at = ? WHERE id = ?")
+      .bind(id, createdAt, saleOrder.id).run();
+    await insertAudit(database, {
+      organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.sale_order_paid',
+      resourceType: 'qr_sale_order', resourceId: saleOrder.id,
+      payload: { transferId: id, paymentQrId: qr.id, amountMinor: amountMinor.toString(), ...approvalAudit },
+    });
+  }
+  if (movement.status === 'settled' && debt) {
+    await database.prepare("UPDATE qr_debts SET status = 'paid', paid_transfer_id = ?, updated_at = ? WHERE id = ?")
+      .bind(id, createdAt, debt.id).run();
+    await insertAudit(database, {
+      organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.debt_paid',
+      resourceType: 'qr_debt', resourceId: debt.id,
+      payload: { transferId: id, paymentQrId: qr.id, amountMinor: amountMinor.toString(), ...approvalAudit },
+    });
+    const linked = await database.prepare(
+      `SELECT id FROM payment_links WHERE organization_id = ? AND qr_debt_id = ? AND status IN ('open', 'pending') LIMIT 1`,
+    ).bind(input.organizationId, debt.id).first<{ id: string }>();
+    if (linked) {
+      await database.prepare(`UPDATE payment_links SET status = 'paid', paid_method = 'cimbra_qr',
+        payer_account_id = ?, transaction_id = ?, collected_minor = amount_minor, updated_at = ? WHERE id = ?`)
+        .bind(source.id, movement.transactionId, createdAt, linked.id).run();
+      await insertAudit(database, {
+        organizationId: input.organizationId, actorId: input.actor.userId, action: 'collection.link_paid',
+        resourceType: 'payment_link', resourceId: linked.id,
+        payload: { method: 'cimbra_qr', status: 'paid', transactionId: movement.transactionId, via: 'payment_qr' },
+      });
+    }
+  }
+  await insertAudit(database, {
+    organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.qr_paid',
+    resourceType: 'payment_qr', resourceId: qr.id,
+    payload: { transferId: id, status: movement.status, amountMinor: amountMinor.toString(), kind: qr.kind, collectionTillId: till?.id ?? null, ...approvalAudit },
+  });
+  if (till && movement.status === 'settled') {
+    await insertAudit(database, {
+      organizationId: input.organizationId, actorId: input.actor.userId, action: 'collection.till_credited',
+      resourceType: 'collection_till', resourceId: till.id,
+      payload: { transferId: id, amountMinor: amountMinor.toString(), direction: 'qr_collect' },
+    });
+  }
+  return { transfer: await retrieveInstantTransfer(input.organizationId, id, database), replayed: false };
 }
 
 export async function cancelPaymentQr(input: {

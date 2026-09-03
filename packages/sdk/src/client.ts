@@ -9,7 +9,7 @@ import type {
   CreateBookTransferInput, CreateRecurringPaymentMandateInput, CreateSettlementCycleInput, CreateTransferInput, CreateWebhookInput,
   CreatePayoutBatchInput, CreatePayoutBeneficiaryInput, CreateWalletInput, CreateWalletPocketTransferInput, CreateWalletProgramInput,
   AssignRailAliasInput, CreateDebitRequestInput, CreateInstantTransferInput, CreatePaymentQrInput, CreateQrDebtInput, CreateQrSaleOrderInput, IssueRailInstrumentInput, PayPaymentQrInput,
-  CreatePaymentLinkInput, PayPaymentLinkInput, RefundPaymentLinkInput, InstantTransferCreationResult, InstantTransferReturnResult, PaymentLinkRefundResult, PaymentLink, CollectionTill, CreateCollectionTillInput, CreditCollectionTillInput,
+  CreatePaymentLinkInput, PayPaymentLinkInput, RefundPaymentLinkInput, InstantTransferCreationResult, InstantTransferReturnResult, DebitRequestRespondResult, PaymentQrPayResult, PaymentLinkRefundResult, PaymentLink, CollectionTill, CreateCollectionTillInput, CreditCollectionTillInput,
   CreateEcheqInput, AcceptEcheqInput, EndorseEcheqInput, DepositEcheqInput, Echeq,
   InstantTransfer, PaymentQr, QrDebt, QrSaleOrder, RailDirectoryPreview, RailInstrument,
   PayoutBatch, PayoutBeneficiary,
@@ -333,7 +333,7 @@ export class Cimbra {
     create: (input: CreateDebitRequestInput, options?: RequestOptions) =>
       this.post<{ ok: true; debit: InstantTransfer; replayed: boolean }>('/api/v1/debit-requests', input, options, true),
     respond: (id: string, input: { decision: 'accept' | 'reject' }, options?: RequestOptions) =>
-      this.post<{ ok: true; debit: InstantTransfer; replayed: boolean }>(
+      this.post<DebitRequestRespondResult>(
         `/api/v1/debit-requests/${encodeURIComponent(id)}/respond`, input, options, true),
   };
 
@@ -343,7 +343,7 @@ export class Cimbra {
     create: (input: CreatePaymentQrInput, options?: RequestOptions) =>
       this.post<{ ok: true; qr: PaymentQr; replayed: boolean }>('/api/v1/payment-qrs', input, options, true),
     pay: (id: string, input: PayPaymentQrInput, options?: RequestOptions) =>
-      this.post<{ ok: true; transfer: InstantTransfer; replayed: boolean }>(
+      this.post<PaymentQrPayResult>(
         `/api/v1/payment-qrs/${encodeURIComponent(id)}/pay`, input, options, true),
     cancel: (id: string, options?: RequestOptions) =>
       this.post<{ ok: true; qr: PaymentQr; replayed: boolean }>(

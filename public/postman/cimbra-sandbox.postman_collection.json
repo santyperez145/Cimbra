@@ -1274,7 +1274,7 @@
               }
             ],
             "url": "{{baseUrl}}/api/v1/debit-requests/:id/respond",
-            "description": "operationId: respondDebitRequest\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "description": "Reject executes immediately. When debit_request.accept maker/checker is enabled, accept returns 202 with a pending approval instead of settling immediately. Not DEBIN over Coelsa.\n\noperationId: respondDebitRequest\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \n}\n",
@@ -2715,7 +2715,7 @@
               }
             ],
             "url": "{{baseUrl}}/api/v1/payment-qrs/:id/pay",
-            "description": "operationId: payPaymentQr\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "description": "Settles between tenant accounts on the Cimbra sandbox QR rail. When payment_qr.pay maker/checker is enabled, returns 202 with a pending approval instead of settling immediately. Not the Argentine interoperable QR.\n\noperationId: payPaymentQr\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \n}\n",

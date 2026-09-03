@@ -202,8 +202,12 @@ export default function InstantPaymentsPanel({ role, accounts }: { role: Organiz
       method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
       body: JSON.stringify({ decision }),
     });
-    const result = await response.json() as unknown;
-    setFeedback(response.ok ? `Solicitud ${decision === 'accept' ? 'aceptada' : 'rechazada'}.` : apiError(result, 'No pudimos resolver la solicitud.'));
+    const result = await response.json() as { requiresApproval?: boolean; error?: unknown };
+    setFeedback(response.ok
+      ? (result.requiresApproval
+        ? 'Aceptación enviada a Aprobaciones (maker/checker).'
+        : `Solicitud ${decision === 'accept' ? 'aceptada' : 'rechazada'}.`)
+      : apiError(result, 'No pudimos resolver la solicitud.'));
     if (response.ok) await load();
     setBusy(false);
   }
@@ -237,8 +241,12 @@ export default function InstantPaymentsPanel({ role, accounts }: { role: Organiz
       method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
       body: JSON.stringify({ sourceAccountId: form.get('sourceAccountId'), externalReference: form.get('externalReference'), amount: amount || undefined }),
     });
-    const result = await response.json() as unknown;
-    setFeedback(response.ok ? 'QR cobrado entre cuentas del tenant.' : apiError(result, 'No pudimos cobrar el QR.'));
+    const result = await response.json() as { requiresApproval?: boolean; error?: unknown };
+    setFeedback(response.ok
+      ? (result.requiresApproval
+        ? 'Pago QR enviado a Aprobaciones (maker/checker).'
+        : 'QR cobrado entre cuentas del tenant.')
+      : apiError(result, 'No pudimos cobrar el QR.'));
     if (response.ok) { formElement.reset(); await load(); }
     setBusy(false);
   }

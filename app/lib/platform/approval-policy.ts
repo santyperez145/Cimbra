@@ -13,6 +13,8 @@ export const APPROVAL_ACTION_TYPES = [
   'collection.refund',
   'recurring_mandate.create',
   'recurring_mandate.resume',
+  'debit_request.accept',
+  'payment_qr.pay',
   'payout_batch.execute',
   'risk.case.resolve',
   'reconciliation.exception.resolve',

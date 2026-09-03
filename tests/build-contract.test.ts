@@ -266,6 +266,29 @@ test('recurring mandates usan maker/checker opt-in recurring_mandate.create y ex
   assert.match(resumeMigration, /recurring_mandate\.resume/);
 });
 
+test('debit accept y payment QR pay usan maker/checker opt-in', () => {
+  const approvals = readFileSync(join(root, 'db', 'approvals.ts'), 'utf8');
+  const respondRoute = readFileSync(join(root, 'app', 'api', 'v1', 'debit-requests', '[id]', 'respond', 'route.ts'), 'utf8');
+  const payRoute = readFileSync(join(root, 'app', 'api', 'v1', 'payment-qrs', '[id]', 'pay', 'route.ts'), 'utf8');
+  const panel = readFileSync(join(root, 'app', 'console', 'approvals-panel.tsx'), 'utf8');
+  const instantPanel = readFileSync(join(root, 'app', 'console', 'instant-payments-panel.tsx'), 'utf8');
+  const help = readFileSync(join(root, 'app', 'lib', 'platform', 'help-center.ts'), 'utf8');
+  const migration = readFileSync(join(root, 'drizzle-postgres', '0057_debit_qr_pay_approval.sql'), 'utf8');
+  assert.match(approvals, /respondDebitRequestWithApprovalPolicy/);
+  assert.match(approvals, /payPaymentQrWithApprovalPolicy/);
+  assert.match(approvals, /debit_request\.accept/);
+  assert.match(approvals, /payment_qr\.pay/);
+  assert.match(respondRoute, /respondDebitRequestWithApprovalPolicy/);
+  assert.match(payRoute, /payPaymentQrWithApprovalPolicy/);
+  assert.match(panel, /debit_request\.accept/);
+  assert.match(panel, /payment_qr\.pay/);
+  assert.match(instantPanel, /maker\/checker/);
+  assert.match(help, /debit_request\.accept/);
+  assert.match(help, /payment_qr\.pay/);
+  assert.match(migration, /debit_request\.accept/);
+  assert.match(migration, /payment_qr\.pay/);
+});
+
 test('help-center documenta Compliance, Aprobaciones y Disputas con límites honestos', () => {
   const help = readFileSync(join(root, 'app', 'lib', 'platform', 'help-center.ts'), 'utf8');
   assert.match(help, /id: 'compliance-kyc'/);

@@ -18,8 +18,8 @@ import { bookTransferFingerprint, BookTransferError, createBookTransferInTransac
 import { BillerError, createBillPaymentOrderInTransaction, createRecurringMandateInTransaction, reverseBillPaymentOrderInTransaction, updateRecurringMandateStatusInTransaction } from './billers';
 import type { RecurringFrequency } from '@/app/lib/platform/billers-input';
 import { CollectionError, refundPaymentLinkInTransaction } from './collections';
-import { InstantPaymentError, createInstantTransferInTransaction, returnInstantTransferInTransaction } from './instant-payments';
-import type { NormalizedInstantTransferInput } from '@/app/lib/platform/instant-payments-input';
+import { InstantPaymentError, createInstantTransferInTransaction, payPaymentQrInTransaction, respondDebitRequestInTransaction, returnInstantTransferInTransaction } from './instant-payments';
+import type { NormalizedInstantTransferInput, NormalizedDebitResponse, NormalizedQrPayInput } from '@/app/lib/platform/instant-payments-input';
 import type { ProtectedRiskSignals } from '@/app/lib/platform/risk-signals';
 import { assertSandboxLedgerOrCertifiedRail } from './platform-rails';
 import type { NormalizedPaymentLinkRefundInput } from '@/app/lib/platform/collections-input';
@@ -30,7 +30,7 @@ export class ApprovalError extends Error {
 
 type ApprovalRow = {
   id: string; actionType: ApprovalActionType;
-  resourceType: 'settlement_cycle' | 'transfer' | 'book_transfer' | 'payment' | 'bill_payment' | 'instant_transfer' | 'payment_link' | 'recurring_payment_mandate' | 'payout_batch' | 'risk_case' | 'reconciliation_exception' | 'dispute'; resourceId: string;
+  resourceType: 'settlement_cycle' | 'transfer' | 'book_transfer' | 'payment' | 'bill_payment' | 'instant_transfer' | 'payment_link' | 'payment_qr' | 'recurring_payment_mandate' | 'payout_batch' | 'risk_case' | 'reconciliation_exception' | 'dispute'; resourceId: string;
   status: ApprovalStatus; requestFingerprint: string; requestPayload: string; requestedBy: string; requestedByName: string;
   resolvedBy: string | null; resolvedByName: string | null; resolutionReason: string | null;
   expiresAt: string; resolvedAt: string | null; executedAt: string | null; createdAt: string; updatedAt: string;
@@ -119,7 +119,7 @@ export async function getApprovalPolicies(organizationId: string) {
        WHERE m.organization_id = ? AND m.role IN ('owner', 'admin') AND u.mfa_enabled = 1`,
     ).bind(organizationId).first<{ count: number }>(),
   ]);
-  return (['settlement.execute', 'transfer.create', 'transfer.reverse', 'payment.create', 'payment.reverse', 'bill_payment.create', 'bill_payment.reverse', 'instant_transfer.create', 'instant_transfer.return', 'collection.refund', 'recurring_mandate.create', 'recurring_mandate.resume', 'payout_batch.execute', 'risk.case.resolve', 'reconciliation.exception.resolve', 'dispute.resolve'] as const).map((actionType) => {
+  return (['settlement.execute', 'transfer.create', 'transfer.reverse', 'payment.create', 'payment.reverse', 'bill_payment.create', 'bill_payment.reverse', 'instant_transfer.create', 'instant_transfer.return', 'collection.refund', 'recurring_mandate.create', 'recurring_mandate.resume', 'debit_request.accept', 'payment_qr.pay', 'payout_batch.execute', 'risk.case.resolve', 'reconciliation.exception.resolve', 'dispute.resolve'] as const).map((actionType) => {
     const policy = policies.results.find((item) => item.actionType === actionType);
     return { id: policy?.id ?? null, actionType, enabled: policy?.enabled === 1,
       expiresInMinutes: policy?.expiresInMinutes ?? 1440, eligibleApprovers: approvers?.count ?? 0,
@@ -1266,6 +1266,166 @@ export async function updateRecurringMandateStatusWithApprovalPolicy(input: {
   });
 }
 
+export async function respondDebitRequestWithApprovalPolicy(input: {
+  organizationId: string; actor: AuthUser; debitId: string; idempotencyKey: string;
+  response: NormalizedDebitResponse; signals?: ProtectedRiskSignals;
+  authentication: 'session' | 'api_key'; apiKeyId: string | null;
+}) {
+  if (input.response.decision === 'reject') {
+    return getDatabaseClient().transaction(async (database) => {
+      const result = await respondDebitRequestInTransaction(input, database);
+      return { requiresApproval: false as const, ...result };
+    });
+  }
+  const fingerprint = await sha256(JSON.stringify({
+    actionType: 'debit_request.accept', debitId: input.debitId, decision: 'accept', signals: input.signals ?? {},
+  }));
+  return getDatabaseClient().transaction(async (database) => {
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:instant-debit-respond:${input.debitId}`).first();
+    const settled = await database.prepare(
+      `SELECT id, status, request_fingerprint AS "requestFingerprint" FROM instant_transfers
+       WHERE organization_id = ? AND id = ? AND scheme = 'debit_pull' LIMIT 1`,
+    ).bind(input.organizationId, input.debitId).first<{ id: string; status: string; requestFingerprint: string }>();
+    if (settled && settled.status !== 'pending') {
+      const result = await respondDebitRequestInTransaction(input, database);
+      return { requiresApproval: false as const, ...result };
+    }
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:approval:${input.idempotencyKey}`).first();
+    const existingApproval = await database.prepare(
+      `${approvalSelect} WHERE ar.organization_id = ? AND ar.idempotency_key = ? LIMIT 1`,
+    ).bind(input.organizationId, input.idempotencyKey).first<ApprovalRow>();
+    if (existingApproval) {
+      if (existingApproval.requestFingerprint !== fingerprint || existingApproval.resourceType !== 'instant_transfer' ||
+        existingApproval.actionType !== 'debit_request.accept') {
+        throw new ApprovalError('La Idempotency-Key ya fue usada para otra operación.', 409, 'idempotency_mismatch');
+      }
+      return { requiresApproval: true as const, approval: serializeApproval(existingApproval), replayed: true, deduplicated: false };
+    }
+    await database.prepare('SELECT pg_advisory_xact_lock_shared(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:approval-policy:debit_request.accept`).first();
+    const policy = await database.prepare(
+      `SELECT expires_in_minutes AS "expiresInMinutes" FROM approval_policies
+       WHERE organization_id = ? AND action_type = 'debit_request.accept' AND enabled = 1 LIMIT 1`,
+    ).bind(input.organizationId).first<{ expiresInMinutes: number }>();
+    if (!policy) {
+      const result = await respondDebitRequestInTransaction(input, database);
+      return { requiresApproval: false as const, ...result };
+    }
+    const debit = await database.prepare(
+      `SELECT id, status, amount_minor::text AS "amountMinor", currency, description, external_reference AS "externalReference",
+        expires_at AS "expiresAt"
+       FROM instant_transfers WHERE organization_id = ? AND id = ? AND scheme = 'debit_pull' FOR UPDATE`,
+    ).bind(input.organizationId, input.debitId).first<{
+      id: string; status: string; amountMinor: string; currency: Currency; description: string;
+      externalReference: string; expiresAt: string | null;
+    }>();
+    if (!debit) throw new ApprovalError('Solicitud de débito no encontrada.', 404, 'debit_request_not_found');
+    if (debit.status !== 'pending') throw new ApprovalError('La solicitud ya no está pendiente.', 409, 'debit_not_pending');
+    if (debit.expiresAt && debit.expiresAt <= new Date().toISOString()) {
+      throw new ApprovalError('La solicitud de débito expiró.', 409, 'debit_expired');
+    }
+    const id = crypto.randomUUID(); const now = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + policy.expiresInMinutes * 60_000).toISOString();
+    const payload = {
+      debitId: debit.id, amountMinor: debit.amountMinor, currency: debit.currency, description: debit.description,
+      externalReference: debit.externalReference, signals: input.signals ?? {},
+      origin: input.authentication, apiKeyId: input.apiKeyId, sandbox: true,
+    };
+    await database.prepare(
+      `INSERT INTO approval_requests
+        (id, organization_id, action_type, resource_type, resource_id, idempotency_key, request_fingerprint, status,
+         request_payload, requested_by, expires_at, created_at, updated_at)
+       VALUES (?, ?, 'debit_request.accept', 'instant_transfer', ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
+    ).bind(id, input.organizationId, debit.id, input.idempotencyKey, fingerprint, JSON.stringify(payload), input.actor.userId,
+      expiresAt, now, now).run();
+    await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId, action: 'approval.request_created',
+      resourceType: 'approval_request', resourceId: id, payload: { actionType: 'debit_request.accept', resourceType: 'instant_transfer',
+        resourceId: debit.id, expiresAt, amountMinor: payload.amountMinor, currency: payload.currency,
+        description: payload.description, origin: payload.origin, sandbox: true } });
+    const approval = await approvalById(database, input.organizationId, id);
+    if (!approval) throw new ApprovalError('No pudimos recuperar la solicitud.', 500, 'approval_create_failed');
+    return { requiresApproval: true as const, approval, replayed: false, deduplicated: false };
+  });
+}
+
+export async function payPaymentQrWithApprovalPolicy(input: {
+  organizationId: string; actor: AuthUser; qrId: string; idempotencyKey: string;
+  payment: NormalizedQrPayInput; signals?: ProtectedRiskSignals;
+  authentication: 'session' | 'api_key'; apiKeyId: string | null;
+}) {
+  await assertSandboxLedgerOrCertifiedRail('qr_interoperable', InstantPaymentError);
+  const fingerprint = await sha256(JSON.stringify({
+    actionType: 'payment_qr.pay', qrId: input.qrId, ...input.payment,
+    amountMinor: input.payment.amountMinor?.toString() ?? null, signals: input.signals ?? {},
+  }));
+  return getDatabaseClient().transaction(async (database) => {
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:instant:${input.idempotencyKey}`).first();
+    const existing = await database.prepare(
+      `SELECT id FROM instant_transfers WHERE organization_id = ? AND idempotency_key = ? LIMIT 1`,
+    ).bind(input.organizationId, input.idempotencyKey).first<{ id: string }>();
+    if (existing) {
+      const result = await payPaymentQrInTransaction(input, database);
+      return { requiresApproval: false as const, ...result };
+    }
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:approval:${input.idempotencyKey}`).first();
+    const existingApproval = await database.prepare(
+      `${approvalSelect} WHERE ar.organization_id = ? AND ar.idempotency_key = ? LIMIT 1`,
+    ).bind(input.organizationId, input.idempotencyKey).first<ApprovalRow>();
+    if (existingApproval) {
+      if (existingApproval.requestFingerprint !== fingerprint || existingApproval.resourceType !== 'payment_qr' ||
+        existingApproval.actionType !== 'payment_qr.pay') {
+        throw new ApprovalError('La Idempotency-Key ya fue usada para otra operación.', 409, 'idempotency_mismatch');
+      }
+      return { requiresApproval: true as const, approval: serializeApproval(existingApproval), replayed: true, deduplicated: false };
+    }
+    await database.prepare('SELECT pg_advisory_xact_lock_shared(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:approval-policy:payment_qr.pay`).first();
+    const policy = await database.prepare(
+      `SELECT expires_in_minutes AS "expiresInMinutes" FROM approval_policies
+       WHERE organization_id = ? AND action_type = 'payment_qr.pay' AND enabled = 1 LIMIT 1`,
+    ).bind(input.organizationId).first<{ expiresInMinutes: number }>();
+    if (!policy) {
+      const result = await payPaymentQrInTransaction(input, database);
+      return { requiresApproval: false as const, ...result };
+    }
+    const qr = await database.prepare(
+      `SELECT id, status, kind, amount_minor::text AS "amountMinor", description, account_id AS "accountId"
+       FROM payment_qrs WHERE organization_id = ? AND id = ? FOR UPDATE`,
+    ).bind(input.organizationId, input.qrId).first<{
+      id: string; status: string; kind: string; amountMinor: string | null; description: string; accountId: string;
+    }>();
+    if (!qr) throw new ApprovalError('QR no encontrado.', 404, 'payment_qr_not_found');
+    if (qr.status !== 'active') throw new ApprovalError('El QR ya no está activo.', 409, 'qr_not_active');
+    const id = crypto.randomUUID(); const transferId = crypto.randomUUID(); const now = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + policy.expiresInMinutes * 60_000).toISOString();
+    const payload = {
+      qrId: qr.id, transferId, sourceAccountId: input.payment.sourceAccountId,
+      externalReference: input.payment.externalReference,
+      amountMinor: input.payment.amountMinor?.toString() ?? null,
+      qrAmountMinor: qr.amountMinor, description: qr.description, kind: qr.kind, accountId: qr.accountId,
+      signals: input.signals ?? {}, origin: input.authentication, apiKeyId: input.apiKeyId, sandbox: true,
+    };
+    await database.prepare(
+      `INSERT INTO approval_requests
+        (id, organization_id, action_type, resource_type, resource_id, idempotency_key, request_fingerprint, status,
+         request_payload, requested_by, expires_at, created_at, updated_at)
+       VALUES (?, ?, 'payment_qr.pay', 'payment_qr', ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
+    ).bind(id, input.organizationId, qr.id, input.idempotencyKey, fingerprint, JSON.stringify(payload), input.actor.userId,
+      expiresAt, now, now).run();
+    await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId, action: 'approval.request_created',
+      resourceType: 'approval_request', resourceId: id, payload: { actionType: 'payment_qr.pay', resourceType: 'payment_qr',
+        resourceId: qr.id, transferId, expiresAt, qrId: qr.id, description: qr.description, kind: qr.kind,
+        origin: payload.origin, sandbox: true } });
+    const approval = await approvalById(database, input.organizationId, id);
+    if (!approval) throw new ApprovalError('No pudimos recuperar la solicitud.', 500, 'approval_create_failed');
+    return { requiresApproval: true as const, approval, replayed: false, deduplicated: false };
+  });
+}
+
 function transferPayload(row: ApprovalRow) {
   try {
     const payload = JSON.parse(row.requestPayload) as Record<string, unknown>;
@@ -1406,6 +1566,29 @@ function instantTransferCreatePayload(row: ApprovalRow): {
         description: payload.description, amountMinor, currency: 'ARS',
         direction: payload.direction, holderName: payload.holderName, taxIdLast4: payload.taxIdLast4,
       },
+      signals,
+    };
+  } catch { return null; }
+}
+
+function paymentQrPayPayload(row: ApprovalRow): {
+  qrId: string; transferId: string; payment: NormalizedQrPayInput; signals: ProtectedRiskSignals | undefined;
+} | null {
+  try {
+    const payload = JSON.parse(row.requestPayload) as Record<string, unknown>;
+    if (typeof payload.qrId !== 'string' || typeof payload.transferId !== 'string' ||
+      typeof payload.sourceAccountId !== 'string' || typeof payload.externalReference !== 'string') return null;
+    let amountMinor: bigint | null = null;
+    if (payload.amountMinor !== undefined && payload.amountMinor !== null && payload.amountMinor !== '') {
+      if (typeof payload.amountMinor !== 'string') return null;
+      amountMinor = BigInt(payload.amountMinor);
+      if (amountMinor <= 0n) return null;
+    }
+    const signals = parseProtectedRiskSignals(payload.signals);
+    if (!signals) return null;
+    return {
+      qrId: payload.qrId, transferId: payload.transferId,
+      payment: { sourceAccountId: payload.sourceAccountId, externalReference: payload.externalReference, amountMinor },
       signals,
     };
   } catch { return null; }
@@ -1837,6 +2020,43 @@ export async function decideApprovalRequest(input: {
         } catch (error) {
           if (error instanceof BillerError && error.status < 500) failure = { message: error.message, code: error.code, status: error.status };
           else throw error;
+        }
+      } else if (row.actionType === 'debit_request.accept') {
+        try {
+          const signals = parseProtectedRiskSignals(JSON.parse(row.requestPayload).signals);
+          const execution = await respondDebitRequestInTransaction({
+            organizationId: input.organizationId, actor: input.actor, debitId: row.resourceId,
+            idempotencyKey: `approval:${row.id}`, response: { decision: 'accept' }, signals: signals ?? undefined,
+            approvalContext: { requestId: row.id, requestedBy: row.requestedBy },
+          }, database);
+          if ('declined' in execution) {
+            failure = { message: 'La política de riesgo rechazó el débito aprobado.', code: 'risk_declined', status: 422 };
+          } else executedInstantTransfer = execution.debit;
+        } catch (error) {
+          if (error instanceof InstantPaymentError && error.status < 500) {
+            failure = { message: error.message, code: error.code, status: error.status };
+          } else if (error instanceof LedgerError && error.status < 500) {
+            failure = { message: error.message, code: error.code, status: error.status };
+          } else throw error;
+        }
+      } else if (row.actionType === 'payment_qr.pay') {
+        const payload = paymentQrPayPayload(row);
+        if (!payload) throw new ApprovalError('El payload protegido del pago QR es inválido.', 500, 'approval_payload_invalid');
+        try {
+          const execution = await payPaymentQrInTransaction({
+            organizationId: input.organizationId, actor: input.actor, qrId: payload.qrId,
+            idempotencyKey: `approval:${row.id}`, payment: payload.payment, signals: payload.signals,
+            transferId: payload.transferId, approvalContext: { requestId: row.id, requestedBy: row.requestedBy },
+          }, database);
+          if ('declined' in execution) {
+            failure = { message: 'La política de riesgo rechazó el pago QR aprobado.', code: 'risk_declined', status: 422 };
+          } else executedInstantTransfer = execution.transfer;
+        } catch (error) {
+          if (error instanceof InstantPaymentError && error.status < 500) {
+            failure = { message: error.message, code: error.code, status: error.status };
+          } else if (error instanceof LedgerError && error.status < 500) {
+            failure = { message: error.message, code: error.code, status: error.status };
+          } else throw error;
         }
       } else if (row.actionType === 'payout_batch.execute') {
         try {

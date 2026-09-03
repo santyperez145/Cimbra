@@ -2626,6 +2626,84 @@ try {
     body: JSON.stringify({ actionType: 'recurring_mandate.resume', enabled: false, expiresInMinutes: 1440 }),
   }), 200);
 
+  const debitAcceptPolicy = await json(await request('/api/platform/approval-policy', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actionType: 'debit_request.accept', enabled: true, expiresInMinutes: 1440 }),
+  }), 200);
+  assert.equal(debitAcceptPolicy.policy.actionType, 'debit_request.accept');
+  const protectedDebit = await json(await request('/api/v1/debit-requests', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-debit-mc-create-${runId}` },
+    body: JSON.stringify({
+      externalReference: `DB-MC-${runId}`, collectorAccountId: account.id, payerDestination: destinationCvuValue,
+      description: 'Débito MC', amount: '3.25', currency: 'ARS',
+    }),
+  }), 201);
+  assert.equal(protectedDebit.debit.status, 'pending');
+  const protectedDebitAccept = await json(await request(`/api/v1/debit-requests/${protectedDebit.debit.id}/respond`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-protected-debit-accept-${runId}` },
+    body: JSON.stringify({ decision: 'accept' }),
+  }), 202);
+  assert.equal(protectedDebitAccept.requiresApproval, true);
+  assert.equal(protectedDebitAccept.approval.actionType, 'debit_request.accept');
+  assert.equal(protectedDebitAccept.approval.resourceId, protectedDebit.debit.id);
+  const debitRejectDirect = await json(await request('/api/v1/debit-requests', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-debit-mc-reject-create-${runId}` },
+    body: JSON.stringify({
+      externalReference: `DB-MC-RJ-${runId}`, collectorAccountId: account.id, payerDestination: destinationCvuValue,
+      description: 'Débito reject directo', amount: '1.10', currency: 'ARS',
+    }),
+  }), 201);
+  const debitRejected = await json(await request(`/api/v1/debit-requests/${debitRejectDirect.debit.id}/respond`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-debit-mc-reject-${runId}` },
+    body: JSON.stringify({ decision: 'reject' }),
+  }), 201);
+  assert.equal(debitRejected.requiresApproval, false);
+  assert.equal(debitRejected.debit.status, 'rejected');
+  cookie = checkerCookie;
+  const protectedDebitExecution = await json(await request(`/api/v1/approvals/${protectedDebitAccept.approval.id}/approve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-debit-accept-checker-${runId}` },
+    body: JSON.stringify({ reason: 'Independent debit accept checker' }),
+  }), 200);
+  assert.equal(protectedDebitExecution.approval.status, 'executed');
+  assert.equal(protectedDebitExecution.transfer.status, 'settled');
+  assert.equal(protectedDebitExecution.transfer.id, protectedDebit.debit.id);
+  cookie = ownerCookieAfterRequest;
+  await json(await request('/api/platform/approval-policy', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actionType: 'debit_request.accept', enabled: false, expiresInMinutes: 1440 }),
+  }), 200);
+
+  const qrPayPolicy = await json(await request('/api/platform/approval-policy', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actionType: 'payment_qr.pay', enabled: true, expiresInMinutes: 1440 }),
+  }), 200);
+  assert.equal(qrPayPolicy.policy.actionType, 'payment_qr.pay');
+  const protectedQr = await json(await request('/api/v1/payment-qrs', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-qr-mc-create-${runId}` },
+    body: JSON.stringify({ accountId: account.id, description: 'QR MC', amount: '2.40', currency: 'ARS' }),
+  }), 201);
+  const protectedQrPay = await json(await request(`/api/v1/payment-qrs/${protectedQr.qr.id}/pay`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-protected-qr-pay-${runId}` },
+    body: JSON.stringify({ sourceAccountId: destinationAccount.id, externalReference: `QR-MC-${runId}` }),
+  }), 202);
+  assert.equal(protectedQrPay.requiresApproval, true);
+  assert.equal(protectedQrPay.approval.actionType, 'payment_qr.pay');
+  assert.equal(protectedQrPay.approval.resourceType, 'payment_qr');
+  assert.equal(protectedQrPay.approval.resourceId, protectedQr.qr.id);
+  cookie = checkerCookie;
+  const protectedQrPayExecution = await json(await request(`/api/v1/approvals/${protectedQrPay.approval.id}/approve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-qr-pay-checker-${runId}` },
+    body: JSON.stringify({ reason: 'Independent QR pay checker' }),
+  }), 200);
+  assert.equal(protectedQrPayExecution.approval.status, 'executed');
+  assert.equal(protectedQrPayExecution.transfer.status, 'settled');
+  assert.equal(protectedQrPayExecution.transfer.scheme, 'qr_collect');
+  cookie = ownerCookieAfterRequest;
+  await json(await request('/api/platform/approval-policy', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actionType: 'payment_qr.pay', enabled: false, expiresInMinutes: 1440 }),
+  }), 200);
+
   await json(await request('/api/platform/approval-policy', {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ actionType: 'transfer.create', enabled: true, expiresInMinutes: 1440 }),
