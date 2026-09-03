@@ -75,7 +75,7 @@ export const HELP_ARTICLES = [
     id: 'wallets',
     title: 'Wallets y bolsillos',
     summary: 'Programas, wallets y movimientos entre pockets del tenant.',
-    body: 'Wallets modela bolsillos ledger-backed. Congelar o cerrar es un lifecycle propio. No es una billetera interoperable BCRA hasta el riel oficial correspondiente.',
+    body: 'Wallets modela bolsillos ledger-backed. Abrir una wallet exige el mismo gate KYC/KYB que cuentas: sin expediente aprobado y vigente la API responde 409 customer_kyc_required. Congelar o cerrar es un lifecycle propio. No es una billetera interoperable BCRA hasta el riel oficial correspondiente.',
   },
   {
     id: 'collections',

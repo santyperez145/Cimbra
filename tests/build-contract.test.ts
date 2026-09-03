@@ -147,12 +147,16 @@ test('abrir cuentas exige KYC/KYB aprobado y la consola no simula payments', () 
   const accountsRoute = readFileSync(join(root, 'app', 'api', 'sandbox', 'accounts', 'route.ts'), 'utf8');
   const dueDiligence = readFileSync(join(root, 'db', 'due-diligence.ts'), 'utf8');
   const wallets = readFileSync(join(root, 'db', 'wallets.ts'), 'utf8');
+  const walletsPanel = readFileSync(join(root, 'app', 'console', 'wallets-panel.tsx'), 'utf8');
+  const help = readFileSync(join(root, 'app', 'lib', 'platform', 'help-center.ts'), 'utf8');
   const consoleClient = readFileSync(join(root, 'app', 'console', 'console-client.tsx'), 'utf8');
   const capabilities = readFileSync(join(root, 'app', 'lib', 'platform', 'capabilities.ts'), 'utf8');
   assert.match(dueDiligence, /assertCustomerDueDiligenceApproved/);
   assert.match(dueDiligence, /customer_kyc_required/);
   assert.match(accountsRoute, /assertCustomerDueDiligenceApproved/);
   assert.match(wallets, /assertCustomerDueDiligenceApproved/);
+  assert.match(walletsPanel, /customer_kyc_required/);
+  assert.match(help, /id: 'wallets'[\s\S]*customer_kyc_required/);
   assert.doesNotMatch(consoleClient, /paymentOpen/);
   assert.doesNotMatch(consoleClient, /Simulá una transferencia/);
   assert.match(consoleClient, /setActive\('Riesgo'\)/);

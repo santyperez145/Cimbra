@@ -31,10 +31,20 @@ const REASON_LABELS: Record<string, string> = {
 
 function apiError(value: unknown, fallback: string) {
   if (!value || typeof value !== 'object') return fallback;
-  const error = (value as { error?: unknown }).error;
+  const body = value as { error?: unknown; code?: unknown };
+  if (body.code === 'customer_kyc_required') {
+    return 'El cliente necesita expediente KYC/KYB aprobado en Compliance antes de abrir una wallet.';
+  }
+  const error = body.error;
   if (typeof error === 'string') return error;
-  return error && typeof error === 'object' && typeof (error as { message?: unknown }).message === 'string'
-    ? (error as { message: string }).message : fallback;
+  if (error && typeof error === 'object') {
+    const coded = error as { message?: unknown; code?: unknown };
+    if (coded.code === 'customer_kyc_required') {
+      return 'El cliente necesita expediente KYC/KYB aprobado en Compliance antes de abrir una wallet.';
+    }
+    if (typeof coded.message === 'string') return coded.message;
+  }
+  return fallback;
 }
 
 function money(value: number, currency: string) {
@@ -196,6 +206,7 @@ export default function WalletsPanel({ role }: { role: OrganizationRole }) {
           <label>Programa<select name="programId" required defaultValue=""><option value="" disabled>Seleccionar programa</option>{programs.filter((item) => item.status === 'active').map((program) => <option key={program.id} value={program.id}>{program.displayName}</option>)}</select></label>
           <label>Cliente<select name="customerId" required defaultValue=""><option value="" disabled>Seleccionar cliente</option>{customers.filter((item) => item.status === 'active').map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}</select></label>
           <label>Referencia externa<input name="externalReference" required minLength={2} maxLength={100} placeholder="WALLET-001" /></label>
+          <p className="operations-empty">Requiere expediente KYC/KYB aprobado en Compliance. Sin eso la API responde customer_kyc_required.</p>
           <button className="app-primary" disabled={busy || programs.length === 0 || customers.length === 0}>{busy ? 'Abriendo…' : 'Abrir wallet'}</button>
         </form>
       </article>}
