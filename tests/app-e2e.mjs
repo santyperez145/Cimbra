@@ -2592,6 +2592,39 @@ try {
     body: JSON.stringify({ actionType: 'collection.till_credit', enabled: false, expiresInMinutes: 1440 }),
   }), 200);
 
+  const holdCapturePolicy = await json(await request('/api/platform/approval-policy', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actionType: 'hold.capture', enabled: true, expiresInMinutes: 1440 }),
+  }), 200);
+  assert.equal(holdCapturePolicy.policy.actionType, 'hold.capture');
+  const holdMcTransfer = await json(await request('/api/v1/transfers', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-hold-mc-${runId}` },
+    body: JSON.stringify({
+      counterparty: 'QA Hold MC', description: 'Hold capture MC', amount: '2000000', currency: 'ARS',
+    }),
+  }), 201);
+  assert.equal(holdMcTransfer.transaction.status, 'review');
+  const holdMcLedger = await json(await request('/api/v1/ledger'), 200);
+  const holdMc = holdMcLedger.data.holds.find((hold) => hold.transactionId === holdMcTransfer.transaction.id);
+  assert.ok(holdMc);
+  const protectedHoldCapture = await json(await request(`/api/v1/holds/${holdMc.id}/capture`, {
+    method: 'POST', headers: { 'Idempotency-Key': `qa-hold-mc-cap-${runId}` },
+  }), 202);
+  assert.equal(protectedHoldCapture.requiresApproval, true);
+  assert.equal(protectedHoldCapture.approval.actionType, 'hold.capture');
+  cookie = checkerCookie;
+  const protectedHoldCaptureExecution = await json(await request(`/api/v1/approvals/${protectedHoldCapture.approval.id}/approve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-hold-mc-checker-${runId}` },
+    body: JSON.stringify({ reason: 'Independent hold capture checker' }),
+  }), 200);
+  assert.equal(protectedHoldCaptureExecution.approval.status, 'executed');
+  assert.equal(protectedHoldCaptureExecution.hold.status, 'captured');
+  cookie = ownerCookieAfterRequest;
+  await json(await request('/api/platform/approval-policy', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actionType: 'hold.capture', enabled: false, expiresInMinutes: 1440 }),
+  }), 200);
+
   const collectionRefundPolicy = await json(await request('/api/platform/approval-policy', {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ actionType: 'collection.refund', enabled: true, expiresInMinutes: 1440 }),

@@ -879,6 +879,7 @@ export async function resolveHold(input: {
   action: 'capture' | 'release';
   idempotencyKey: string;
   approvalAuthorized?: boolean;
+  approvalContext?: { requestId: string; requestedBy: string };
 }, database: DatabaseClient = getDatabaseClient()) {
   return database.transaction(async (transaction) => {
     await transaction.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
@@ -1170,7 +1171,11 @@ export async function resolveHold(input: {
       action: `hold.${input.action === 'capture' ? 'captured' : 'released'}`,
       resourceType: 'hold',
       resourceId: hold.id,
-      payload: { transactionId: hold.transactionId, idempotencyKey: input.idempotencyKey },
+      payload: {
+        transactionId: hold.transactionId, idempotencyKey: input.idempotencyKey,
+        approvalRequestId: input.approvalContext?.requestId ?? null,
+        requestedBy: input.approvalContext?.requestedBy ?? null,
+      },
     });
     return { id: hold.id, status: input.action === 'capture' ? 'captured' : 'released', replayed: false };
   });

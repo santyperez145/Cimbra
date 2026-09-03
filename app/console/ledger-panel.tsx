@@ -59,11 +59,16 @@ export default function LedgerPanel({ role }: { role: OrganizationRole }) {
   async function resolveHold(holdId: string, action: 'capture' | 'release') {
     setActionBusy(true); setFeedback('');
     const response = await authenticatedFetch(`/api/v1/holds/${holdId}/${action}`, {
-      method: 'POST', headers: { 'Idempotency-Key': `ledger-hold-${action}-${holdId}` },
+      method: 'POST', headers: { 'Idempotency-Key': `ledger-hold-${action}-${holdId}-${crypto.randomUUID()}` },
     });
-    const body = await response.json() as { error?: string | { message?: string } };
+    const body = await response.json() as { requiresApproval?: boolean; error?: string | { message?: string } };
     if (!response.ok) setFeedback(apiError(body, 'No pudimos resolver la reserva.'));
-    else {
+    else if (body.requiresApproval) {
+      setFeedback(action === 'capture'
+        ? 'Captura enviada a Aprobaciones (maker/checker).'
+        : 'Liberación enviada a Aprobaciones (maker/checker).');
+      await load();
+    } else {
       setFeedback(action === 'capture' ? 'Reserva capturada y contabilizada.' : 'Reserva liberada sin mutar postings previos.');
       await load();
       router.refresh();
@@ -111,7 +116,7 @@ export default function LedgerPanel({ role }: { role: OrganizationRole }) {
       ))}
     </article>
     {holds.length > 0 && <article className="module-list">
-      <div className="card-head"><div><h2>Holds activos</h2><p>Reservas que restan del disponible · POST /api/v1/holds/:id/capture|release</p></div><b>{holds.length}</b></div>
+      <div className="card-head"><div><h2>Holds activos</h2><p>Reservas que restan del disponible · con hold.capture / hold.release pasan por Aprobaciones</p></div><b>{holds.length}</b></div>
       {holds.map((hold) => (
         <div key={hold.id}>
           <span className="movement"><i>!</i><b>{hold.counterparty}<small>{hold.description} · {new Date(hold.createdAt).toLocaleString('es-AR')}</small></b></span>

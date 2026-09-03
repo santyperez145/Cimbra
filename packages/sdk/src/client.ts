@@ -14,7 +14,7 @@ import type {
   InstantTransfer, PaymentQr, QrDebt, QrSaleOrder, RailDirectoryPreview, RailInstrument,
   PayoutBatch, PayoutBeneficiary,
   Customer, DueDiligenceCase, DueDiligenceCheck, DueDiligenceParty, DueDiligenceState,
-  Dispute, DisputeEventName, DisputeTimelineEvent, DisputeTransitionResult, Hold, HoldResolution, LedgerBalance, LedgerJournal, ListOptions, Page, PlatformCapability, LiveReadiness,
+  Dispute, DisputeEventName, DisputeTimelineEvent, DisputeTransitionResult, Hold, HoldResolutionResult, LedgerBalance, LedgerJournal, ListOptions, Page, PlatformCapability, LiveReadiness,
   OperationalEvidence, OperationalNote, OperationalState, OperationalWorkItem, TransitionCardInput, TransitionWalletInput, UpdateCardControlsInput,
   UpdateOperationalWorkItemInput, WorkItemType,
   ReconciliationException, ReconciliationExceptionResolutionResult, ReconciliationRun, RequestOptions, RiskCase,
@@ -557,9 +557,9 @@ export class Cimbra {
 
   readonly holds = {
     capture: (id: string, options?: RequestOptions) =>
-      this.post<{ ok: true; hold: HoldResolution }>(`/api/v1/holds/${encodeURIComponent(id)}/capture`, undefined, options, true),
+      this.post<HoldResolutionResult>(`/api/v1/holds/${encodeURIComponent(id)}/capture`, undefined, options, true),
     release: (id: string, options?: RequestOptions) =>
-      this.post<{ ok: true; hold: HoldResolution }>(`/api/v1/holds/${encodeURIComponent(id)}/release`, undefined, options, true),
+      this.post<HoldResolutionResult>(`/api/v1/holds/${encodeURIComponent(id)}/release`, undefined, options, true),
   };
 
   readonly support = {

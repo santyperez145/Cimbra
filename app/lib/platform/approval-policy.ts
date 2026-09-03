@@ -18,6 +18,8 @@ export const APPROVAL_ACTION_TYPES = [
   'debit_request.accept',
   'payment_qr.pay',
   'echeq.deposit',
+  'hold.capture',
+  'hold.release',
   'payout_batch.execute',
   'risk.case.resolve',
   'reconciliation.exception.resolve',

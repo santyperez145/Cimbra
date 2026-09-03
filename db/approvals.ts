@@ -33,7 +33,7 @@ export class ApprovalError extends Error {
 
 type ApprovalRow = {
   id: string; actionType: ApprovalActionType;
-  resourceType: 'settlement_cycle' | 'transfer' | 'book_transfer' | 'payment' | 'bill_payment' | 'instant_transfer' | 'payment_link' | 'payment_qr' | 'echeq' | 'collection_till' | 'recurring_payment_mandate' | 'payout_batch' | 'risk_case' | 'reconciliation_exception' | 'dispute'; resourceId: string;
+  resourceType: 'settlement_cycle' | 'transfer' | 'book_transfer' | 'payment' | 'bill_payment' | 'instant_transfer' | 'payment_link' | 'payment_qr' | 'echeq' | 'collection_till' | 'hold' | 'recurring_payment_mandate' | 'payout_batch' | 'risk_case' | 'reconciliation_exception' | 'dispute'; resourceId: string;
   status: ApprovalStatus; requestFingerprint: string; requestPayload: string; requestedBy: string; requestedByName: string;
   resolvedBy: string | null; resolvedByName: string | null; resolutionReason: string | null;
   expiresAt: string; resolvedAt: string | null; executedAt: string | null; createdAt: string; updatedAt: string;
@@ -128,7 +128,7 @@ export async function getApprovalPolicies(organizationId: string) {
        WHERE m.organization_id = ? AND m.role IN ('owner', 'admin') AND u.mfa_enabled = 1`,
     ).bind(organizationId).first<{ count: number }>(),
   ]);
-  return (['settlement.execute', 'transfer.create', 'transfer.reverse', 'payment.create', 'payment.reverse', 'bill_payment.create', 'bill_payment.reverse', 'instant_transfer.create', 'instant_transfer.return', 'collection.pay', 'collection.till_credit', 'collection.refund', 'recurring_mandate.create', 'recurring_mandate.resume', 'debit_request.accept', 'payment_qr.pay', 'echeq.deposit', 'payout_batch.execute', 'risk.case.resolve', 'reconciliation.exception.resolve', 'dispute.resolve'] as const).map((actionType) => {
+  return (['settlement.execute', 'transfer.create', 'transfer.reverse', 'payment.create', 'payment.reverse', 'bill_payment.create', 'bill_payment.reverse', 'instant_transfer.create', 'instant_transfer.return', 'collection.pay', 'collection.till_credit', 'collection.refund', 'recurring_mandate.create', 'recurring_mandate.resume', 'debit_request.accept', 'payment_qr.pay', 'echeq.deposit', 'hold.capture', 'hold.release', 'payout_batch.execute', 'risk.case.resolve', 'reconciliation.exception.resolve', 'dispute.resolve'] as const).map((actionType) => {
     const policy = policies.results.find((item) => item.actionType === actionType);
     return { id: policy?.id ?? null, actionType, enabled: policy?.enabled === 1,
       expiresInMinutes: policy?.expiresInMinutes ?? 1440, eligibleApprovers: approvers?.count ?? 0,
@@ -1678,6 +1678,98 @@ export async function depositEcheqWithApprovalPolicy(input: {
   });
 }
 
+export async function resolveHoldWithApprovalPolicy(input: {
+  organizationId: string; actor: AuthUser; holdId: string; action: 'capture' | 'release';
+  idempotencyKey: string; authentication: 'session' | 'api_key'; apiKeyId: string | null;
+}) {
+  const actionType = input.action === 'capture' ? 'hold.capture' as const : 'hold.release' as const;
+  const fingerprint = await sha256(JSON.stringify({
+    actionType, holdId: input.holdId, action: input.action,
+  }));
+  return getDatabaseClient().transaction(async (database) => {
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:hold-resolution:${input.idempotencyKey}`).first();
+    const keyOwner = await database.prepare(
+      `SELECT resource_id AS id FROM audit_events
+       WHERE organization_id = ? AND resource_type = 'hold'
+         AND action IN ('hold.captured', 'hold.released')
+         AND payload::jsonb->>'idempotencyKey' = ? LIMIT 1`,
+    ).bind(input.organizationId, input.idempotencyKey).first<{ id: string }>();
+    if (keyOwner) {
+      const hold = await resolveHold({
+        organizationId: input.organizationId, actor: input.actor, holdId: input.holdId,
+        action: input.action, idempotencyKey: input.idempotencyKey,
+      }, database);
+      return { requiresApproval: false as const, hold };
+    }
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:approval:${input.idempotencyKey}`).first();
+    const existingApproval = await database.prepare(
+      `${approvalSelect} WHERE ar.organization_id = ? AND ar.idempotency_key = ? LIMIT 1`,
+    ).bind(input.organizationId, input.idempotencyKey).first<ApprovalRow>();
+    if (existingApproval) {
+      if (existingApproval.requestFingerprint !== fingerprint || existingApproval.resourceType !== 'hold' ||
+        existingApproval.actionType !== actionType) {
+        throw new ApprovalError('La Idempotency-Key ya fue usada para otra operación.', 409, 'idempotency_mismatch');
+      }
+      return { requiresApproval: true as const, approval: serializeApproval(existingApproval), replayed: true, deduplicated: false };
+    }
+    await database.prepare('SELECT pg_advisory_xact_lock_shared(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:approval-policy:${actionType}`).first();
+    const policy = await database.prepare(
+      `SELECT expires_in_minutes AS "expiresInMinutes" FROM approval_policies
+       WHERE organization_id = ? AND action_type = ? AND enabled = 1 LIMIT 1`,
+    ).bind(input.organizationId, actionType).first<{ expiresInMinutes: number }>();
+    if (!policy) {
+      const hold = await resolveHold({
+        organizationId: input.organizationId, actor: input.actor, holdId: input.holdId,
+        action: input.action, idempotencyKey: input.idempotencyKey,
+      }, database);
+      return { requiresApproval: false as const, hold };
+    }
+    const hold = await database.prepare(
+      `SELECT h.id, h.status, h.amount_minor::text AS "amountMinor", h.currency, h.transaction_id AS "transactionId",
+        t.description, t.counterparty
+       FROM holds h JOIN transactions t ON t.id = h.transaction_id
+       WHERE h.organization_id = ? AND h.id = ? FOR UPDATE OF h`,
+    ).bind(input.organizationId, input.holdId).first<{
+      id: string; status: string; amountMinor: string; currency: Currency; transactionId: string;
+      description: string; counterparty: string;
+    }>();
+    if (!hold) throw new ApprovalError('Reserva no encontrada.', 404, 'hold_not_found');
+    if (hold.status !== 'active') {
+      const resolved = await resolveHold({
+        organizationId: input.organizationId, actor: input.actor, holdId: input.holdId,
+        action: input.action, idempotencyKey: input.idempotencyKey,
+      }, database);
+      return { requiresApproval: false as const, hold: resolved };
+    }
+    const id = crypto.randomUUID(); const now = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + policy.expiresInMinutes * 60_000).toISOString();
+    const payload = {
+      holdId: hold.id, action: input.action, amountMinor: hold.amountMinor, currency: hold.currency,
+      transactionId: hold.transactionId, description: hold.description, counterparty: hold.counterparty,
+      origin: input.authentication, apiKeyId: input.apiKeyId, sandbox: true,
+    };
+    await database.prepare(
+      `INSERT INTO approval_requests
+        (id, organization_id, action_type, resource_type, resource_id, idempotency_key, request_fingerprint, status,
+         request_payload, requested_by, expires_at, created_at, updated_at)
+       VALUES (?, ?, ?, 'hold', ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
+    ).bind(id, input.organizationId, actionType, hold.id, input.idempotencyKey, fingerprint, JSON.stringify(payload),
+      input.actor.userId, expiresAt, now, now).run();
+    await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId, action: 'approval.request_created',
+      resourceType: 'approval_request', resourceId: id, payload: {
+        actionType, resourceType: 'hold', resourceId: hold.id, expiresAt,
+        amountMinor: payload.amountMinor, currency: payload.currency, description: payload.description,
+        counterparty: payload.counterparty, action: payload.action, origin: payload.origin, sandbox: true,
+      } });
+    const approval = await approvalById(database, input.organizationId, id);
+    if (!approval) throw new ApprovalError('No pudimos recuperar la solicitud.', 500, 'approval_create_failed');
+    return { requiresApproval: true as const, approval, replayed: false, deduplicated: false };
+  });
+}
+
 function transferPayload(row: ApprovalRow) {
   try {
     const payload = JSON.parse(row.requestPayload) as Record<string, unknown>;
@@ -2122,6 +2214,7 @@ export async function decideApprovalRequest(input: {
     let executedPaymentLink: Awaited<ReturnType<typeof refundPaymentLinkInTransaction>>['link'] | undefined;
     let executedMandate: Awaited<ReturnType<typeof createRecurringMandateInTransaction>>['mandate'] | undefined;
     let executedEcheq: Awaited<ReturnType<typeof depositEcheqInTransaction>>['echeq'] | undefined;
+    let executedHold: Awaited<ReturnType<typeof resolveHold>> | undefined;
     let executedPayoutBatch: Awaited<ReturnType<typeof authorizePayoutBatchInTransaction>> | undefined;
     let executedRiskCase: Awaited<ReturnType<typeof resolveRiskCase>> | undefined;
     let executedException: Awaited<ReturnType<typeof resolveReconciliationException>> | undefined;
@@ -2426,6 +2519,19 @@ export async function decideApprovalRequest(input: {
             failure = { message: error.message, code: error.code, status: error.status };
           } else throw error;
         }
+      } else if (row.actionType === 'hold.capture' || row.actionType === 'hold.release') {
+        try {
+          executedHold = await resolveHold({
+            organizationId: input.organizationId, actor: input.actor, holdId: row.resourceId,
+            action: row.actionType === 'hold.capture' ? 'capture' : 'release',
+            idempotencyKey: `approval:${row.id}`,
+            approvalContext: { requestId: row.id, requestedBy: row.requestedBy },
+          }, database);
+        } catch (error) {
+          if (error instanceof LedgerError && error.status < 500) {
+            failure = { message: error.message, code: error.code, status: error.status };
+          } else throw error;
+        }
       } else if (row.actionType === 'payout_batch.execute') {
         try {
           executedPayoutBatch = await authorizePayoutBatchInTransaction(database, { organizationId: input.organizationId,
@@ -2502,7 +2608,7 @@ export async function decideApprovalRequest(input: {
     return { approval, cycle: executedCycle, transaction: executedTransfer, bookTransfer: executedBookTransfer,
       payment: executedPayment, reversal: executedReversal, billPayment: executedBillPayment,
       transfer: executedInstantTransfer, link: executedPaymentLink, mandate: executedMandate, echeq: executedEcheq,
-      payoutBatch: executedPayoutBatch, case: executedRiskCase,
+      hold: executedHold, payoutBatch: executedPayoutBatch, case: executedRiskCase,
       exception: executedException, dispute: executedDispute, failed: failure, replayed: false, expired: false };
   });
 }

@@ -337,6 +337,27 @@ test('collection till credit usa maker/checker opt-in collection.till_credit', (
   assert.match(migration, /collection\.till_credit/);
 });
 
+test('hold capture y release usan maker/checker opt-in hold.capture y hold.release', () => {
+  const approvals = readFileSync(join(root, 'db', 'approvals.ts'), 'utf8');
+  const captureRoute = readFileSync(join(root, 'app', 'api', 'sandbox', 'holds', '[id]', 'capture', 'route.ts'), 'utf8');
+  const releaseRoute = readFileSync(join(root, 'app', 'api', 'sandbox', 'holds', '[id]', 'release', 'route.ts'), 'utf8');
+  const panel = readFileSync(join(root, 'app', 'console', 'approvals-panel.tsx'), 'utf8');
+  const ledgerPanel = readFileSync(join(root, 'app', 'console', 'ledger-panel.tsx'), 'utf8');
+  const help = readFileSync(join(root, 'app', 'lib', 'platform', 'help-center.ts'), 'utf8');
+  const migration = readFileSync(join(root, 'drizzle-postgres', '0061_hold_resolution_approval.sql'), 'utf8');
+  assert.match(approvals, /resolveHoldWithApprovalPolicy/);
+  assert.match(approvals, /hold\.capture/);
+  assert.match(approvals, /hold\.release/);
+  assert.match(captureRoute, /resolveHoldWithApprovalPolicy/);
+  assert.match(releaseRoute, /resolveHoldWithApprovalPolicy/);
+  assert.match(panel, /hold\.capture/);
+  assert.match(panel, /hold\.release/);
+  assert.match(ledgerPanel, /maker\/checker/);
+  assert.match(help, /hold\.capture/);
+  assert.match(migration, /hold\.capture/);
+  assert.match(migration, /hold\.release/);
+});
+
 test('help-center documenta Compliance, Aprobaciones y Disputas con límites honestos', () => {
   const help = readFileSync(join(root, 'app', 'lib', 'platform', 'help-center.ts'), 'utf8');
   assert.match(help, /id: 'compliance-kyc'/);

@@ -27,7 +27,7 @@ export const HELP_ARTICLES = [
     id: 'ledger',
     title: 'Libro mayor',
     summary: 'Saldos, journals y holds en sólo lectura.',
-    body: 'Ledger consulta GET /api/v1/ledger. Ves saldos por moneda, journals recientes y holds activos. Owner/admin/operator con risk.cases.resolve pueden capturar o liberar holds desde esta pantalla. Los journals no se editan: las correcciones viven en reversas de transferencias, book transfers, payments o cobranzas.',
+    body: 'Ledger consulta GET /api/v1/ledger. Ves saldos por moneda, journals recientes y holds activos. Owner/admin/operator con risk.cases.resolve pueden capturar o liberar holds; con hold.capture / hold.release activos esas mutaciones pasan por Aprobaciones. Los journals no se editan: las correcciones viven en reversas de transferencias, book transfers, payments o cobranzas.',
   },
   {
     id: 'audit',
@@ -63,7 +63,7 @@ export const HELP_ARTICLES = [
     id: 'approvals',
     title: 'Aprobaciones maker/checker',
     summary: 'Cola de operaciones que exigen otro actor privilegiado.',
-    body: 'Aprobaciones lista solicitudes pendientes (transferencias y book transfers, sus reversas, cash-in/out y sus reversas, pagos de servicios y sus reversas, altas y devoluciones de transferencias instantáneas, aceptación de débitos internos, pago de QR Cimbra, depósito de ECHEQ, cobros e inbounds a tills, devoluciones de payment links, altas y reanudación de mandatos recurrentes, payouts, settlements y políticas). Approve/reject exige otro usuario con MFA cuando la política lo pide. No es un workflow externo: vive en el tenant y deja auditoría. Viewer no aprueba.',
+    body: 'Aprobaciones lista solicitudes pendientes (transferencias y book transfers, sus reversas, cash-in/out y sus reversas, pagos de servicios y sus reversas, altas y devoluciones de transferencias instantáneas, aceptación de débitos internos, pago de QR Cimbra, depósito de ECHEQ, captura y liberación de holds, cobros e inbounds a tills, devoluciones de payment links, altas y reanudación de mandatos recurrentes, payouts, settlements y políticas). Approve/reject exige otro usuario con MFA cuando la política lo pide. No es un workflow externo: vive en el tenant y deja auditoría. Viewer no aprueba.',
   },
   {
     id: 'bill-payments',
@@ -111,7 +111,7 @@ export const HELP_ARTICLES = [
     id: 'risk',
     title: 'Riesgo y holds',
     summary: 'Reglas versionables, casos y reservas de fondos.',
-    body: 'Riesgo evalúa montos y señales. Un hold resta del disponible hasta capturar o liberar. Las reglas las gestionan owner/admin; operator resuelve casos.',
+    body: 'Riesgo evalúa montos y señales. Un hold resta del disponible hasta capturar o liberar. Con risk.case.resolve el caso exige checker; con hold.capture / hold.release la resolución manual del hold también. Las reglas las gestionan owner/admin; operator resuelve casos.',
   },
   {
     id: 'support',

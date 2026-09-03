@@ -1975,7 +1975,7 @@
               }
             ],
             "url": "{{baseUrl}}/api/v1/holds/:id/capture",
-            "description": "operationId: captureHold\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+            "description": "Posts the pending financial effect of the hold. When hold.capture maker/checker is enabled, returns 202 with a pending approval instead of capturing immediately. Holds linked to an open risk case with risk.case.resolve still require resolving that case.\n\noperationId: captureHold\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
           }
         },
         {
@@ -1997,7 +1997,7 @@
               }
             ],
             "url": "{{baseUrl}}/api/v1/holds/:id/release",
-            "description": "operationId: releaseHold\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+            "description": "Cancels the hold without posting capture journals. When hold.release maker/checker is enabled, returns 202 with a pending approval instead of releasing immediately. Holds linked to an open risk case with risk.case.resolve still require resolving that case.\n\noperationId: releaseHold\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
           }
         }
       ]

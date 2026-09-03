@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 import { authorizationErrorResponse, authorizeApiRequest, rateLimitHeaders } from '@/app/lib/platform/authorization';
 import { scheduleWebhookDispatch } from '@/app/lib/platform/dispatch';
 import { IdempotencyError, requestIdempotencyKey } from '@/app/lib/platform/idempotency';
-import { LedgerError, resolveHold } from '@/db/ledger';
+import { ApprovalError, resolveHoldWithApprovalPolicy } from '@/db/approvals';
+import { LedgerError } from '@/db/ledger';
 import { OrganizationAccessError } from '@/db/runtime';
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
@@ -11,15 +12,35 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const { user, organizationId } = principal;
     const idempotencyKey = requestIdempotencyKey(request, principal);
     const { id } = await context.params;
-    const hold = await resolveHold({ organizationId, actor: user, holdId: id, action: 'release', idempotencyKey: idempotencyKey! });
-    if (!hold.replayed) scheduleWebhookDispatch(organizationId);
-    return NextResponse.json({ ok: true, hold }, { headers: rateLimitHeaders(principal) });
+    const result = await resolveHoldWithApprovalPolicy({
+      organizationId, actor: user, holdId: id, action: 'release', idempotencyKey: idempotencyKey!,
+      authentication: principal.authentication, apiKeyId: principal.apiKeyId,
+    });
+    if (!result.replayed) scheduleWebhookDispatch(organizationId);
+    if (result.requiresApproval) {
+      if (result.approval.status === 'failed') {
+        return NextResponse.json({ error: 'La ejecución aprobada falló.', code: 'approval_execution_failed' },
+          { status: 422, headers: rateLimitHeaders(principal) });
+      }
+      if (['rejected', 'cancelled', 'expired'].includes(result.approval.status)) {
+        return NextResponse.json({ error: `La solicitud está ${result.approval.status}.`, code: 'approval_not_pending' },
+          { status: 409, headers: rateLimitHeaders(principal) });
+      }
+      return NextResponse.json({ ok: true, ...result }, {
+        status: result.approval.status === 'executed' ? 200 : 202,
+        headers: rateLimitHeaders(principal),
+      });
+    }
+    return NextResponse.json({ ok: true, hold: result.hold }, { headers: rateLimitHeaders(principal) });
   } catch (error) {
     const authorizationResponse = authorizationErrorResponse(error);
     if (authorizationResponse) return authorizationResponse;
     if (error instanceof IdempotencyError) return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
-    if (error instanceof LedgerError || error instanceof OrganizationAccessError) {
-      return NextResponse.json({ error: error.message, code: error instanceof LedgerError ? error.code : 'forbidden' }, { status: error.status });
+    if (error instanceof LedgerError || error instanceof OrganizationAccessError || error instanceof ApprovalError) {
+      return NextResponse.json({
+        error: error.message,
+        code: error instanceof OrganizationAccessError ? 'forbidden' : error.code,
+      }, { status: error.status });
     }
     throw error;
   }

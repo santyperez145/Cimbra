@@ -2844,6 +2844,7 @@ paths:
     post:
       operationId: captureHold
       summary: Capture an active hold and post its financial journal
+      description: Posts the pending financial effect of the hold. When hold.capture maker/checker is enabled, returns 202 with a pending approval instead of capturing immediately. Holds linked to an open risk case with risk.case.resolve still require resolving that case.
       security: [{ session: [] }, { bearerApiKey: [] }]
       parameters:
         - in: path
@@ -2853,12 +2854,14 @@ paths:
         - $ref: '#/components/parameters/IdempotencyKey'
       responses:
         '200': { description: Hold captured }
+        '202': { description: Pending human approval when hold.capture policy is enabled }
         '404': { description: Hold not found }
         '409': { description: Hold already resolved or linked to an open risk case protected by dual approval }
   /api/v1/holds/{id}/release:
     post:
       operationId: releaseHold
       summary: Release an active hold without posting a financial journal
+      description: Cancels the hold without posting capture journals. When hold.release maker/checker is enabled, returns 202 with a pending approval instead of releasing immediately. Holds linked to an open risk case with risk.case.resolve still require resolving that case.
       security: [{ session: [] }, { bearerApiKey: [] }]
       parameters:
         - in: path
@@ -2868,6 +2871,7 @@ paths:
         - $ref: '#/components/parameters/IdempotencyKey'
       responses:
         '200': { description: Hold released }
+        '202': { description: Pending human approval when hold.release policy is enabled }
         '404': { description: Hold not found }
         '409': { description: Hold already resolved or linked to an open risk case protected by dual approval }
   /api/v1/events:
@@ -3171,7 +3175,7 @@ paths:
               type: object
               required: [enabled, expiresInMinutes]
               properties:
-                actionType: { type: string, enum: [settlement.execute, transfer.create, transfer.reverse, payment.create, payment.reverse, bill_payment.create, bill_payment.reverse, instant_transfer.create, instant_transfer.return, collection.pay, collection.till_credit, collection.refund, recurring_mandate.create, recurring_mandate.resume, debit_request.accept, payment_qr.pay, echeq.deposit, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve], default: settlement.execute }
+                actionType: { type: string, enum: [settlement.execute, transfer.create, transfer.reverse, payment.create, payment.reverse, bill_payment.create, bill_payment.reverse, instant_transfer.create, instant_transfer.return, collection.pay, collection.till_credit, collection.refund, recurring_mandate.create, recurring_mandate.resume, debit_request.accept, payment_qr.pay, echeq.deposit, hold.capture, hold.release, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve], default: settlement.execute }
                 enabled: { type: boolean }
                 expiresInMinutes: { type: integer, minimum: 15, maximum: 10080 }
       responses:
@@ -4518,8 +4522,8 @@ components:
       required: [id, actionType, resourceType, resourceId, status, requestPayload, requestedBy, requestedByName, expiresAt, createdAt, updatedAt]
       properties:
         id: { type: string, format: uuid }
-        actionType: { type: string, enum: [settlement.execute, transfer.create, transfer.reverse, payment.create, payment.reverse, bill_payment.create, bill_payment.reverse, instant_transfer.create, instant_transfer.return, collection.pay, collection.till_credit, collection.refund, recurring_mandate.create, recurring_mandate.resume, debit_request.accept, payment_qr.pay, echeq.deposit, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve] }
-        resourceType: { type: string, enum: [settlement_cycle, transfer, book_transfer, payment, bill_payment, instant_transfer, payment_link, payment_qr, echeq, collection_till, recurring_payment_mandate, payout_batch, risk_case, reconciliation_exception, dispute] }
+        actionType: { type: string, enum: [settlement.execute, transfer.create, transfer.reverse, payment.create, payment.reverse, bill_payment.create, bill_payment.reverse, instant_transfer.create, instant_transfer.return, collection.pay, collection.till_credit, collection.refund, recurring_mandate.create, recurring_mandate.resume, debit_request.accept, payment_qr.pay, echeq.deposit, hold.capture, hold.release, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve] }
+        resourceType: { type: string, enum: [settlement_cycle, transfer, book_transfer, payment, bill_payment, instant_transfer, payment_link, payment_qr, echeq, collection_till, hold, recurring_payment_mandate, payout_batch, risk_case, reconciliation_exception, dispute] }
         resourceId: { type: string, format: uuid }
         status: { type: string, enum: [pending, executed, rejected, cancelled, expired, failed] }
         requestPayload: { type: object, additionalProperties: true }
