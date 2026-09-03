@@ -19,7 +19,7 @@ import type {
   UpdateOperationalWorkItemInput, WorkItemType,
   ReconciliationException, ReconciliationExceptionResolutionResult, ReconciliationRun, RequestOptions, RiskCase,
   ReportRiskOutcomeInput, RiskCaseResolutionResult, RiskEvaluation, RiskListEntry, RiskMetrics, RiskOutcome, RiskRule, RiskSimulation,
-  RecurringPaymentMandate, RiskStepUpAttempt, RiskStepUpChallenge, SettlementCycle, SettlementExecutionResult, VerifyRiskStepUpChallengeInput,
+  RecurringPaymentExecution, RecurringPaymentMandate, RiskStepUpAttempt, RiskStepUpChallenge, SettlementCycle, SettlementExecutionResult, VerifyRiskStepUpChallengeInput,
   Organization, OpenSupportCaseInput, ServiceTopology, SupportCase, SupportCaseResult, SupportCaseStatus, SupportCaseThread, UpdateOrganizationInput,
   RecordDueDiligenceCheckInput, Transaction, TransferCreationResult, Wallet, WalletLifecycleEvent, WalletPocket, WalletPocketTransferCreationResult, WalletProgram, WebhookOperationalState,
 } from './types.ts';
@@ -448,6 +448,13 @@ export class Cimbra {
   readonly recurringMandates = {
     list: (options?: RequestOptions) => this.request<{ data: RecurringPaymentMandate[] }>('GET', '/api/v1/recurring-mandates', undefined, options),
     retrieve: (id: string, options?: RequestOptions) => this.request<{ data: RecurringPaymentMandate }>('GET', `/api/v1/recurring-mandates/${encodeURIComponent(id)}`, undefined, options),
+    listExecutions: (id: string, options?: RequestOptions & { limit?: number }) =>
+      this.request<{ data: RecurringPaymentExecution[] }>(
+        'GET',
+        `/api/v1/recurring-mandates/${encodeURIComponent(id)}/executions${options?.limit ? `?limit=${options.limit}` : ''}`,
+        undefined,
+        options,
+      ),
     create: (input: CreateRecurringPaymentMandateInput, options?: RequestOptions) =>
       this.post<{ ok: true; mandate: RecurringPaymentMandate; replayed: boolean }>('/api/v1/recurring-mandates', input, options, true),
     pause: (id: string, options?: RequestOptions) => this.post<{ ok: true; mandate: RecurringPaymentMandate; replayed: boolean }>(

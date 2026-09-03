@@ -107,6 +107,10 @@ export type RecurringPaymentMandate = {
   lastExecutedAt: string | null; retryCount: number; maxRetries: number; cancelledAt: string | null;
   createdBy: string; createdByName: string; createdAt: string; updatedAt: string;
 };
+export type RecurringPaymentExecution = {
+  id: string; mandateId: string; orderId: string | null; scheduledFor: string; attemptNumber: number;
+  status: 'settled' | 'review' | 'declined' | 'skipped_no_debt' | 'failed'; errorCode: string | null; attemptedAt: string;
+};
 export type PayoutBeneficiary = {
   id: string; externalReference: string; name: string; entityType: 'individual' | 'business'; country: string; currency: Currency;
   destinationType: 'local_account' | 'alias' | 'iban' | 'clabe' | 'pix_key'; destinationLast4: string; bankCode: string | null;

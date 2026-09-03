@@ -1827,6 +1827,24 @@ paths:
       responses:
         '200': { description: Recurring mandate, content: { application/json: { schema: { type: object, properties: { data: { $ref: '#/components/schemas/RecurringPaymentMandate' } } } } } }
         '404': { description: Mandate not found in tenant }
+  /api/v1/recurring-mandates/{id}/executions:
+    get:
+      operationId: listRecurringPaymentMandateExecutions
+      summary: List execution attempts for a recurring mandate
+      description: Returns sandbox charge attempts (settled, skipped, failed). Does not imply a live direct-debit rail.
+      security: [{ session: [] }, { bearerApiKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+      responses:
+        '200':
+          description: Mandate executions
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/RecurringPaymentExecution' } } } }
+        '404': { description: Mandate not found in tenant }
   /api/v1/recurring-mandates/{id}/status:
     post:
       operationId: updateRecurringPaymentMandateStatus
@@ -3919,6 +3937,19 @@ components:
         createdByName: { type: string }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+    RecurringPaymentExecution:
+      type: object
+      additionalProperties: false
+      required: [id, mandateId, orderId, scheduledFor, attemptNumber, status, errorCode, attemptedAt]
+      properties:
+        id: { type: string, format: uuid }
+        mandateId: { type: string, format: uuid }
+        orderId: { type: [string, 'null'], format: uuid }
+        scheduledFor: { type: string, format: date-time }
+        attemptNumber: { type: integer, minimum: 1 }
+        status: { type: string, enum: [settled, review, declined, skipped_no_debt, failed] }
+        errorCode: { type: [string, 'null'] }
+        attemptedAt: { type: string, format: date-time }
     CreateRecurringPaymentMandateInput:
       type: object
       additionalProperties: false

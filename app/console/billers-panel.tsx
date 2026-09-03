@@ -9,6 +9,7 @@ type Biller = { id: string; code: string; name: string; country: string; categor
 type Obligation = { id: string; externalReference: string; subscriberReferenceLast4: string; amount: number; currency: string; dueAt: string; description: string; status: 'open' | 'paid' | 'cancelled' | 'expired' };
 type Order = { id: string; billerName: string; accountReference: string; serviceType: Biller['serviceType']; destinationReferenceLast4: string; amount: number; currency: string; status: 'declined' | 'review' | 'settled' | 'reversed' | 'cancelled' };
 type Mandate = { id: string; billerName: string; serviceType: Biller['serviceType']; accountReference: string; subscriberReferenceLast4: string; frequency: 'weekly' | 'monthly'; amount: number | null; amountLimit: number; currency: string; consentReference: string; status: 'active' | 'paused' | 'cancelled' | 'expired'; nextChargeAt: string; retryCount: number; maxRetries: number };
+type MandateExecution = { id: string; mandateId: string; orderId: string | null; scheduledFor: string; attemptNumber: number; status: string; errorCode: string | null; attemptedAt: string };
 
 function money(value: number, currency: string) {
   return new Intl.NumberFormat('es-AR', { style: 'currency', currency, maximumFractionDigits: currency === 'CLP' ? 0 : 2 }).format(value);
@@ -25,6 +26,7 @@ function localDateInput(date = new Date(Date.now() + 24 * 60 * 60 * 1_000)) {
 export default function BillersPanel({ accounts, actorRole }: { accounts: DashboardData['accounts']; actorRole: OrganizationRole }) {
   const [billers, setBillers] = useState<Biller[]>([]); const [orders, setOrders] = useState<Order[]>([]); const [mandates, setMandates] = useState<Mandate[]>([]);
   const [obligations, setObligations] = useState<Obligation[]>([]); const [selectedId, setSelectedId] = useState('');
+  const [selectedMandateId, setSelectedMandateId] = useState(''); const [executions, setExecutions] = useState<MandateExecution[]>([]);
   const [busy, setBusy] = useState(false); const [feedback, setFeedback] = useState(''); const [serviceType, setServiceType] = useState<Biller['serviceType']>('bill_payment');
   const [amountMode, setAmountMode] = useState<Biller['amountMode']>('exact');
   const canOperate = roleCan(actorRole, 'finance.write'); const canManage = roleCan(actorRole, 'billers.manage');
@@ -41,6 +43,14 @@ export default function BillersPanel({ accounts, actorRole }: { accounts: Dashbo
     if (!billersResponse.ok || !ordersResponse.ok || !mandatesResponse.ok) return setFeedback(apiError(!billersResponse.ok ? billerBody : !ordersResponse.ok ? orderBody : mandateBody));
     setBillers(billerBody.data ?? []); setOrders(orderBody.data ?? []); setMandates(mandateBody.data ?? []);
     setSelectedId((current) => current && billerBody.data?.some((item) => item.id === current) ? current : billerBody.data?.[0]?.id ?? '');
+  }, []);
+
+  const loadExecutions = useCallback(async (mandateId: string) => {
+    setSelectedMandateId(mandateId);
+    const response = await authenticatedFetch(`/api/v1/recurring-mandates/${mandateId}/executions?limit=20`, { cache: 'no-store' });
+    const body = await response.json() as { data?: MandateExecution[]; error?: string | { message?: string } };
+    if (!response.ok) return setFeedback(apiError(body));
+    setExecutions(body.data ?? []);
   }, []);
 
   const loadObligations = useCallback(async (billerId: string) => {
@@ -123,7 +133,7 @@ export default function BillersPanel({ accounts, actorRole }: { accounts: Dashbo
     </div></>}
     <div className="compliance-onboarding-grid">
       <article className="integration-card"><div className="card-head"><div><h2>Órdenes recientes</h2><p>Resultado financiero y lifecycle</p></div><b>{orders.length}</b></div><div className="integration-list compact-list">{orders.length === 0 ? <p>Sin órdenes procesadas.</p> : orders.slice(0, 12).map((item) => <div key={item.id}><span><strong>{item.billerName}</strong><small>{item.serviceType} · cuenta {item.accountReference} · destino •••• {item.destinationReferenceLast4}</small></span><b className={item.status}>{money(item.amount, item.currency)} · {item.status}</b>{canOperate && item.status === 'settled' && <button disabled={busy} onClick={() => void mutation(`/api/v1/bill-payments/${item.id}/reverse`, {})}>Revertir</button>}</div>)}</div></article>
-      <article className="integration-card"><div className="card-head"><div><h2>Mandatos</h2><p>Agenda, límites y reintentos visibles</p></div><b>{mandates.length}</b></div><div className="integration-list compact-list">{mandates.length === 0 ? <p>Sin mandatos recurrentes.</p> : mandates.slice(0, 12).map((item) => <div key={item.id}><span><strong>{item.billerName}</strong><small>{item.frequency} · •••• {item.subscriberReferenceLast4} · próxima {new Date(item.nextChargeAt).toLocaleString('es-AR')} · límite {money(item.amountLimit, item.currency)}</small></span><b className={item.status}>{item.status}</b>{canOperate && item.status === 'active' && <><button disabled={busy} onClick={() => void mutation(`/api/v1/recurring-mandates/${item.id}/status`, { action: 'pause' })}>Pausar</button><button disabled={busy} onClick={() => void mutation(`/api/v1/recurring-mandates/${item.id}/status`, { action: 'cancel' })}>Cancelar</button></>}{canOperate && item.status === 'paused' && <button disabled={busy} onClick={() => void mutation(`/api/v1/recurring-mandates/${item.id}/status`, { action: 'resume' })}>Reanudar</button>}</div>)}</div></article>
+      <article className="integration-card"><div className="card-head"><div><h2>Mandatos</h2><p>Agenda, límites, reintentos y ejecuciones</p></div><b>{mandates.length}</b></div><div className="integration-list compact-list">{mandates.length === 0 ? <p>Sin mandatos recurrentes.</p> : mandates.slice(0, 12).map((item) => <div key={item.id}><span><strong>{item.billerName}</strong><small>{item.frequency} · •••• {item.subscriberReferenceLast4} · próxima {new Date(item.nextChargeAt).toLocaleString('es-AR')} · límite {money(item.amountLimit, item.currency)}</small></span><b className={item.status}>{item.status}</b><button type="button" disabled={busy} onClick={() => void loadExecutions(item.id)}>Ejecuciones</button>{canOperate && item.status === 'active' && <><button disabled={busy} onClick={() => void mutation(`/api/v1/recurring-mandates/${item.id}/status`, { action: 'pause' })}>Pausar</button><button disabled={busy} onClick={() => void mutation(`/api/v1/recurring-mandates/${item.id}/status`, { action: 'cancel' })}>Cancelar</button></>}{canOperate && item.status === 'paused' && <button disabled={busy} onClick={() => void mutation(`/api/v1/recurring-mandates/${item.id}/status`, { action: 'resume' })}>Reanudar</button>}</div>)}{selectedMandateId && <div className="integration-list compact-list"><p><strong>Ejecuciones</strong> · mandato {selectedMandateId.slice(0, 8)}…</p>{executions.length === 0 ? <p>Sin intentos registrados todavía.</p> : executions.map((item) => <div key={item.id}><span><strong>{item.status}</strong><small>intento {item.attemptNumber} · {new Date(item.attemptedAt).toLocaleString('es-AR')}{item.orderId ? ` · orden ${item.orderId.slice(0, 8)}…` : ''}{item.errorCode ? ` · ${item.errorCode}` : ''}</small></span></div>)}</div>}</div></article>
     </div>
     <div className="card-sandbox-boundary"><strong>Límite operativo honesto</strong><span>El catálogo, las obligaciones, los pagos y mandatos son propiedad de Cimbra y funcionan en sandbox. No existe cobertura comercial, consulta a billers externos, débito automático homologado ni movimiento de fondos reales hasta contratar directamente cada originador y certificar el riel por país.</span></div>
   </div>;

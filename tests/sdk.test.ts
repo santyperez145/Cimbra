@@ -611,6 +611,7 @@ test('el SDK cablea billers, obligaciones, pagos, reversas y mandatos con rutas 
     calls.push({ url, method, idempotencyKey: new Headers(init?.headers).get('idempotency-key') });
     if (url.endsWith('/obligations')) return Response.json({ ok: true, replayed: false, obligation: { id: 'obligation_1' } }, { status: 201 });
     if (url.endsWith('/reverse')) return Response.json({ ok: true, replayed: false, order: { id: 'order_1', status: 'reversed' } });
+    if (url.includes('/recurring-mandates/') && url.endsWith('/executions')) return Response.json({ data: [{ id: 'exec_1', status: 'skipped_no_debt' }] });
     if (url.includes('/recurring-mandates/') && url.endsWith('/status')) return Response.json({ ok: true, replayed: false, mandate: { id: 'mandate_1', status: 'paused' } });
     if (url.endsWith('/recurring-mandates')) return Response.json({ ok: true, replayed: false, mandate: { id: 'mandate_1', status: 'active' } }, { status: 201 });
     if (url.endsWith('/bill-payments')) return Response.json({ ok: true, replayed: false, order: { id: 'order_1', status: 'settled' } }, { status: 201 });
@@ -625,13 +626,15 @@ test('el SDK cablea billers, obligaciones, pagos, reversas y mandatos con rutas 
   const mandate = await client.recurringMandates.create({ accountId: 'account_1', billerId: biller.data.biller.id,
     subscriberReference: 'CLIENTE-001234', frequency: 'monthly', amountLimit: '500.00', consentReference: 'CONSENT-001',
     consentedAt: '2026-08-30T12:00:00.000Z', nextChargeAt: '2026-09-30T12:00:00.000Z' });
+  await client.recurringMandates.listExecutions(mandate.data.mandate.id, { limit: 20 });
   await client.recurringMandates.pause(mandate.data.mandate.id);
   assert.deepEqual(calls.map(({ method, url }) => `${method} ${url}`), [
     'POST https://api.test/api/v1/billers', 'POST https://api.test/api/v1/billers/biller_1/obligations',
     'POST https://api.test/api/v1/bill-payments', 'POST https://api.test/api/v1/bill-payments/order_1/reverse',
-    'POST https://api.test/api/v1/recurring-mandates', 'POST https://api.test/api/v1/recurring-mandates/mandate_1/status',
+    'POST https://api.test/api/v1/recurring-mandates', 'GET https://api.test/api/v1/recurring-mandates/mandate_1/executions?limit=20',
+    'POST https://api.test/api/v1/recurring-mandates/mandate_1/status',
   ]);
-  for (const call of calls) assert.match(call.idempotencyKey ?? '', /^idem_[a-f0-9]{32}$/);
+  for (const call of calls.filter((item) => item.method !== 'GET')) assert.match(call.idempotencyKey ?? '', /^idem_[a-f0-9]{32}$/);
 });
 
 test('el SDK orquesta KYC/KYB por S2S y excluye la decisión humana', async () => {

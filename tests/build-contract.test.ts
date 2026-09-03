@@ -72,7 +72,7 @@ test('el estado de cuenta conserva layout de formulario y métricas responsive',
 
 test('la landing publica capacidades reales del sandbox sin inventar rieles', () => {
   const page = readFileSync(join(root, 'app', 'page.tsx'), 'utf8');
-  assert.match(page, /193 operaciones/);
+  assert.match(page, /194 operaciones/);
   assert.match(page, /Pagos AR y cobranzas/);
   assert.match(page, /Live fail-closed/);
   assert.match(page, /Sin Coelsa, DEBIN ni QR de red/);

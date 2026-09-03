@@ -13,7 +13,7 @@ Superficies disponibles:
 - `/help` — centro de ayuda público con los mismos artículos que la consola: sandbox, roles, clientes, soporte, PSPCP y API keys.
 - `/status` — estado público fail-closed: modo efectivo, liveReady y topología de servicios de dominio. El JSON operativo sigue en `/api/health`.
 - `/ops` — superadministración de Cimbra. Acceso por `CIMBRA_PLATFORM_OPERATOR_EMAILS`, no por rol del tenant. Sin operadores provisionados, la ruta existe y deniega.
-- `/developers` — portal técnico generado desde OpenAPI con entornos, quickstart ejecutable, auth/RBAC/scopes, errores, rate limits, SDK descargable, webhooks, catálogo de eventos y las 193 operaciones publicadas.
+- `/developers` — portal técnico generado desde OpenAPI con entornos, quickstart ejecutable, auth/RBAC/scopes, errores, rate limits, SDK descargable, webhooks, catálogo de eventos y las 194 operaciones publicadas.
 - `/login` — registro e inicio de sesión propio con usuario/email y contraseña; OAuth Google y Apple se activa al configurar sus credenciales.
 - `/forgot-password`, `/reset-password` y `/verify-email` — ciclo de vida de cuenta con tokens opacos, expiración, uso único y respuestas anti-enumeración.
 - `/console` — consola protegida y consciente del rol; owner/admin administran miembros e invitaciones, operator ejecuta, viewer trabaja en modo lectura. Clientes, Cuentas, Auditoría, Compliance y Operaciones unifican altas, ledger, KYC/KYB, evidencia append-only, ownership, SLA y expedientes.

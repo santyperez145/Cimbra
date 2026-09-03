@@ -362,6 +362,26 @@ export async function retrieveRecurringMandate(organizationId: string, id: strin
   return row ? publicMandate(row) : null;
 }
 
+export async function listRecurringMandateExecutions(organizationId: string, mandateId: string, limit = 50) {
+  const mandate = await getDatabaseClient().prepare(
+    'SELECT id FROM recurring_payment_mandates WHERE organization_id = ? AND id = ? LIMIT 1',
+  ).bind(organizationId, mandateId).first<{ id: string }>();
+  if (!mandate) return null;
+  const capped = Math.min(Math.max(limit, 1), 100);
+  const rows = await getDatabaseClient().prepare(
+    `SELECT id, mandate_id AS "mandateId", order_id AS "orderId", scheduled_for AS "scheduledFor",
+      attempt_number AS "attemptNumber", status, error_code AS "errorCode", attempted_at AS "attemptedAt"
+     FROM recurring_payment_executions
+     WHERE organization_id = ? AND mandate_id = ?
+     ORDER BY attempted_at DESC, attempt_number DESC
+     LIMIT ?`,
+  ).bind(organizationId, mandateId, capped).all<{
+    id: string; mandateId: string; orderId: string | null; scheduledFor: string;
+    attemptNumber: number; status: string; errorCode: string | null; attemptedAt: string;
+  }>();
+  return rows.results;
+}
+
 export async function createRecurringMandate(input: { organizationId: string; actor: AuthUser; idempotencyKey: string; accountId: string;
   billerId: string; subscriberReference: string; frequency: RecurringFrequency; amount: unknown; amountLimit: unknown;
   consentReference: string; consentedAt: string; nextChargeAt: string; maxRetries: number }) {
