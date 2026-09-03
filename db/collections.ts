@@ -477,227 +477,238 @@ export async function cancelPaymentLink(input: {
 export async function payPaymentLink(input: {
   organizationId: string; actor: AuthUser; linkId: string; idempotencyKey: string;
   payment: NormalizedPaymentLinkPayInput; signals?: ProtectedRiskSignals;
+  approvalContext?: { requestId: string; requestedBy: string };
 }) {
+  return getDatabaseClient().transaction((database) => payPaymentLinkInTransaction(input, database));
+}
+
+export async function payPaymentLinkInTransaction(input: {
+  organizationId: string; actor: AuthUser; linkId: string; idempotencyKey: string;
+  payment: NormalizedPaymentLinkPayInput; signals?: ProtectedRiskSignals;
+  approvalContext?: { requestId: string; requestedBy: string };
+}, database: DatabaseClient) {
   const fingerprint = await sha256(JSON.stringify({
     method: input.payment.method,
     payerAccountId: input.payment.payerAccountId,
     amountMinor: input.payment.amountMinor?.toString() ?? null,
     signals: input.signals ?? {},
   }));
-  return getDatabaseClient().transaction(async (database) => {
+  const approvalAudit = {
+    approvalRequestId: input.approvalContext?.requestId ?? null,
+    requestedBy: input.approvalContext?.requestedBy ?? null,
+  };
+  await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+    .bind(`${input.organizationId}:payment-link-pay:${input.linkId}`).first();
+  const debtPointer = await database.prepare(
+    'SELECT qr_debt_id AS "qrDebtId" FROM payment_links WHERE organization_id = ? AND id = ? LIMIT 1',
+  ).bind(input.organizationId, input.linkId).first<{ qrDebtId: string | null }>();
+  if (debtPointer?.qrDebtId) {
     await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
-      .bind(`${input.organizationId}:payment-link-pay:${input.linkId}`).first();
-    const debtPointer = await database.prepare(
-      'SELECT qr_debt_id AS "qrDebtId" FROM payment_links WHERE organization_id = ? AND id = ? LIMIT 1',
-    ).bind(input.organizationId, input.linkId).first<{ qrDebtId: string | null }>();
-    if (debtPointer?.qrDebtId) {
-      await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
-        .bind(`${input.organizationId}:debt-settle:${debtPointer.qrDebtId}`).first();
-    }
-    const row = await database.prepare(`${linkSelect} WHERE pl.organization_id = ? AND pl.id = ? LIMIT 1 FOR UPDATE OF pl`)
-      .bind(input.organizationId, input.linkId).first<LinkRow>();
-    if (!row) throw new CollectionError('Link de cobro no encontrado.', 404, 'payment_link_not_found');
-    const current = await expireIfNeeded(database, row);
-    if (input.payment.method === 'cimbra_cvu') {
-      const existingCredit = await database.prepare(
-        `SELECT request_fingerprint AS "requestFingerprint", payment_link_id AS "paymentLinkId"
-         FROM payment_link_credits WHERE organization_id = ? AND idempotency_key = ? LIMIT 1`,
-      ).bind(input.organizationId, input.idempotencyKey).first<{ requestFingerprint: string; paymentLinkId: string }>();
-      if (existingCredit) {
-        if (existingCredit.requestFingerprint !== fingerprint || existingCredit.paymentLinkId !== current.id) {
-          throw new CollectionError('La Idempotency-Key ya fue usada con otro cobro.', 409, 'idempotency_mismatch');
-        }
-        return { link: await presentLink((await retrieveLinkRow(input.organizationId, current.id, database))!, database), replayed: true };
+      .bind(`${input.organizationId}:debt-settle:${debtPointer.qrDebtId}`).first();
+  }
+  const row = await database.prepare(`${linkSelect} WHERE pl.organization_id = ? AND pl.id = ? LIMIT 1 FOR UPDATE OF pl`)
+    .bind(input.organizationId, input.linkId).first<LinkRow>();
+  if (!row) throw new CollectionError('Link de cobro no encontrado.', 404, 'payment_link_not_found');
+  const current = await expireIfNeeded(database, row);
+  if (input.payment.method === 'cimbra_cvu') {
+    const existingCredit = await database.prepare(
+      `SELECT request_fingerprint AS "requestFingerprint", payment_link_id AS "paymentLinkId"
+       FROM payment_link_credits WHERE organization_id = ? AND idempotency_key = ? LIMIT 1`,
+    ).bind(input.organizationId, input.idempotencyKey).first<{ requestFingerprint: string; paymentLinkId: string }>();
+    if (existingCredit) {
+      if (existingCredit.requestFingerprint !== fingerprint || existingCredit.paymentLinkId !== current.id) {
+        throw new CollectionError('La Idempotency-Key ya fue usada con otro cobro.', 409, 'idempotency_mismatch');
       }
-    } else if (current.payFingerprint === fingerprint && (current.status === 'paid' || current.status === 'pending')) {
-      return { link: await presentLink(current, database), replayed: true };
+      return { link: await presentLink((await retrieveLinkRow(input.organizationId, current.id, database))!, database), replayed: true };
     }
-    if (current.status === 'paid' || current.status === 'pending') {
-      throw new CollectionError('El link ya fue cobrado.', 409, 'payment_link_already_paid');
+  } else if (current.payFingerprint === fingerprint && (current.status === 'paid' || current.status === 'pending')) {
+    return { link: await presentLink(current, database), replayed: true };
+  }
+  if (current.status === 'paid' || current.status === 'pending') {
+    throw new CollectionError('El link ya fue cobrado.', 409, 'payment_link_already_paid');
+  }
+  if (current.status !== 'open') {
+    throw new CollectionError('El link no está disponible para cobro.', 409, 'payment_link_not_open');
+  }
+  const allowed = parseMethods(current.allowedMethods);
+  if (!allowed.includes(input.payment.method)) {
+    throw new CollectionError('El medio de cobro no está habilitado en este link.', 422, 'method_not_allowed');
+  }
+  if (input.payment.method !== 'internal') {
+    await assertSandboxLedgerOrCertifiedRail('collections', CollectionError);
+  }
+  const merchant = await loadAccount(database, input.organizationId, current.accountId, true);
+  assertCollector(merchant);
+  const now = new Date().toISOString();
+  if (input.payment.method === 'internal' || input.payment.method === 'cimbra_qr') {
+    if (!input.payment.payerAccountId) throw new CollectionError('El cobro interno exige cuenta pagadora.', 400, 'payer_required');
+    if (input.payment.payerAccountId === merchant.id) {
+      throw new CollectionError('La cuenta pagadora debe ser distinta a la del comercio.', 422, 'same_account');
     }
-    if (current.status !== 'open') {
-      throw new CollectionError('El link no está disponible para cobro.', 409, 'payment_link_not_open');
+    const payer = await loadAccount(database, input.organizationId, input.payment.payerAccountId, true);
+    assertCollector(payer);
+    let debt: Awaited<ReturnType<typeof loadOpenQrDebt>> | null = null;
+    if (input.payment.method === 'cimbra_qr') {
+      if (!current.qrDebtId) throw new CollectionError('Este link no está asociado a una deuda QR.', 422, 'qr_debt_required');
+      debt = await loadOpenQrDebt(database, input.organizationId, current.qrDebtId);
+      if (debt.accountId !== merchant.id) {
+        throw new CollectionError('La deuda QR pertenece a otra cuenta.', 422, 'qr_debt_account_mismatch');
+      }
+      if (BigInt(debt.amountMinor) !== BigInt(current.amountMinor)) {
+        throw new CollectionError('El monto del link no coincide con la deuda QR.', 422, 'qr_debt_amount_mismatch');
+      }
     }
-    const allowed = parseMethods(current.allowedMethods);
-    if (!allowed.includes(input.payment.method)) {
-      throw new CollectionError('El medio de cobro no está habilitado en este link.', 422, 'method_not_allowed');
+    const movement = await postInternalCollection(database, {
+      organizationId: input.organizationId, actor: input.actor, operationKey: `collection-pay:${input.idempotencyKey}`,
+      source: payer, destination: merchant, amountMinor: BigInt(current.amountMinor), description: current.description,
+      counterparty: `link:${current.payload}`, signals: input.signals,
+    });
+    if ('declined' in movement) return { declined: movement.declined, replayed: movement.replayed };
+    const transferId = crypto.randomUUID();
+    if (input.payment.method === 'cimbra_qr' && debt) {
+      await insertLinkInstantTransfer(database, {
+        id: transferId, organizationId: input.organizationId, idempotencyKey: `link-qr:${input.idempotencyKey}`,
+        fingerprint, scheme: 'qr_collect', direction: 'internal', sourceAccountId: payer.id, destinationAccountId: merchant.id,
+        counterpartyKind: 'alias', counterpartyValue: debt.payload.replace(/[^A-Z0-9]/gi, '').slice(0, 20).padEnd(6, 'X'),
+        holderName: merchant.customerName, taxIdLast4: merchant.taxIdLast4, amountMinor: BigInt(current.amountMinor),
+        description: current.description, externalReference: `link-qr:${current.id}`,
+        status: movement.status === 'pending' ? 'pending' : 'settled', transactionId: movement.transactionId,
+        qrPayload: debt.payload, collectionTillId: null, actorId: input.actor.userId, createdAt: now,
+      });
+      if (movement.status === 'paid') {
+        await database.prepare("UPDATE payment_qrs SET status = 'paid', paid_transfer_id = ?, updated_at = ? WHERE id = ?")
+          .bind(transferId, now, debt.paymentQrId).run();
+        await database.prepare("UPDATE qr_debts SET status = 'paid', paid_transfer_id = ?, updated_at = ? WHERE id = ?")
+          .bind(transferId, now, debt.id).run();
+        await insertAudit(database, {
+          organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.debt_paid',
+          resourceType: 'qr_debt', resourceId: debt.id,
+          payload: { transferId, paymentQrId: debt.paymentQrId, amountMinor: current.amountMinor, paymentLinkId: current.id, ...approvalAudit },
+        });
+      }
     }
-    if (input.payment.method !== 'internal') {
-      await assertSandboxLedgerOrCertifiedRail('collections', CollectionError);
+    const collected = movement.status === 'paid' ? current.amountMinor : '0';
+    await database.prepare(`UPDATE payment_links SET status = ?, paid_method = ?, payer_account_id = ?,
+      transaction_id = ?, pay_idempotency_key = ?, pay_fingerprint = ?, collected_minor = ?, updated_at = ? WHERE id = ?`)
+      .bind(movement.status, input.payment.method, payer.id, movement.transactionId, input.idempotencyKey, fingerprint, collected, now, current.id).run();
+    await insertAudit(database, {
+      organizationId: input.organizationId, actorId: input.actor.userId, action: 'collection.link_paid',
+      resourceType: 'payment_link', resourceId: current.id,
+      payload: { method: input.payment.method, status: movement.status, transactionId: movement.transactionId, ...approvalAudit },
+    });
+    return { link: await presentLink((await retrieveLinkRow(input.organizationId, current.id, database))!, database), replayed: false };
+  }
+  if (input.payment.method === 'cimbra_cvu') {
+    if (!current.collectionTillId) {
+      throw new CollectionError('Este link no está asociado a un punto de recaudación.', 422, 'collection_till_required');
     }
-    const merchant = await loadAccount(database, input.organizationId, current.accountId, true);
-    assertCollector(merchant);
-    const now = new Date().toISOString();
-    if (input.payment.method === 'internal' || input.payment.method === 'cimbra_qr') {
-      if (!input.payment.payerAccountId) throw new CollectionError('El cobro interno exige cuenta pagadora.', 400, 'payer_required');
+    const till = await database.prepare(
+      `SELECT id, cvu, status FROM collection_tills WHERE organization_id = ? AND id = ? LIMIT 1 FOR UPDATE`,
+    ).bind(input.organizationId, current.collectionTillId).first<{ id: string; cvu: string; status: string }>();
+    if (!till) throw new CollectionError('Punto de recaudación no encontrado.', 404, 'collection_till_not_found');
+    if (till.status !== 'active') throw new CollectionError('El punto de recaudación no está activo.', 409, 'collection_till_disabled');
+    const amountMinor = BigInt(current.amountMinor);
+    const collectedMinor = BigInt(current.collectedMinor ?? '0');
+    const remainingMinor = collectedMinor >= amountMinor ? 0n : amountMinor - collectedMinor;
+    if (remainingMinor <= 0n) throw new CollectionError('El link ya fue cobrado.', 409, 'payment_link_already_paid');
+    const creditAmount = input.payment.amountMinor ?? remainingMinor;
+    if (creditAmount <= 0n) throw new CollectionError('El importe del crédito debe ser positivo.', 400, 'invalid_credit_amount');
+    let transactionId: string;
+    let movementStatus: 'pending' | 'paid';
+    if (input.payment.payerAccountId) {
       if (input.payment.payerAccountId === merchant.id) {
         throw new CollectionError('La cuenta pagadora debe ser distinta a la del comercio.', 422, 'same_account');
       }
       const payer = await loadAccount(database, input.organizationId, input.payment.payerAccountId, true);
       assertCollector(payer);
-      let debt: Awaited<ReturnType<typeof loadOpenQrDebt>> | null = null;
-      if (input.payment.method === 'cimbra_qr') {
-        if (!current.qrDebtId) throw new CollectionError('Este link no está asociado a una deuda QR.', 422, 'qr_debt_required');
-        debt = await loadOpenQrDebt(database, input.organizationId, current.qrDebtId);
-        if (debt.accountId !== merchant.id) {
-          throw new CollectionError('La deuda QR pertenece a otra cuenta.', 422, 'qr_debt_account_mismatch');
-        }
-        if (BigInt(debt.amountMinor) !== BigInt(current.amountMinor)) {
-          throw new CollectionError('El monto del link no coincide con la deuda QR.', 422, 'qr_debt_amount_mismatch');
-        }
-      }
       const movement = await postInternalCollection(database, {
         organizationId: input.organizationId, actor: input.actor, operationKey: `collection-pay:${input.idempotencyKey}`,
-        source: payer, destination: merchant, amountMinor: BigInt(current.amountMinor), description: current.description,
+        source: payer, destination: merchant, amountMinor: creditAmount, description: current.description,
         counterparty: `link:${current.payload}`, signals: input.signals,
       });
       if ('declined' in movement) return { declined: movement.declined, replayed: movement.replayed };
-      const transferId = crypto.randomUUID();
-      if (input.payment.method === 'cimbra_qr' && debt) {
-        await insertLinkInstantTransfer(database, {
-          id: transferId, organizationId: input.organizationId, idempotencyKey: `link-qr:${input.idempotencyKey}`,
-          fingerprint, scheme: 'qr_collect', direction: 'internal', sourceAccountId: payer.id, destinationAccountId: merchant.id,
-          counterpartyKind: 'alias', counterpartyValue: debt.payload.replace(/[^A-Z0-9]/gi, '').slice(0, 20).padEnd(6, 'X'),
-          holderName: merchant.customerName, taxIdLast4: merchant.taxIdLast4, amountMinor: BigInt(current.amountMinor),
-          description: current.description, externalReference: `link-qr:${current.id}`,
-          status: movement.status === 'pending' ? 'pending' : 'settled', transactionId: movement.transactionId,
-          qrPayload: debt.payload, collectionTillId: null, actorId: input.actor.userId, createdAt: now,
-        });
-        if (movement.status === 'paid') {
-          await database.prepare("UPDATE payment_qrs SET status = 'paid', paid_transfer_id = ?, updated_at = ? WHERE id = ?")
-            .bind(transferId, now, debt.paymentQrId).run();
-          await database.prepare("UPDATE qr_debts SET status = 'paid', paid_transfer_id = ?, updated_at = ? WHERE id = ?")
-            .bind(transferId, now, debt.id).run();
-          await insertAudit(database, {
-            organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.debt_paid',
-            resourceType: 'qr_debt', resourceId: debt.id,
-            payload: { transferId, paymentQrId: debt.paymentQrId, amountMinor: current.amountMinor, paymentLinkId: current.id },
-          });
-        }
+      transactionId = movement.transactionId;
+      movementStatus = movement.status === 'pending' ? 'pending' : 'paid';
+    } else {
+      let payment;
+      try {
+        payment = await createAccountPaymentInTransaction({
+          organizationId: input.organizationId, actor: input.actor, idempotencyKey: `collection-in-${input.idempotencyKey}`,
+          accountId: merchant.id, direction: 'cash_in', counterparty: `till:${railLast4(till.cvu)}`,
+          description: current.description, amountMinor: creditAmount, currency: 'ARS', signals: input.signals,
+        }, database);
+      } catch (error) {
+        if (error instanceof LedgerError) throw new CollectionError(error.message, error.status, error.code);
+        throw error;
       }
-      const collected = movement.status === 'paid' ? current.amountMinor : '0';
-      await database.prepare(`UPDATE payment_links SET status = ?, paid_method = ?, payer_account_id = ?,
-        transaction_id = ?, pay_idempotency_key = ?, pay_fingerprint = ?, collected_minor = ?, updated_at = ? WHERE id = ?`)
-        .bind(movement.status, input.payment.method, payer.id, movement.transactionId, input.idempotencyKey, fingerprint, collected, now, current.id).run();
-      await insertAudit(database, {
-        organizationId: input.organizationId, actorId: input.actor.userId, action: 'collection.link_paid',
-        resourceType: 'payment_link', resourceId: current.id,
-        payload: { method: input.payment.method, status: movement.status, transactionId: movement.transactionId },
-      });
-      return { link: await presentLink((await retrieveLinkRow(input.organizationId, current.id, database))!, database), replayed: false };
+      if ('declined' in payment) return { declined: payment.declined, replayed: payment.replayed };
+      transactionId = payment.payment.id;
+      movementStatus = payment.payment.status === 'review' ? 'pending' : 'paid';
     }
-    if (input.payment.method === 'cimbra_cvu') {
-      if (!current.collectionTillId) {
-        throw new CollectionError('Este link no está asociado a un punto de recaudación.', 422, 'collection_till_required');
-      }
-      const till = await database.prepare(
-        `SELECT id, cvu, status FROM collection_tills WHERE organization_id = ? AND id = ? LIMIT 1 FOR UPDATE`,
-      ).bind(input.organizationId, current.collectionTillId).first<{ id: string; cvu: string; status: string }>();
-      if (!till) throw new CollectionError('Punto de recaudación no encontrado.', 404, 'collection_till_not_found');
-      if (till.status !== 'active') throw new CollectionError('El punto de recaudación no está activo.', 409, 'collection_till_disabled');
-      const amountMinor = BigInt(current.amountMinor);
-      const collectedMinor = BigInt(current.collectedMinor ?? '0');
-      const remainingMinor = collectedMinor >= amountMinor ? 0n : amountMinor - collectedMinor;
-      if (remainingMinor <= 0n) throw new CollectionError('El link ya fue cobrado.', 409, 'payment_link_already_paid');
-      const creditAmount = input.payment.amountMinor ?? remainingMinor;
-      if (creditAmount <= 0n) throw new CollectionError('El importe del crédito debe ser positivo.', 400, 'invalid_credit_amount');
-      let transactionId: string;
-      let movementStatus: 'pending' | 'paid';
-      if (input.payment.payerAccountId) {
-        if (input.payment.payerAccountId === merchant.id) {
-          throw new CollectionError('La cuenta pagadora debe ser distinta a la del comercio.', 422, 'same_account');
-        }
-        const payer = await loadAccount(database, input.organizationId, input.payment.payerAccountId, true);
-        assertCollector(payer);
-        const movement = await postInternalCollection(database, {
-          organizationId: input.organizationId, actor: input.actor, operationKey: `collection-pay:${input.idempotencyKey}`,
-          source: payer, destination: merchant, amountMinor: creditAmount, description: current.description,
-          counterparty: `link:${current.payload}`, signals: input.signals,
-        });
-        if ('declined' in movement) return { declined: movement.declined, replayed: movement.replayed };
-        transactionId = movement.transactionId;
-        movementStatus = movement.status === 'pending' ? 'pending' : 'paid';
-      } else {
-        let payment;
-        try {
-          payment = await createAccountPaymentInTransaction({
-            organizationId: input.organizationId, actor: input.actor, idempotencyKey: `collection-in-${input.idempotencyKey}`,
-            accountId: merchant.id, direction: 'cash_in', counterparty: `till:${railLast4(till.cvu)}`,
-            description: current.description, amountMinor: creditAmount, currency: 'ARS', signals: input.signals,
-          }, database);
-        } catch (error) {
-          if (error instanceof LedgerError) throw new CollectionError(error.message, error.status, error.code);
-          throw error;
-        }
-        if ('declined' in payment) return { declined: payment.declined, replayed: payment.replayed };
-        transactionId = payment.payment.id;
-        movementStatus = payment.payment.status === 'review' ? 'pending' : 'paid';
-      }
-      const transferId = crypto.randomUUID();
-      const creditId = crypto.randomUUID();
-      await insertLinkInstantTransfer(database, {
-        id: transferId, organizationId: input.organizationId, idempotencyKey: `link-cvu:${input.idempotencyKey}`,
-        fingerprint, scheme: 'credit_push', direction: input.payment.payerAccountId ? 'internal' : 'inbound',
-        sourceAccountId: input.payment.payerAccountId, destinationAccountId: merchant.id,
-        counterpartyKind: 'cvu', counterpartyValue: till.cvu, holderName: merchant.customerName, taxIdLast4: merchant.taxIdLast4,
-        amountMinor: creditAmount, description: current.description, externalReference: `link-cvu:${current.id}:${input.idempotencyKey}`,
-        status: movementStatus === 'pending' ? 'pending' : 'settled', transactionId,
-        qrPayload: null, collectionTillId: till.id, actorId: input.actor.userId, createdAt: now,
-      });
-      await database.prepare(`INSERT INTO payment_link_credits
-        (id, organization_id, payment_link_id, idempotency_key, request_fingerprint, amount_minor, method,
-         payer_account_id, transaction_id, instant_transfer_id, created_by, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, 'cimbra_cvu', ?, ?, ?, ?, ?)`)
-        .bind(creditId, input.organizationId, current.id, input.idempotencyKey, fingerprint, creditAmount.toString(),
-          input.payment.payerAccountId, transactionId, transferId, input.actor.userId, now).run();
-      const settledCollected = movementStatus === 'paid' ? collectedMinor + creditAmount : collectedMinor;
-      const completes = movementStatus === 'paid' && settledCollected >= amountMinor;
-      const linkStatus = movementStatus === 'pending' && collectedMinor + creditAmount >= amountMinor ? 'pending'
-        : completes ? 'paid' : 'open';
-      if (completes) {
-        await database.prepare(`UPDATE payment_links SET status = 'paid', paid_method = 'cimbra_cvu',
-          payer_account_id = COALESCE(?, payer_account_id), transaction_id = ?, collected_minor = ?, updated_at = ? WHERE id = ?`)
-          .bind(input.payment.payerAccountId, transactionId, settledCollected.toString(), now, current.id).run();
-      } else {
-        await database.prepare(`UPDATE payment_links SET status = ?, collected_minor = ?, updated_at = ? WHERE id = ?`)
-          .bind(linkStatus, settledCollected.toString(), now, current.id).run();
-      }
-      await insertAudit(database, {
-        organizationId: input.organizationId, actorId: input.actor.userId, action: 'collection.till_credited',
-        resourceType: 'collection_till', resourceId: till.id,
-        payload: { transferId, amountMinor: creditAmount.toString(), direction: input.payment.payerAccountId ? 'internal' : 'inbound', paymentLinkId: current.id },
-      });
-      await insertAudit(database, {
-        organizationId: input.organizationId, actorId: input.actor.userId,
-        action: completes ? 'collection.link_paid' : 'collection.link_credited',
-        resourceType: 'payment_link', resourceId: current.id,
-        payload: { method: 'cimbra_cvu', status: linkStatus, transactionId, creditId, amountMinor: creditAmount.toString(), collectedMinor: settledCollected.toString() },
-      });
-      return { link: await presentLink((await retrieveLinkRow(input.organizationId, current.id, database))!, database), replayed: false };
+    const transferId = crypto.randomUUID();
+    const creditId = crypto.randomUUID();
+    await insertLinkInstantTransfer(database, {
+      id: transferId, organizationId: input.organizationId, idempotencyKey: `link-cvu:${input.idempotencyKey}`,
+      fingerprint, scheme: 'credit_push', direction: input.payment.payerAccountId ? 'internal' : 'inbound',
+      sourceAccountId: input.payment.payerAccountId, destinationAccountId: merchant.id,
+      counterpartyKind: 'cvu', counterpartyValue: till.cvu, holderName: merchant.customerName, taxIdLast4: merchant.taxIdLast4,
+      amountMinor: creditAmount, description: current.description, externalReference: `link-cvu:${current.id}:${input.idempotencyKey}`,
+      status: movementStatus === 'pending' ? 'pending' : 'settled', transactionId,
+      qrPayload: null, collectionTillId: till.id, actorId: input.actor.userId, createdAt: now,
+    });
+    await database.prepare(`INSERT INTO payment_link_credits
+      (id, organization_id, payment_link_id, idempotency_key, request_fingerprint, amount_minor, method,
+       payer_account_id, transaction_id, instant_transfer_id, created_by, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'cimbra_cvu', ?, ?, ?, ?, ?)`)
+      .bind(creditId, input.organizationId, current.id, input.idempotencyKey, fingerprint, creditAmount.toString(),
+        input.payment.payerAccountId, transactionId, transferId, input.actor.userId, now).run();
+    const settledCollected = movementStatus === 'paid' ? collectedMinor + creditAmount : collectedMinor;
+    const completes = movementStatus === 'paid' && settledCollected >= amountMinor;
+    const linkStatus = movementStatus === 'pending' && collectedMinor + creditAmount >= amountMinor ? 'pending'
+      : completes ? 'paid' : 'open';
+    if (completes) {
+      await database.prepare(`UPDATE payment_links SET status = 'paid', paid_method = 'cimbra_cvu',
+        payer_account_id = COALESCE(?, payer_account_id), transaction_id = ?, collected_minor = ?, updated_at = ? WHERE id = ?`)
+        .bind(input.payment.payerAccountId, transactionId, settledCollected.toString(), now, current.id).run();
+    } else {
+      await database.prepare(`UPDATE payment_links SET status = ?, collected_minor = ?, updated_at = ? WHERE id = ?`)
+        .bind(linkStatus, settledCollected.toString(), now, current.id).run();
     }
-    let payment;
-    try {
-      payment = await createAccountPaymentInTransaction({
-        organizationId: input.organizationId, actor: input.actor, idempotencyKey: `collection-in-${input.idempotencyKey}`,
-        accountId: merchant.id, direction: 'cash_in', counterparty: `link:${current.payload}`,
-        description: current.description, amountMinor: BigInt(current.amountMinor), currency: 'ARS', signals: input.signals,
-      }, database);
-    } catch (error) {
-      if (error instanceof LedgerError) throw new CollectionError(error.message, error.status, error.code);
-      throw error;
-    }
-    if ('declined' in payment) return { declined: payment.declined, replayed: payment.replayed };
-    const status = payment.payment.status === 'review' ? 'pending' : 'paid';
-    await database.prepare(`UPDATE payment_links SET status = ?, paid_method = 'sandbox_inbound',
-      transaction_id = ?, pay_idempotency_key = ?, pay_fingerprint = ?, collected_minor = ?, updated_at = ? WHERE id = ?`)
-      .bind(status, payment.payment.id, input.idempotencyKey, fingerprint, status === 'paid' ? current.amountMinor : '0', now, current.id).run();
     await insertAudit(database, {
-      organizationId: input.organizationId, actorId: input.actor.userId, action: 'collection.link_paid',
+      organizationId: input.organizationId, actorId: input.actor.userId, action: 'collection.till_credited',
+      resourceType: 'collection_till', resourceId: till.id,
+      payload: { transferId, amountMinor: creditAmount.toString(), direction: input.payment.payerAccountId ? 'internal' : 'inbound', paymentLinkId: current.id, ...approvalAudit },
+    });
+    await insertAudit(database, {
+      organizationId: input.organizationId, actorId: input.actor.userId,
+      action: completes ? 'collection.link_paid' : 'collection.link_credited',
       resourceType: 'payment_link', resourceId: current.id,
-      payload: { method: 'sandbox_inbound', status, transactionId: payment.payment.id },
+      payload: { method: 'cimbra_cvu', status: linkStatus, transactionId, creditId, amountMinor: creditAmount.toString(), collectedMinor: settledCollected.toString(), ...approvalAudit },
     });
     return { link: await presentLink((await retrieveLinkRow(input.organizationId, current.id, database))!, database), replayed: false };
+  }
+  let payment;
+  try {
+    payment = await createAccountPaymentInTransaction({
+      organizationId: input.organizationId, actor: input.actor, idempotencyKey: `collection-in-${input.idempotencyKey}`,
+      accountId: merchant.id, direction: 'cash_in', counterparty: `link:${current.payload}`,
+      description: current.description, amountMinor: BigInt(current.amountMinor), currency: 'ARS', signals: input.signals,
+    }, database);
+  } catch (error) {
+    if (error instanceof LedgerError) throw new CollectionError(error.message, error.status, error.code);
+    throw error;
+  }
+  if ('declined' in payment) return { declined: payment.declined, replayed: payment.replayed };
+  const status = payment.payment.status === 'review' ? 'pending' : 'paid';
+  await database.prepare(`UPDATE payment_links SET status = ?, paid_method = 'sandbox_inbound',
+    transaction_id = ?, pay_idempotency_key = ?, pay_fingerprint = ?, collected_minor = ?, updated_at = ? WHERE id = ?`)
+    .bind(status, payment.payment.id, input.idempotencyKey, fingerprint, status === 'paid' ? current.amountMinor : '0', now, current.id).run();
+  await insertAudit(database, {
+    organizationId: input.organizationId, actorId: input.actor.userId, action: 'collection.link_paid',
+    resourceType: 'payment_link', resourceId: current.id,
+    payload: { method: 'sandbox_inbound', status, transactionId: payment.payment.id, ...approvalAudit },
   });
+  return { link: await presentLink((await retrieveLinkRow(input.organizationId, current.id, database))!, database), replayed: false };
 }
 
 export async function refundPaymentLink(input: {

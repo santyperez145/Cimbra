@@ -18,14 +18,14 @@ import { bookTransferFingerprint, BookTransferError, createBookTransferInTransac
   retrieveBookTransfer, reverseBookTransferInTransaction, type BookTransferInput } from './book-transfers';
 import { BillerError, createBillPaymentOrderInTransaction, createRecurringMandateInTransaction, reverseBillPaymentOrderInTransaction, updateRecurringMandateStatusInTransaction } from './billers';
 import type { RecurringFrequency } from '@/app/lib/platform/billers-input';
-import { CollectionError, refundPaymentLinkInTransaction } from './collections';
+import { CollectionError, payPaymentLinkInTransaction, refundPaymentLinkInTransaction } from './collections';
 import { InstantPaymentError, createInstantTransferInTransaction, payPaymentQrInTransaction, respondDebitRequestInTransaction, returnInstantTransferInTransaction } from './instant-payments';
 import { depositEcheqInTransaction, EcheqError } from './echeqs';
 import type { NormalizedInstantTransferInput, NormalizedDebitResponse, NormalizedQrPayInput } from '@/app/lib/platform/instant-payments-input';
 import type { NormalizedEcheqDepositInput } from '@/app/lib/platform/echeqs-input';
 import type { ProtectedRiskSignals } from '@/app/lib/platform/risk-signals';
 import { assertSandboxLedgerOrCertifiedRail } from './platform-rails';
-import type { NormalizedPaymentLinkRefundInput } from '@/app/lib/platform/collections-input';
+import type { NormalizedPaymentLinkPayInput, NormalizedPaymentLinkRefundInput } from '@/app/lib/platform/collections-input';
 
 export class ApprovalError extends Error {
   constructor(message: string, readonly status = 400, readonly code = 'approval_error') { super(message); }
@@ -128,7 +128,7 @@ export async function getApprovalPolicies(organizationId: string) {
        WHERE m.organization_id = ? AND m.role IN ('owner', 'admin') AND u.mfa_enabled = 1`,
     ).bind(organizationId).first<{ count: number }>(),
   ]);
-  return (['settlement.execute', 'transfer.create', 'transfer.reverse', 'payment.create', 'payment.reverse', 'bill_payment.create', 'bill_payment.reverse', 'instant_transfer.create', 'instant_transfer.return', 'collection.refund', 'recurring_mandate.create', 'recurring_mandate.resume', 'debit_request.accept', 'payment_qr.pay', 'echeq.deposit', 'payout_batch.execute', 'risk.case.resolve', 'reconciliation.exception.resolve', 'dispute.resolve'] as const).map((actionType) => {
+  return (['settlement.execute', 'transfer.create', 'transfer.reverse', 'payment.create', 'payment.reverse', 'bill_payment.create', 'bill_payment.reverse', 'instant_transfer.create', 'instant_transfer.return', 'collection.pay', 'collection.refund', 'recurring_mandate.create', 'recurring_mandate.resume', 'debit_request.accept', 'payment_qr.pay', 'echeq.deposit', 'payout_batch.execute', 'risk.case.resolve', 'reconciliation.exception.resolve', 'dispute.resolve'] as const).map((actionType) => {
     const policy = policies.results.find((item) => item.actionType === actionType);
     return { id: policy?.id ?? null, actionType, enabled: policy?.enabled === 1,
       expiresInMinutes: policy?.expiresInMinutes ?? 1440, eligibleApprovers: approvers?.count ?? 0,
@@ -1035,6 +1035,94 @@ export async function returnInstantTransferWithApprovalPolicy(input: {
   });
 }
 
+export async function payPaymentLinkWithApprovalPolicy(input: {
+  organizationId: string; actor: AuthUser; linkId: string; idempotencyKey: string;
+  payment: NormalizedPaymentLinkPayInput; signals?: ProtectedRiskSignals;
+  authentication: 'session' | 'api_key'; apiKeyId: string | null;
+}) {
+  const fingerprint = await sha256(JSON.stringify({
+    actionType: 'collection.pay', linkId: input.linkId, method: input.payment.method,
+    payerAccountId: input.payment.payerAccountId, amountMinor: input.payment.amountMinor?.toString() ?? null,
+    signals: input.signals ?? {},
+  }));
+  return getDatabaseClient().transaction(async (database) => {
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:payment-link-pay:${input.linkId}`).first();
+    if (input.payment.method === 'cimbra_cvu') {
+      const existingCredit = await database.prepare(
+        `SELECT payment_link_id AS id FROM payment_link_credits WHERE organization_id = ? AND idempotency_key = ? LIMIT 1`,
+      ).bind(input.organizationId, input.idempotencyKey).first<{ id: string }>();
+      if (existingCredit) {
+        const result = await payPaymentLinkInTransaction(input, database);
+        return { requiresApproval: false as const, ...result };
+      }
+    } else {
+      const existingPay = await database.prepare(
+        `SELECT id FROM payment_links WHERE organization_id = ? AND pay_idempotency_key = ? LIMIT 1`,
+      ).bind(input.organizationId, input.idempotencyKey).first<{ id: string }>();
+      if (existingPay) {
+        const result = await payPaymentLinkInTransaction(input, database);
+        return { requiresApproval: false as const, ...result };
+      }
+    }
+    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:approval:${input.idempotencyKey}`).first();
+    const existingApproval = await database.prepare(
+      `${approvalSelect} WHERE ar.organization_id = ? AND ar.idempotency_key = ? LIMIT 1`,
+    ).bind(input.organizationId, input.idempotencyKey).first<ApprovalRow>();
+    if (existingApproval) {
+      if (existingApproval.requestFingerprint !== fingerprint || existingApproval.resourceType !== 'payment_link' ||
+        existingApproval.actionType !== 'collection.pay') {
+        throw new ApprovalError('La Idempotency-Key ya fue usada para otra operación.', 409, 'idempotency_mismatch');
+      }
+      return { requiresApproval: true as const, approval: serializeApproval(existingApproval), replayed: true, deduplicated: false };
+    }
+    await database.prepare('SELECT pg_advisory_xact_lock_shared(hashtextextended(?, 0::bigint))')
+      .bind(`${input.organizationId}:approval-policy:collection.pay`).first();
+    const policy = await database.prepare(
+      `SELECT expires_in_minutes AS "expiresInMinutes" FROM approval_policies
+       WHERE organization_id = ? AND action_type = 'collection.pay' AND enabled = 1 LIMIT 1`,
+    ).bind(input.organizationId).first<{ expiresInMinutes: number }>();
+    if (!policy) {
+      const result = await payPaymentLinkInTransaction(input, database);
+      return { requiresApproval: false as const, ...result };
+    }
+    const link = await database.prepare(
+      `SELECT id, status, amount_minor::text AS "amountMinor", collected_minor::text AS "collectedMinor",
+        currency, description, external_reference AS "externalReference", allowed_methods AS "allowedMethods"
+       FROM payment_links WHERE organization_id = ? AND id = ? FOR UPDATE`,
+    ).bind(input.organizationId, input.linkId).first<{
+      id: string; status: string; amountMinor: string; collectedMinor: string | null; currency: Currency;
+      description: string; externalReference: string; allowedMethods: string;
+    }>();
+    if (!link) throw new ApprovalError('Link de cobro no encontrado.', 404, 'payment_link_not_found');
+    if (link.status !== 'open') throw new ApprovalError('El link no está disponible para cobro.', 409, 'payment_link_not_open');
+    const id = crypto.randomUUID(); const now = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + policy.expiresInMinutes * 60_000).toISOString();
+    const payload = {
+      linkId: link.id, method: input.payment.method, payerAccountId: input.payment.payerAccountId,
+      amountMinor: input.payment.amountMinor?.toString() ?? null,
+      linkAmountMinor: link.amountMinor, collectedMinor: link.collectedMinor, currency: link.currency,
+      description: link.description, externalReference: link.externalReference,
+      signals: input.signals ?? {}, origin: input.authentication, apiKeyId: input.apiKeyId, sandbox: true,
+    };
+    await database.prepare(
+      `INSERT INTO approval_requests
+        (id, organization_id, action_type, resource_type, resource_id, idempotency_key, request_fingerprint, status,
+         request_payload, requested_by, expires_at, created_at, updated_at)
+       VALUES (?, ?, 'collection.pay', 'payment_link', ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
+    ).bind(id, input.organizationId, link.id, input.idempotencyKey, fingerprint, JSON.stringify(payload), input.actor.userId,
+      expiresAt, now, now).run();
+    await audit(database, { organizationId: input.organizationId, actorId: input.actor.userId, action: 'approval.request_created',
+      resourceType: 'approval_request', resourceId: id, payload: { actionType: 'collection.pay', resourceType: 'payment_link',
+        resourceId: link.id, expiresAt, method: payload.method, amountMinor: payload.linkAmountMinor,
+        currency: payload.currency, description: payload.description, origin: payload.origin, sandbox: true } });
+    const approval = await approvalById(database, input.organizationId, id);
+    if (!approval) throw new ApprovalError('No pudimos recuperar la solicitud.', 500, 'approval_create_failed');
+    return { requiresApproval: true as const, approval, replayed: false, deduplicated: false };
+  });
+}
+
 export async function refundPaymentLinkWithApprovalPolicy(input: {
   organizationId: string; actor: AuthUser; linkId: string; idempotencyKey: string;
   refund?: NormalizedPaymentLinkRefundInput;
@@ -1694,6 +1782,28 @@ function echeqDepositPayload(row: ApprovalRow): {
   } catch { return null; }
 }
 
+function collectionPayPayload(row: ApprovalRow): {
+  payment: NormalizedPaymentLinkPayInput; signals: ProtectedRiskSignals | undefined;
+} | null {
+  try {
+    const payload = JSON.parse(row.requestPayload) as Record<string, unknown>;
+    const method = payload.method;
+    if (method !== 'internal' && method !== 'sandbox_inbound' && method !== 'cimbra_qr' && method !== 'cimbra_cvu') return null;
+    const payerAccountId = payload.payerAccountId === null || payload.payerAccountId === undefined
+      ? null : typeof payload.payerAccountId === 'string' ? payload.payerAccountId : null;
+    if (payerAccountId === null && payload.payerAccountId !== null && payload.payerAccountId !== undefined) return null;
+    let amountMinor: bigint | null = null;
+    if (payload.amountMinor !== undefined && payload.amountMinor !== null && payload.amountMinor !== '') {
+      if (typeof payload.amountMinor !== 'string') return null;
+      amountMinor = BigInt(payload.amountMinor);
+      if (amountMinor <= 0n) return null;
+    }
+    const signals = parseProtectedRiskSignals(payload.signals);
+    if (!signals) return null;
+    return { payment: { method, payerAccountId, amountMinor }, signals };
+  } catch { return null; }
+}
+
 function disputeResolutionPayload(row: ApprovalRow): { event: DisputeEvent; note: string } | null {
   try {
     const payload = JSON.parse(row.requestPayload) as Record<string, unknown>;
@@ -2074,6 +2184,25 @@ export async function decideApprovalRequest(input: {
           executedReversal = execution.reversal;
         } catch (error) {
           if (error instanceof InstantPaymentError && error.status < 500) {
+            failure = { message: error.message, code: error.code, status: error.status };
+          } else if (error instanceof LedgerError && error.status < 500) {
+            failure = { message: error.message, code: error.code, status: error.status };
+          } else throw error;
+        }
+      } else if (row.actionType === 'collection.pay') {
+        const payload = collectionPayPayload(row);
+        if (!payload) throw new ApprovalError('El payload protegido del cobro es inválido.', 500, 'approval_payload_invalid');
+        try {
+          const execution = await payPaymentLinkInTransaction({
+            organizationId: input.organizationId, actor: input.actor, linkId: row.resourceId,
+            idempotencyKey: `approval:${row.id}`, payment: payload.payment, signals: payload.signals,
+            approvalContext: { requestId: row.id, requestedBy: row.requestedBy },
+          }, database);
+          if ('declined' in execution) {
+            failure = { message: 'La política de riesgo rechazó el cobro aprobado.', code: 'risk_declined', status: 422 };
+          } else executedPaymentLink = execution.link;
+        } catch (error) {
+          if (error instanceof CollectionError && error.status < 500) {
             failure = { message: error.message, code: error.code, status: error.status };
           } else if (error instanceof LedgerError && error.status < 500) {
             failure = { message: error.message, code: error.code, status: error.status };

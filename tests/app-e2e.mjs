@@ -2527,6 +2527,38 @@ try {
     body: JSON.stringify({ actionType: 'instant_transfer.return', enabled: false, expiresInMinutes: 1440 }),
   }), 200);
 
+  const collectionPayPolicy = await json(await request('/api/platform/approval-policy', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actionType: 'collection.pay', enabled: true, expiresInMinutes: 1440 }),
+  }), 200);
+  assert.equal(collectionPayPolicy.policy.actionType, 'collection.pay');
+  const protectedPayLink = await json(await request('/api/v1/payment-links', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-link-pay-mc-${runId}` },
+    body: JSON.stringify({
+      accountId: destinationAccount.id, externalReference: `FAC-PAY-MC-${runId}`, description: 'MC pay QA',
+      amount: '4.10', currency: 'ARS', methods: ['internal'],
+    }),
+  }), 201);
+  const protectedLinkPay = await json(await request(`/api/v1/payment-links/${protectedPayLink.link.id}/pay`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-protected-link-pay-${runId}` },
+    body: JSON.stringify({ method: 'internal', payerAccountId: account.id }),
+  }), 202);
+  assert.equal(protectedLinkPay.requiresApproval, true);
+  assert.equal(protectedLinkPay.approval.actionType, 'collection.pay');
+  assert.equal(protectedLinkPay.approval.resourceType, 'payment_link');
+  cookie = checkerCookie;
+  const protectedLinkPayExecution = await json(await request(`/api/v1/approvals/${protectedLinkPay.approval.id}/approve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-link-pay-checker-${runId}` },
+    body: JSON.stringify({ reason: 'Independent collection pay checker' }),
+  }), 200);
+  assert.equal(protectedLinkPayExecution.approval.status, 'executed');
+  assert.equal(protectedLinkPayExecution.link.status, 'paid');
+  cookie = ownerCookieAfterRequest;
+  await json(await request('/api/platform/approval-policy', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actionType: 'collection.pay', enabled: false, expiresInMinutes: 1440 }),
+  }), 200);
+
   const collectionRefundPolicy = await json(await request('/api/platform/approval-policy', {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ actionType: 'collection.refund', enabled: true, expiresInMinutes: 1440 }),

@@ -2494,7 +2494,7 @@
               }
             ],
             "url": "{{baseUrl}}/api/v1/payment-links/:id/pay",
-            "description": "internal debits another Cimbra account in the tenant. sandbox_inbound posts a cash-in against settlement. cimbra_qr pays the associated closed QR debt. cimbra_cvu credits the associated till CVU. amount is accepted only for cimbra_cvu; omit it to credit the remaining balance. Partial credits, several credits and overpayment are allowed until collectedMinor >= amountMinor. Card acquiring is not supported.\n\noperationId: payPaymentLink\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "description": "internal debits another Cimbra account in the tenant. sandbox_inbound posts a cash-in against settlement. cimbra_qr pays the associated closed QR debt. cimbra_cvu credits the associated till CVU. amount is accepted only for cimbra_cvu; omit it to credit the remaining balance. Partial credits, several credits and overpayment are allowed until collectedMinor >= amountMinor. When collection.pay maker/checker is enabled, returns 202 with a pending approval instead of settling immediately. Card acquiring is not supported.\n\noperationId: payPaymentLink\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \n}\n",

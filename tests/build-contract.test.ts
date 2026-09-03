@@ -305,6 +305,22 @@ test('echeq deposit usa maker/checker opt-in echeq.deposit', () => {
   assert.match(migration, /echeq\.deposit/);
 });
 
+test('collection pay usa maker/checker opt-in collection.pay', () => {
+  const approvals = readFileSync(join(root, 'db', 'approvals.ts'), 'utf8');
+  const payRoute = readFileSync(join(root, 'app', 'api', 'v1', 'payment-links', '[id]', 'pay', 'route.ts'), 'utf8');
+  const panel = readFileSync(join(root, 'app', 'console', 'approvals-panel.tsx'), 'utf8');
+  const collectionsPanel = readFileSync(join(root, 'app', 'console', 'collections-panel.tsx'), 'utf8');
+  const help = readFileSync(join(root, 'app', 'lib', 'platform', 'help-center.ts'), 'utf8');
+  const migration = readFileSync(join(root, 'drizzle-postgres', '0059_collection_pay_approval.sql'), 'utf8');
+  assert.match(approvals, /payPaymentLinkWithApprovalPolicy/);
+  assert.match(approvals, /collection\.pay/);
+  assert.match(payRoute, /payPaymentLinkWithApprovalPolicy/);
+  assert.match(panel, /collection\.pay/);
+  assert.match(collectionsPanel, /collection\.pay/);
+  assert.match(help, /collection\.pay/);
+  assert.match(migration, /collection\.pay/);
+});
+
 test('help-center documenta Compliance, Aprobaciones y Disputas con límites honestos', () => {
   const help = readFileSync(join(root, 'app', 'lib', 'platform', 'help-center.ts'), 'utf8');
   assert.match(help, /id: 'compliance-kyc'/);

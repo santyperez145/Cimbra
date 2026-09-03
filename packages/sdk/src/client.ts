@@ -9,7 +9,7 @@ import type {
   CreateBookTransferInput, CreateRecurringPaymentMandateInput, CreateSettlementCycleInput, CreateTransferInput, CreateWebhookInput,
   CreatePayoutBatchInput, CreatePayoutBeneficiaryInput, CreateWalletInput, CreateWalletPocketTransferInput, CreateWalletProgramInput,
   AssignRailAliasInput, CreateDebitRequestInput, CreateInstantTransferInput, CreatePaymentQrInput, CreateQrDebtInput, CreateQrSaleOrderInput, IssueRailInstrumentInput, PayPaymentQrInput,
-  CreatePaymentLinkInput, PayPaymentLinkInput, RefundPaymentLinkInput, InstantTransferCreationResult, InstantTransferReturnResult, DebitRequestRespondResult, PaymentQrPayResult, PaymentLinkRefundResult, PaymentLink, CollectionTill, CreateCollectionTillInput, CreditCollectionTillInput,
+  CreatePaymentLinkInput, PayPaymentLinkInput, RefundPaymentLinkInput, InstantTransferCreationResult, InstantTransferReturnResult, DebitRequestRespondResult, PaymentQrPayResult, PaymentLinkPayResult, PaymentLinkRefundResult, PaymentLink, CollectionTill, CreateCollectionTillInput, CreditCollectionTillInput,
   CreateEcheqInput, AcceptEcheqInput, EndorseEcheqInput, DepositEcheqInput, EcheqDepositResult, Echeq,
   InstantTransfer, PaymentQr, QrDebt, QrSaleOrder, RailDirectoryPreview, RailInstrument,
   PayoutBatch, PayoutBeneficiary,
@@ -385,7 +385,7 @@ export class Cimbra {
       this.post<{ ok: true; link: PaymentLink; replayed: boolean }>(
         `/api/v1/payment-links/${encodeURIComponent(id)}/cancel`, undefined, options, true),
     pay: (id: string, input: PayPaymentLinkInput, options?: RequestOptions) =>
-      this.post<{ ok: true; link: PaymentLink; replayed: boolean }>(
+      this.post<PaymentLinkPayResult>(
         `/api/v1/payment-links/${encodeURIComponent(id)}/pay`, input, options, true),
     refund: (id: string, input?: RefundPaymentLinkInput, options?: RequestOptions) =>
       this.post<PaymentLinkRefundResult>(

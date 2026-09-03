@@ -1229,7 +1229,7 @@ paths:
     post:
       operationId: payPaymentLink
       summary: Collect a sandbox payment link
-      description: internal debits another Cimbra account in the tenant. sandbox_inbound posts a cash-in against settlement. cimbra_qr pays the associated closed QR debt. cimbra_cvu credits the associated till CVU. amount is accepted only for cimbra_cvu; omit it to credit the remaining balance. Partial credits, several credits and overpayment are allowed until collectedMinor >= amountMinor. Card acquiring is not supported.
+      description: internal debits another Cimbra account in the tenant. sandbox_inbound posts a cash-in against settlement. cimbra_qr pays the associated closed QR debt. cimbra_cvu credits the associated till CVU. amount is accepted only for cimbra_cvu; omit it to credit the remaining balance. Partial credits, several credits and overpayment are allowed until collectedMinor >= amountMinor. When collection.pay maker/checker is enabled, returns 202 with a pending approval instead of settling immediately. Card acquiring is not supported.
       security: [{ session: [] }, { bearerApiKey: [] }]
       parameters:
         - $ref: '#/components/parameters/ResourceId'
@@ -1252,6 +1252,7 @@ paths:
                 signals: { $ref: '#/components/schemas/RiskSignalsInput' }
       responses:
         '201': { description: Payment link collected }
+        '202': { description: Collection pending maker/checker approval }
         '200': { description: Idempotent replay }
         '400': { description: Invalid payload }
         '403': { description: Missing payments:write scope or finance.write permission }
@@ -3169,7 +3170,7 @@ paths:
               type: object
               required: [enabled, expiresInMinutes]
               properties:
-                actionType: { type: string, enum: [settlement.execute, transfer.create, transfer.reverse, payment.create, payment.reverse, bill_payment.create, bill_payment.reverse, instant_transfer.create, instant_transfer.return, collection.refund, recurring_mandate.create, recurring_mandate.resume, debit_request.accept, payment_qr.pay, echeq.deposit, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve], default: settlement.execute }
+                actionType: { type: string, enum: [settlement.execute, transfer.create, transfer.reverse, payment.create, payment.reverse, bill_payment.create, bill_payment.reverse, instant_transfer.create, instant_transfer.return, collection.pay, collection.refund, recurring_mandate.create, recurring_mandate.resume, debit_request.accept, payment_qr.pay, echeq.deposit, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve], default: settlement.execute }
                 enabled: { type: boolean }
                 expiresInMinutes: { type: integer, minimum: 15, maximum: 10080 }
       responses:
@@ -4516,7 +4517,7 @@ components:
       required: [id, actionType, resourceType, resourceId, status, requestPayload, requestedBy, requestedByName, expiresAt, createdAt, updatedAt]
       properties:
         id: { type: string, format: uuid }
-        actionType: { type: string, enum: [settlement.execute, transfer.create, transfer.reverse, payment.create, payment.reverse, bill_payment.create, bill_payment.reverse, instant_transfer.create, instant_transfer.return, collection.refund, recurring_mandate.create, recurring_mandate.resume, debit_request.accept, payment_qr.pay, echeq.deposit, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve] }
+        actionType: { type: string, enum: [settlement.execute, transfer.create, transfer.reverse, payment.create, payment.reverse, bill_payment.create, bill_payment.reverse, instant_transfer.create, instant_transfer.return, collection.pay, collection.refund, recurring_mandate.create, recurring_mandate.resume, debit_request.accept, payment_qr.pay, echeq.deposit, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve] }
         resourceType: { type: string, enum: [settlement_cycle, transfer, book_transfer, payment, bill_payment, instant_transfer, payment_link, payment_qr, echeq, recurring_payment_mandate, payout_batch, risk_case, reconciliation_exception, dispute] }
         resourceId: { type: string, format: uuid }
         status: { type: string, enum: [pending, executed, rejected, cancelled, expired, failed] }

@@ -10,6 +10,7 @@ export const APPROVAL_ACTION_TYPES = [
   'bill_payment.reverse',
   'instant_transfer.return',
   'instant_transfer.create',
+  'collection.pay',
   'collection.refund',
   'recurring_mandate.create',
   'recurring_mandate.resume',

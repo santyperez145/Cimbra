@@ -5,7 +5,7 @@ import { roleCan, type OrganizationRole } from '@/app/lib/platform/access-policy
 import { authenticatedFetch } from '@/app/lib/platform/client-http';
 
 type Role = OrganizationRole;
-type ApprovalActionType = 'settlement.execute' | 'transfer.create' | 'transfer.reverse' | 'payment.create' | 'payment.reverse' | 'bill_payment.create' | 'bill_payment.reverse' | 'instant_transfer.create' | 'instant_transfer.return' | 'collection.refund' | 'recurring_mandate.create' | 'recurring_mandate.resume' | 'debit_request.accept' | 'payment_qr.pay' | 'echeq.deposit' | 'payout_batch.execute' | 'risk.case.resolve' | 'reconciliation.exception.resolve' | 'dispute.resolve';
+type ApprovalActionType = 'settlement.execute' | 'transfer.create' | 'transfer.reverse' | 'payment.create' | 'payment.reverse' | 'bill_payment.create' | 'bill_payment.reverse' | 'instant_transfer.create' | 'instant_transfer.return' | 'collection.pay' | 'collection.refund' | 'recurring_mandate.create' | 'recurring_mandate.resume' | 'debit_request.accept' | 'payment_qr.pay' | 'echeq.deposit' | 'payout_batch.execute' | 'risk.case.resolve' | 'reconciliation.exception.resolve' | 'dispute.resolve';
 type ApprovalStatus = 'pending' | 'executed' | 'rejected' | 'cancelled' | 'expired' | 'failed';
 type Approval = {
   id: string; actionType: ApprovalActionType;
@@ -19,7 +19,7 @@ type Approval = {
     scheme?: string; creditId?: string | null; collectedMinor?: string; frequency?: string; amountLimit?: string;
     nextChargeAt?: string; consentReference?: string; maxRetries?: number; mandateId?: string; subscriberReferenceLast4?: string;
     debitId?: string; qrId?: string; kind?: string; qrAmountMinor?: string | null; echeqId?: string; beneficiaryName?: string;
-    beneficiaryTaxLast4?: string; taxIdLast4?: string; paymentDate?: string };
+    beneficiaryTaxLast4?: string; taxIdLast4?: string; paymentDate?: string; method?: string; linkAmountMinor?: string | null };
   requestedBy: string; requestedByName: string; resolvedBy: string | null; resolvedByName: string | null;
   resolutionReason: string | null; expiresAt: string; resolvedAt: string | null; executedAt: string | null; createdAt: string;
 };
@@ -39,6 +39,7 @@ const policyLabels: Record<ApprovalActionType, { title: string; direct: string }
   'bill_payment.reverse': { title: 'Reversa de pagos de servicios', direct: 'Compensación directa en ledger' },
   'instant_transfer.return': { title: 'Devolución de transferencias instantáneas', direct: 'Compensación directa en ledger' },
   'instant_transfer.create': { title: 'Alta de transferencias instantáneas', direct: 'Ejecución directa en riel sandbox' },
+  'collection.pay': { title: 'Cobro de payment links', direct: 'Liquidación directa sandbox' },
   'collection.refund': { title: 'Devolución de cobranzas', direct: 'Compensación directa en ledger' },
   'recurring_mandate.create': { title: 'Alta de mandatos recurrentes', direct: 'Alta directa con consentimiento declarado' },
   'recurring_mandate.resume': { title: 'Reanudación de mandatos', direct: 'Reactivación directa de cargos programados' },
@@ -72,6 +73,9 @@ function approvalTitle(item: Approval) {
   }
   if (item.actionType === 'collection.refund') {
     return `Devolución cobro · ${item.requestPayload.externalReference ?? item.requestPayload.linkId ?? item.resourceId}`;
+  }
+  if (item.actionType === 'collection.pay') {
+    return `Cobro · ${item.requestPayload.externalReference ?? item.requestPayload.description ?? item.resourceId}`;
   }
   if (item.actionType === 'recurring_mandate.create') {
     return `Mandato · ${item.requestPayload.billerId ?? item.resourceId}`;
@@ -121,6 +125,9 @@ function approvalChannel(item: Approval) {
   if (item.actionType === 'collection.refund') {
     return `${item.requestPayload.description ?? 'Sin concepto'} · compensación cobro · ${item.requestPayload.origin === 'api_key' ? 'API key' : 'consola'}`;
   }
+  if (item.actionType === 'collection.pay') {
+    return `${item.requestPayload.method ?? 'medio'} · ${item.requestPayload.origin === 'api_key' ? 'API key' : 'consola'}`;
+  }
   if (item.actionType === 'recurring_mandate.create') {
     return `${item.requestPayload.frequency ?? 'cadencia'} · límite ${item.requestPayload.amountLimit ?? '—'} · próxima ${item.requestPayload.nextChargeAt ? new Date(item.requestPayload.nextChargeAt).toLocaleString('es-AR') : '—'} · ${item.requestPayload.origin === 'api_key' ? 'API key' : 'consola'}`;
   }
@@ -165,6 +172,7 @@ function approvalIcon(item: Approval) {
   if (item.actionType === 'recurring_mandate.create') return '↻';
   if (item.actionType === 'recurring_mandate.resume') return '▶';
   if (item.actionType === 'instant_transfer.create') return '↗';
+  if (item.actionType === 'collection.pay') return '↘';
   if (item.actionType === 'debit_request.accept') return '↓';
   if (item.actionType === 'payment_qr.pay') return '▣';
   if (item.actionType === 'echeq.deposit') return '◫';

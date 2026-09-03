@@ -239,7 +239,7 @@ export type SettlementCycle = {
   status: 'ready' | 'scheduled' | 'settled'; scheduledFor: string | null; settledAt: string | null; createdAt: string; updatedAt: string;
 };
 export type ApprovalRequest = {
-  id: string; actionType: 'settlement.execute' | 'transfer.create' | 'transfer.reverse' | 'payment.create' | 'payment.reverse' | 'bill_payment.create' | 'bill_payment.reverse' | 'instant_transfer.create' | 'instant_transfer.return' | 'collection.refund' | 'recurring_mandate.create' | 'recurring_mandate.resume' | 'debit_request.accept' | 'payment_qr.pay' | 'echeq.deposit' | 'payout_batch.execute' | 'risk.case.resolve' | 'reconciliation.exception.resolve' | 'dispute.resolve';
+  id: string; actionType: 'settlement.execute' | 'transfer.create' | 'transfer.reverse' | 'payment.create' | 'payment.reverse' | 'bill_payment.create' | 'bill_payment.reverse' | 'instant_transfer.create' | 'instant_transfer.return' | 'collection.pay' | 'collection.refund' | 'recurring_mandate.create' | 'recurring_mandate.resume' | 'debit_request.accept' | 'payment_qr.pay' | 'echeq.deposit' | 'payout_batch.execute' | 'risk.case.resolve' | 'reconciliation.exception.resolve' | 'dispute.resolve';
   resourceType: 'settlement_cycle' | 'transfer' | 'book_transfer' | 'payment' | 'bill_payment' | 'instant_transfer' | 'payment_link' | 'payment_qr' | 'echeq' | 'recurring_payment_mandate' | 'payout_batch' | 'risk_case' | 'reconciliation_exception' | 'dispute'; resourceId: string;
   status: 'pending' | 'executed' | 'rejected' | 'cancelled' | 'expired' | 'failed'; requestPayload: {
     name?: string; rail?: ReconciliationRun['source']; currency?: Currency; netMinor?: string; differenceMinor?: string;
@@ -534,6 +534,9 @@ export type DebitRequestRespondResult =
   | { ok: true; requiresApproval: true; approval: ApprovalRequest; replayed: boolean; deduplicated: boolean };
 export type PaymentQrPayResult =
   | { ok: true; requiresApproval?: false; transfer: InstantTransfer; replayed: boolean }
+  | { ok: true; requiresApproval: true; approval: ApprovalRequest; replayed: boolean; deduplicated: boolean };
+export type PaymentLinkPayResult =
+  | { ok: true; requiresApproval?: false; link: PaymentLink; replayed: boolean }
   | { ok: true; requiresApproval: true; approval: ApprovalRequest; replayed: boolean; deduplicated: boolean };
 export type PaymentLinkRefundResult =
   | { ok: true; requiresApproval?: false; link: PaymentLink; reversal?: Transaction; replayed: boolean }

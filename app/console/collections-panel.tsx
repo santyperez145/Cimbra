@@ -130,9 +130,12 @@ export default function CollectionsPanel({ role, accounts }: { role: Organizatio
         amount: method === 'cimbra_cvu' && amount ? amount : undefined,
       }),
     });
-    const result = await response.json() as { error?: unknown };
+    const result = await response.json() as { requiresApproval?: boolean; error?: unknown };
     setBusy(false);
     if (!response.ok) { setFeedback(apiError(result, 'No pudimos cobrar el link.')); return; }
+    setFeedback(result.requiresApproval
+      ? 'Cobro enviado a Aprobaciones (maker/checker).'
+      : 'Link cobrado en sandbox.');
     form.reset();
     await load().catch((error: Error) => setFeedback(error.message));
   }
@@ -242,7 +245,7 @@ export default function CollectionsPanel({ role, accounts }: { role: Organizatio
       <article><span>Devueltos</span><strong>{refundedCount}</strong></article>
       <article><span>Puntos activos</span><strong>{activeTills}</strong></article>
     </div>
-    <p className="role-boundary-copy">El link sandbox se paga con una cuenta Cimbra, un inbound ledger, el QR de una deuda asociada o el CVU de un till. Sólo el medio cimbra_cvu admite parciales, varios créditos o un importe mayor al restante. La devolución puede ser total o parcial; con política collection.refund pasa por Aprobaciones. Un link CVU puede volver a cobrar si queda restante. Un inbound suelto al till no cierra el link. No procesa tarjetas, POS, Tap to Phone, checkout PCI ni QR interoperable.</p>
+    <p className="role-boundary-copy">El link sandbox se paga con una cuenta Cimbra, un inbound ledger, el QR de una deuda asociada o el CVU de un till. Sólo el medio cimbra_cvu admite parciales, varios créditos o un importe mayor al restante. Con política collection.pay el cobro pasa por Aprobaciones. La devolución puede ser total o parcial; con política collection.refund también. Un link CVU puede volver a cobrar si queda restante. Un inbound suelto al till no cierra el link. No procesa tarjetas, POS, Tap to Phone, checkout PCI ni QR interoperable.</p>
     {pendingCount > 0 && <p className="role-boundary-copy">{pendingCount} links en revisión, expirados o cancelados.</p>}
 
     {canOperate && <div className="compliance-grid wallets-grid">

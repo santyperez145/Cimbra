@@ -414,6 +414,13 @@
       "when": 1788400800000,
       "tag": "0058_echeq_deposit_approval",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1788402000000,
+      "tag": "0059_collection_pay_approval",
+      "breakpoints": true
     }
   ]
 }
