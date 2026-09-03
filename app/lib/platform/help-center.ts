@@ -81,13 +81,13 @@ export const HELP_ARTICLES = [
     id: 'collections',
     title: 'Cobranzas',
     summary: 'Links, QR Cimbra, tills y eco cerrado en sandbox.',
-    body: 'Cobranzas opera payment links, QR dinámico/estático/deuda y collection tills con CVU sandbox. No es POS, EMVCo ni PCT Coelsa. Las devoluciones son compensatorias.',
+    body: 'Cobranzas opera payment links, QR dinámico/estático/deuda y collection tills con CVU sandbox. No es POS, EMVCo ni PCT Coelsa. Las devoluciones son compensatorias; si collection.refund está activo, quedan pendientes de maker/checker en Aprobaciones.',
   },
   {
     id: 'pagos-ar',
     title: 'Pagos AR',
     summary: 'Instrumentos locales sandbox: CVU, alias, DEBIN e instant transfers internos.',
-    body: 'Pagos AR usa el riel sandbox Cimbra (prefijo 0009999). No consulta el directorio nacional ni mueve Transferencias 3.0 reales. Live exige Coelsa u otro riel oficial.',
+    body: 'Pagos AR usa el riel sandbox Cimbra (prefijo 0009999). No consulta el directorio nacional ni mueve Transferencias 3.0 reales. La devolución canónica es POST /api/v1/instant-transfers/{id}/return; con política instant_transfer.return pasa por Aprobaciones. Live exige Coelsa u otro riel oficial.',
   },
   {
     id: 'echeq',

@@ -712,8 +712,15 @@ export async function createInstantTransfer(input: {
 
 export async function returnInstantTransfer(input: {
   organizationId: string; actor: AuthUser; transferId: string; idempotencyKey: string;
+  approvalContext?: { requestId: string; requestedBy: string };
 }) {
-  return getDatabaseClient().transaction(async (database) => {
+  return getDatabaseClient().transaction((database) => returnInstantTransferInTransaction(input, database));
+}
+
+export async function returnInstantTransferInTransaction(input: {
+  organizationId: string; actor: AuthUser; transferId: string; idempotencyKey: string;
+  approvalContext?: { requestId: string; requestedBy: string };
+}, database: DatabaseClient) {
     const transfer = await database.prepare(
       `SELECT id, status, transaction_id AS "transactionId" FROM instant_transfers WHERE organization_id = ? AND id = ? FOR UPDATE`,
     ).bind(input.organizationId, input.transferId).first<{ id: string; status: string; transactionId: string | null }>();
@@ -724,12 +731,12 @@ export async function returnInstantTransfer(input: {
     const result = await reverseTransactionInTransaction({
       organizationId: input.organizationId, actor: input.actor, transactionId: transfer.transactionId,
       idempotencyKey: input.idempotencyKey, auditAction: 'instant_transfer.returned',
+      approvalContext: input.approvalContext,
     }, database);
     return {
       transfer: await retrieveInstantTransfer(input.organizationId, transfer.id, database),
       reversal: result.transaction, replayed: result.replayed,
     };
-  });
 }
 
 export async function createDebitRequest(input: {

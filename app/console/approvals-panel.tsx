@@ -5,17 +5,18 @@ import { roleCan, type OrganizationRole } from '@/app/lib/platform/access-policy
 import { authenticatedFetch } from '@/app/lib/platform/client-http';
 
 type Role = OrganizationRole;
-type ApprovalActionType = 'settlement.execute' | 'transfer.create' | 'transfer.reverse' | 'payment.create' | 'payment.reverse' | 'bill_payment.create' | 'bill_payment.reverse' | 'payout_batch.execute' | 'risk.case.resolve' | 'reconciliation.exception.resolve' | 'dispute.resolve';
+type ApprovalActionType = 'settlement.execute' | 'transfer.create' | 'transfer.reverse' | 'payment.create' | 'payment.reverse' | 'bill_payment.create' | 'bill_payment.reverse' | 'instant_transfer.return' | 'collection.refund' | 'payout_batch.execute' | 'risk.case.resolve' | 'reconciliation.exception.resolve' | 'dispute.resolve';
 type ApprovalStatus = 'pending' | 'executed' | 'rejected' | 'cancelled' | 'expired' | 'failed';
 type Approval = {
   id: string; actionType: ApprovalActionType;
-  resourceType: 'settlement_cycle' | 'transfer' | 'book_transfer' | 'payment' | 'bill_payment' | 'payout_batch' | 'risk_case' | 'reconciliation_exception' | 'dispute'; resourceId: string; status: ApprovalStatus;
+  resourceType: 'settlement_cycle' | 'transfer' | 'book_transfer' | 'payment' | 'bill_payment' | 'instant_transfer' | 'payment_link' | 'payout_batch' | 'risk_case' | 'reconciliation_exception' | 'dispute'; resourceId: string; status: ApprovalStatus;
   requestPayload: { name?: string; rail?: string; currency?: string; netMinor?: string; amountMinor?: string; differenceMinor?: string;
     executionMode?: string; counterparty?: string; description?: string; origin?: string; resolution?: string; note?: string;
-    accountId?: string; direction?: 'cash_in' | 'cash_out'; paymentId?: string; billerId?: string; orderId?: string;
+    accountId?: string; direction?: 'cash_in' | 'cash_out' | string; paymentId?: string; billerId?: string; orderId?: string;
     externalReference?: string; sourceAccountId?: string; destinationAccountId?: string; bookTransfer?: boolean;
     itemCount?: number; runName?: string; priority?: string; score?: number; reason?: string; creditStatus?: string;
-    destinationReferenceLast4?: string; amount?: string };
+    destinationReferenceLast4?: string; amount?: string; transferId?: string; linkId?: string; counterpartyLast4?: string;
+    scheme?: string; creditId?: string | null; collectedMinor?: string };
   requestedBy: string; requestedByName: string; resolvedBy: string | null; resolvedByName: string | null;
   resolutionReason: string | null; expiresAt: string; resolvedAt: string | null; executedAt: string | null; createdAt: string;
 };
@@ -33,6 +34,8 @@ const policyLabels: Record<ApprovalActionType, { title: string; direct: string }
   'payment.reverse': { title: 'Reversa de cash-in/out', direct: 'Compensación directa en ledger' },
   'bill_payment.create': { title: 'Pagos de servicios y recargas', direct: 'Ejecución directa ledger-backed' },
   'bill_payment.reverse': { title: 'Reversa de pagos de servicios', direct: 'Compensación directa en ledger' },
+  'instant_transfer.return': { title: 'Devolución de transferencias instantáneas', direct: 'Compensación directa en ledger' },
+  'collection.refund': { title: 'Devolución de cobranzas', direct: 'Compensación directa en ledger' },
   'payout_batch.execute': { title: 'Ejecución de lotes de payouts', direct: 'Envío asíncrono por ítem' },
   'risk.case.resolve': { title: 'Resolución de casos de riesgo', direct: 'Resolución directa por operador' },
   'reconciliation.exception.resolve': { title: 'Resolución de excepciones', direct: 'Resolución directa por operador' },
@@ -52,6 +55,12 @@ function amountLabel(payload: Approval['requestPayload']) {
 }
 
 function approvalTitle(item: Approval) {
+  if (item.actionType === 'instant_transfer.return') {
+    return `Devolución IP · ${item.requestPayload.description ?? item.requestPayload.transferId ?? item.resourceId}`;
+  }
+  if (item.actionType === 'collection.refund') {
+    return `Devolución cobro · ${item.requestPayload.externalReference ?? item.requestPayload.linkId ?? item.resourceId}`;
+  }
   if (item.actionType === 'bill_payment.create') return `Servicio · ${item.requestPayload.billerId ?? 'orden'}`;
   if (item.actionType === 'bill_payment.reverse') return `Reversa servicio · ${item.requestPayload.orderId ?? item.resourceId}`;
   if (item.actionType === 'transfer.reverse' && item.resourceType === 'book_transfer') {
@@ -76,6 +85,12 @@ function approvalTitle(item: Approval) {
 }
 
 function approvalChannel(item: Approval) {
+  if (item.actionType === 'instant_transfer.return') {
+    return `${item.requestPayload.scheme ?? 'credit_push'} · ${item.requestPayload.direction ?? 'transfer'} · ${item.requestPayload.origin === 'api_key' ? 'API key' : 'consola'}`;
+  }
+  if (item.actionType === 'collection.refund') {
+    return `${item.requestPayload.description ?? 'Sin concepto'} · compensación cobro · ${item.requestPayload.origin === 'api_key' ? 'API key' : 'consola'}`;
+  }
   if (item.actionType === 'bill_payment.create' || item.actionType === 'bill_payment.reverse') {
     return `${item.requestPayload.destinationReferenceLast4 ? `•••• ${item.requestPayload.destinationReferenceLast4}` : 'servicio'} · ${item.requestPayload.origin === 'api_key' ? 'API key' : 'consola'}`;
   }
@@ -102,7 +117,8 @@ function approvalChannel(item: Approval) {
 
 function approvalIcon(item: Approval) {
   if (item.actionType === 'bill_payment.create') return '⌁';
-  if (item.actionType === 'bill_payment.reverse' || item.actionType === 'transfer.reverse' || item.actionType === 'payment.reverse') return '↺';
+  if (item.actionType === 'bill_payment.reverse' || item.actionType === 'transfer.reverse' || item.actionType === 'payment.reverse'
+    || item.actionType === 'instant_transfer.return' || item.actionType === 'collection.refund') return '↺';
   if (item.resourceType === 'book_transfer') return '⇄';
   if (item.actionType === 'payment.create') return item.requestPayload.direction === 'cash_out' ? '↗' : '↙';
   if (item.actionType === 'transfer.create') return '↗';

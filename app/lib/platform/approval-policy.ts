@@ -8,6 +8,8 @@ export const APPROVAL_ACTION_TYPES = [
   'payment.reverse',
   'bill_payment.create',
   'bill_payment.reverse',
+  'instant_transfer.return',
+  'collection.refund',
   'payout_batch.execute',
   'risk.case.resolve',
   'reconciliation.exception.resolve',

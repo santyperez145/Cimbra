@@ -575,10 +575,17 @@ export async function reverseTransactionInTransaction(input: ReverseTransactionI
       throw new LedgerError('Sólo un cash-in o cash-out puede revertirse como payment.', 409, 'payment_reverse_invalid');
     }
     if (auditAction === 'transfer.reversed') {
-      if (accountPayment) throw new LedgerError('Esta transacción debe revertirse desde su payment.', 409, 'payment_reverse_required');
       const billPayment = await transaction.prepare('SELECT id FROM bill_payment_orders WHERE organization_id = ? AND transaction_id = ? LIMIT 1')
         .bind(input.organizationId, original.id).first<{ id: string }>();
       if (billPayment) throw new LedgerError('Esta transacción debe revertirse desde su orden de servicio.', 409, 'bill_payment_reverse_required');
+      if (accountPayment) {
+        const payoutItem = await transaction.prepare(
+          'SELECT id FROM payout_items WHERE organization_id = ? AND transaction_id = ? LIMIT 1',
+        ).bind(input.organizationId, original.id).first<{ id: string }>();
+        if (!payoutItem) {
+          throw new LedgerError('Esta transacción debe revertirse desde su payment.', 409, 'payment_reverse_required');
+        }
+      }
       const bookTransfer = await transaction.prepare('SELECT id FROM book_transfers WHERE organization_id = ? AND transaction_id = ? LIMIT 1')
         .bind(input.organizationId, original.id).first<{ id: string }>();
       if (bookTransfer) throw new LedgerError('Esta transacción debe revertirse desde su book transfer.', 409, 'book_transfer_reverse_required');
@@ -672,7 +679,11 @@ export async function reverseTransactionInTransaction(input: ReverseTransactionI
         .bind(id, now, instantTransfer.id).run();
       await insertAudit(transaction, {
         organizationId: input.organizationId, actorId: input.actor.userId, action: 'instant.transfer_returned',
-        resourceType: 'instant_transfer', resourceId: instantTransfer.id, payload: { transactionId: original.id, reversalId: id },
+        resourceType: 'instant_transfer', resourceId: instantTransfer.id, payload: {
+          transactionId: original.id, reversalId: id,
+          approvalRequestId: input.approvalContext?.requestId ?? null,
+          requestedBy: input.approvalContext?.requestedBy ?? null,
+        },
       });
     }
     if (paymentLink) {
@@ -683,7 +694,11 @@ export async function reverseTransactionInTransaction(input: ReverseTransactionI
         .bind(id, now, paymentLink.id).run();
       await insertAudit(transaction, {
         organizationId: input.organizationId, actorId: input.actor.userId, action: 'collection.link_refunded',
-        resourceType: 'payment_link', resourceId: paymentLink.id, payload: { transactionId: original.id, reversalId: id },
+        resourceType: 'payment_link', resourceId: paymentLink.id, payload: {
+          transactionId: original.id, reversalId: id,
+          approvalRequestId: input.approvalContext?.requestId ?? null,
+          requestedBy: input.approvalContext?.requestedBy ?? null,
+        },
       });
     }
     const echeqDeposit = await transaction.prepare(`SELECT id, status FROM echeqs

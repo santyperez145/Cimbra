@@ -703,138 +703,147 @@ export async function payPaymentLink(input: {
 export async function refundPaymentLink(input: {
   organizationId: string; actor: AuthUser; linkId: string; idempotencyKey: string;
   refund?: NormalizedPaymentLinkRefundInput;
+  approvalContext?: { requestId: string; requestedBy: string };
 }) {
+  return getDatabaseClient().transaction((database) => refundPaymentLinkInTransaction(input, database));
+}
+
+export async function refundPaymentLinkInTransaction(input: {
+  organizationId: string; actor: AuthUser; linkId: string; idempotencyKey: string;
+  refund?: NormalizedPaymentLinkRefundInput;
+  approvalContext?: { requestId: string; requestedBy: string };
+}, database: DatabaseClient) {
   const requested = input.refund ?? { amountMinor: null, creditId: null };
   const fingerprint = await sha256(JSON.stringify({
     amountMinor: requested.amountMinor?.toString() ?? null, creditId: requested.creditId,
   }));
-  return getDatabaseClient().transaction(async (database) => {
-    await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
-      .bind(`${input.organizationId}:payment-link-refund:${input.linkId}`).first();
-    const existingRefund = await database.prepare(
-      `SELECT payment_link_id AS "paymentLinkId", request_fingerprint AS "requestFingerprint"
-       FROM payment_link_refunds WHERE organization_id = ? AND idempotency_key = ? LIMIT 1`,
-    ).bind(input.organizationId, input.idempotencyKey).first<{ paymentLinkId: string; requestFingerprint: string }>();
-    if (existingRefund) {
-      if (existingRefund.requestFingerprint !== fingerprint || existingRefund.paymentLinkId !== input.linkId) {
-        throw new CollectionError('La Idempotency-Key ya fue usada con otra devolución.', 409, 'idempotency_mismatch');
-      }
-      return {
-        link: await presentLink((await retrieveLinkRow(input.organizationId, input.linkId, database))!, database),
-        replayed: true,
-      };
+  await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))')
+    .bind(`${input.organizationId}:payment-link-refund:${input.linkId}`).first();
+  const existingRefund = await database.prepare(
+    `SELECT payment_link_id AS "paymentLinkId", request_fingerprint AS "requestFingerprint"
+     FROM payment_link_refunds WHERE organization_id = ? AND idempotency_key = ? LIMIT 1`,
+  ).bind(input.organizationId, input.idempotencyKey).first<{ paymentLinkId: string; requestFingerprint: string }>();
+  if (existingRefund) {
+    if (existingRefund.requestFingerprint !== fingerprint || existingRefund.paymentLinkId !== input.linkId) {
+      throw new CollectionError('La Idempotency-Key ya fue usada con otra devolución.', 409, 'idempotency_mismatch');
     }
-    const row = await database.prepare(`${linkSelect} WHERE pl.organization_id = ? AND pl.id = ? LIMIT 1 FOR UPDATE OF pl`)
-      .bind(input.organizationId, input.linkId).first<LinkRow>();
-    if (!row) throw new CollectionError('Link de cobro no encontrado.', 404, 'payment_link_not_found');
-    const current = await expireIfNeeded(database, row);
-    if (current.status === 'refunded' && BigInt(current.collectedMinor ?? '0') === 0n) {
-      throw new CollectionError('El cobro ya fue devuelto.', 409, 'payment_link_already_refunded');
-    }
-    if (current.status === 'pending' || current.status === 'expired' || current.status === 'cancelled') {
-      throw new CollectionError('Sólo se puede devolver un cobro liquidado.', 409, 'payment_link_not_paid');
-    }
-    const collectedMinor = BigInt(current.collectedMinor ?? '0');
-    if (collectedMinor <= 0n) {
-      throw new CollectionError('No hay importe cobrado para devolver.', 409, 'payment_link_not_paid');
-    }
-    const credits = await database.prepare(
-      `SELECT id, payment_link_id AS "paymentLinkId", amount_minor::text AS "amountMinor",
-        refunded_minor::text AS "refundedMinor", method, payer_account_id AS "payerAccountId",
-        transaction_id AS "transactionId", instant_transfer_id AS "instantTransferId", created_at AS "createdAt"
-       FROM payment_link_credits WHERE organization_id = ? AND payment_link_id = ? ORDER BY created_at, id`,
-    ).bind(input.organizationId, current.id).all<CreditRow>();
-    type Slice = { creditId: string | null; transactionId: string; remaining: bigint };
-    const slices: Slice[] = credits.results.map((credit) => ({
-      creditId: credit.id,
-      transactionId: credit.transactionId,
-      remaining: BigInt(credit.amountMinor) - BigInt(credit.refundedMinor ?? '0'),
-    })).filter((slice) => slice.remaining > 0n);
-    if (slices.length === 0 && current.transactionId) {
-      slices.push({
-        creditId: null,
-        transactionId: current.transactionId,
-        remaining: collectedMinor,
-      });
-    }
-    if (requested.creditId) {
-      const match = slices.find((slice) => slice.creditId === requested.creditId);
-      if (!match) throw new CollectionError('El crédito no pertenece a este link o ya fue devuelto.', 404, 'payment_link_credit_not_found');
-      slices.splice(0, slices.length, match);
-    }
-    const refundable = slices.reduce((sum, slice) => sum + slice.remaining, 0n);
-    if (refundable <= 0n) throw new CollectionError('No hay importe cobrado para devolver.', 409, 'payment_link_not_paid');
-    const target = requested.amountMinor ?? refundable;
-    if (target > refundable) {
-      throw new CollectionError('El importe a devolver supera lo cobrado pendiente de devolución.', 409, 'refund_exceeds_collected');
-    }
-    let remainingToRefund = target;
-    let lastReversal = null;
-    try {
-      for (const [index, slice] of slices.entries()) {
-        if (remainingToRefund <= 0n) break;
-        const sliceAmount = remainingToRefund < slice.remaining ? remainingToRefund : slice.remaining;
-        const completesSlice = sliceAmount === slice.remaining;
-        lastReversal = await compensateTransactionAmount({
-          organizationId: input.organizationId, actor: input.actor, transactionId: slice.transactionId,
-          amountMinor: sliceAmount,
-          idempotencyKey: index === 0 ? input.idempotencyKey : `${input.idempotencyKey}:${slice.creditId ?? slice.transactionId}`,
-          markOriginalReversed: completesSlice,
-        }, database);
-        if (slice.creditId) {
-          await database.prepare(
-            'UPDATE payment_link_credits SET refunded_minor = refunded_minor + ? WHERE id = ?',
-          ).bind(sliceAmount.toString(), slice.creditId).run();
-        }
-        remainingToRefund -= sliceAmount;
-      }
-    } catch (error) {
-      if (error instanceof LedgerError) throw new CollectionError(error.message, error.status, error.code);
-      throw error;
-    }
-    if (!lastReversal) throw new CollectionError('No hay importe cobrado para devolver.', 409, 'payment_link_not_paid');
-    const now = new Date().toISOString();
-    const nextCollected = collectedMinor - target;
-    const nextRefunded = BigInt(current.refundedMinor ?? '0') + target;
-    const amountMinor = BigInt(current.amountMinor);
-    const methods = parseMethods(current.allowedMethods);
-    const cvuReopen = methods.includes('cimbra_cvu') && current.paidMethod === 'cimbra_cvu';
-    let nextStatus = current.status;
-    let nextPaidMethod: CollectionMethod | null = current.paidMethod;
-    if (nextCollected === 0n) {
-      nextStatus = 'refunded';
-      nextPaidMethod = current.paidMethod;
-    } else if (nextCollected >= amountMinor) {
-      nextStatus = 'paid';
-    } else if (cvuReopen || current.status === 'open') {
-      nextStatus = 'open';
-      nextPaidMethod = null;
-    } else {
-      nextStatus = 'paid';
-    }
-    await database.prepare(`INSERT INTO payment_link_refunds
-      (id, organization_id, payment_link_id, credit_id, idempotency_key, request_fingerprint, amount_minor,
-       transaction_id, created_by, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .bind(crypto.randomUUID(), input.organizationId, current.id, requested.creditId, input.idempotencyKey, fingerprint,
-        target.toString(), lastReversal.transaction.id, input.actor.userId, now).run();
-    await database.prepare(`UPDATE payment_links SET status = ?, paid_method = ?, collected_minor = ?, refunded_minor = ?,
-      reversal_transaction_id = ?, updated_at = ? WHERE id = ?`)
-      .bind(nextStatus, nextPaidMethod, nextCollected.toString(), nextRefunded.toString(),
-        nextCollected === 0n ? lastReversal.transaction.id : current.reversalTransactionId, now, current.id).run();
-    await insertAudit(database, {
-      organizationId: input.organizationId, actorId: input.actor.userId, action: 'collection.link_refunded',
-      resourceType: 'payment_link', resourceId: current.id,
-      payload: {
-        amountMinor: target.toString(), collectedMinor: nextCollected.toString(), refundedMinor: nextRefunded.toString(),
-        status: nextStatus, creditId: requested.creditId, transactionId: lastReversal.transaction.id, partial: nextCollected > 0n,
-      },
-    });
     return {
-      link: await presentLink((await retrieveLinkRow(input.organizationId, current.id, database))!, database),
-      reversal: lastReversal.transaction, replayed: lastReversal.replayed,
+      link: await presentLink((await retrieveLinkRow(input.organizationId, input.linkId, database))!, database),
+      replayed: true as const,
     };
+  }
+  const row = await database.prepare(`${linkSelect} WHERE pl.organization_id = ? AND pl.id = ? LIMIT 1 FOR UPDATE OF pl`)
+    .bind(input.organizationId, input.linkId).first<LinkRow>();
+  if (!row) throw new CollectionError('Link de cobro no encontrado.', 404, 'payment_link_not_found');
+  const current = await expireIfNeeded(database, row);
+  if (current.status === 'refunded' && BigInt(current.collectedMinor ?? '0') === 0n) {
+    throw new CollectionError('El cobro ya fue devuelto.', 409, 'payment_link_already_refunded');
+  }
+  if (current.status === 'pending' || current.status === 'expired' || current.status === 'cancelled') {
+    throw new CollectionError('Sólo se puede devolver un cobro liquidado.', 409, 'payment_link_not_paid');
+  }
+  const collectedMinor = BigInt(current.collectedMinor ?? '0');
+  if (collectedMinor <= 0n) {
+    throw new CollectionError('No hay importe cobrado para devolver.', 409, 'payment_link_not_paid');
+  }
+  const credits = await database.prepare(
+    `SELECT id, payment_link_id AS "paymentLinkId", amount_minor::text AS "amountMinor",
+      refunded_minor::text AS "refundedMinor", method, payer_account_id AS "payerAccountId",
+      transaction_id AS "transactionId", instant_transfer_id AS "instantTransferId", created_at AS "createdAt"
+     FROM payment_link_credits WHERE organization_id = ? AND payment_link_id = ? ORDER BY created_at, id`,
+  ).bind(input.organizationId, current.id).all<CreditRow>();
+  type Slice = { creditId: string | null; transactionId: string; remaining: bigint };
+  const slices: Slice[] = credits.results.map((credit) => ({
+    creditId: credit.id,
+    transactionId: credit.transactionId,
+    remaining: BigInt(credit.amountMinor) - BigInt(credit.refundedMinor ?? '0'),
+  })).filter((slice) => slice.remaining > 0n);
+  if (slices.length === 0 && current.transactionId) {
+    slices.push({
+      creditId: null,
+      transactionId: current.transactionId,
+      remaining: collectedMinor,
+    });
+  }
+  if (requested.creditId) {
+    const match = slices.find((slice) => slice.creditId === requested.creditId);
+    if (!match) throw new CollectionError('El crédito no pertenece a este link o ya fue devuelto.', 404, 'payment_link_credit_not_found');
+    slices.splice(0, slices.length, match);
+  }
+  const refundable = slices.reduce((sum, slice) => sum + slice.remaining, 0n);
+  if (refundable <= 0n) throw new CollectionError('No hay importe cobrado para devolver.', 409, 'payment_link_not_paid');
+  const target = requested.amountMinor ?? refundable;
+  if (target > refundable) {
+    throw new CollectionError('El importe a devolver supera lo cobrado pendiente de devolución.', 409, 'refund_exceeds_collected');
+  }
+  let remainingToRefund = target;
+  let lastReversal = null as Awaited<ReturnType<typeof compensateTransactionAmount>> | null;
+  try {
+    for (const [index, slice] of slices.entries()) {
+      if (remainingToRefund <= 0n) break;
+      const sliceAmount = remainingToRefund < slice.remaining ? remainingToRefund : slice.remaining;
+      const completesSlice = sliceAmount === slice.remaining;
+      lastReversal = await compensateTransactionAmount({
+        organizationId: input.organizationId, actor: input.actor, transactionId: slice.transactionId,
+        amountMinor: sliceAmount,
+        idempotencyKey: index === 0 ? input.idempotencyKey : `${input.idempotencyKey}:${slice.creditId ?? slice.transactionId}`,
+        markOriginalReversed: completesSlice,
+      }, database);
+      if (slice.creditId) {
+        await database.prepare(
+          'UPDATE payment_link_credits SET refunded_minor = refunded_minor + ? WHERE id = ?',
+        ).bind(sliceAmount.toString(), slice.creditId).run();
+      }
+      remainingToRefund -= sliceAmount;
+    }
+  } catch (error) {
+    if (error instanceof LedgerError) throw new CollectionError(error.message, error.status, error.code);
+    throw error;
+  }
+  if (!lastReversal) throw new CollectionError('No hay importe cobrado para devolver.', 409, 'payment_link_not_paid');
+  const now = new Date().toISOString();
+  const nextCollected = collectedMinor - target;
+  const nextRefunded = BigInt(current.refundedMinor ?? '0') + target;
+  const amountMinor = BigInt(current.amountMinor);
+  const methods = parseMethods(current.allowedMethods);
+  const cvuReopen = methods.includes('cimbra_cvu') && current.paidMethod === 'cimbra_cvu';
+  let nextStatus = current.status;
+  let nextPaidMethod: CollectionMethod | null = current.paidMethod;
+  if (nextCollected === 0n) {
+    nextStatus = 'refunded';
+    nextPaidMethod = current.paidMethod;
+  } else if (nextCollected >= amountMinor) {
+    nextStatus = 'paid';
+  } else if (cvuReopen || current.status === 'open') {
+    nextStatus = 'open';
+    nextPaidMethod = null;
+  } else {
+    nextStatus = 'paid';
+  }
+  await database.prepare(`INSERT INTO payment_link_refunds
+    (id, organization_id, payment_link_id, credit_id, idempotency_key, request_fingerprint, amount_minor,
+     transaction_id, created_by, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .bind(crypto.randomUUID(), input.organizationId, current.id, requested.creditId, input.idempotencyKey, fingerprint,
+      target.toString(), lastReversal.transaction.id, input.actor.userId, now).run();
+  await database.prepare(`UPDATE payment_links SET status = ?, paid_method = ?, collected_minor = ?, refunded_minor = ?,
+    reversal_transaction_id = ?, updated_at = ? WHERE id = ?`)
+    .bind(nextStatus, nextPaidMethod, nextCollected.toString(), nextRefunded.toString(),
+      nextCollected === 0n ? lastReversal.transaction.id : current.reversalTransactionId, now, current.id).run();
+  await insertAudit(database, {
+    organizationId: input.organizationId, actorId: input.actor.userId, action: 'collection.link_refunded',
+    resourceType: 'payment_link', resourceId: current.id,
+    payload: {
+      amountMinor: target.toString(), collectedMinor: nextCollected.toString(), refundedMinor: nextRefunded.toString(),
+      status: nextStatus, creditId: requested.creditId, transactionId: lastReversal.transaction.id, partial: nextCollected > 0n,
+      approvalRequestId: input.approvalContext?.requestId ?? null,
+      requestedBy: input.approvalContext?.requestedBy ?? null,
+    },
   });
+  return {
+    link: await presentLink((await retrieveLinkRow(input.organizationId, current.id, database))!, database),
+    reversal: lastReversal.transaction, replayed: lastReversal.replayed,
+  };
 }
 
 type TillRow = {

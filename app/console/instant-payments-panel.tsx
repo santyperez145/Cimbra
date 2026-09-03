@@ -313,8 +313,12 @@ export default function InstantPaymentsPanel({ role, accounts }: { role: Organiz
     const response = await authenticatedFetch(`/api/v1/instant-transfers/${id}/return`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
     });
-    const result = await response.json() as unknown;
-    setFeedback(response.ok ? 'Devolución compensatoria registrada.' : apiError(result, 'No pudimos devolver la transferencia.'));
+    const result = await response.json() as {
+      requiresApproval?: boolean; approval?: { id: string }; error?: unknown;
+    };
+    if (!response.ok) setFeedback(apiError(result, 'No pudimos devolver la transferencia.'));
+    else if (result.requiresApproval) setFeedback('Devolución enviada a Aprobaciones (maker/checker).');
+    else setFeedback('Devolución compensatoria registrada.');
     if (response.ok) await load();
     setBusy(false);
   }
@@ -436,7 +440,7 @@ export default function InstantPaymentsPanel({ role, accounts }: { role: Organiz
     </article>
 
     <article className="module-list">
-      <div className="card-head"><div><h2>Transferencias</h2><p>Crédito, débito interno y QR</p></div></div>
+      <div className="card-head"><div><h2>Transferencias</h2><p>Crédito, débito interno y QR · devolución con política instant_transfer.return pasa por Aprobaciones</p></div></div>
       {transfers.length === 0 ? <div className="table-empty">Sin transferencias instantáneas.</div>
         : transfers.map((item) => <div key={item.id}><span className="movement"><i>↔</i><b>{item.scheme} · {item.direction}<small>{item.description} · {item.counterpartyKind} …{item.counterpartyLast4} · {STATUS_LABELS[item.status] ?? item.status}</small></b></span><strong>{money(item.amount, item.currency)}</strong>{canOperate && item.status === 'settled' && <button type="button" className="danger-link" disabled={busy} onClick={() => returnTransfer(item.id)}>Devolver</button>}</div>)}
     </article>

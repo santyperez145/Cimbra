@@ -9,7 +9,7 @@ import type {
   CreateBookTransferInput, CreateRecurringPaymentMandateInput, CreateSettlementCycleInput, CreateTransferInput, CreateWebhookInput,
   CreatePayoutBatchInput, CreatePayoutBeneficiaryInput, CreateWalletInput, CreateWalletPocketTransferInput, CreateWalletProgramInput,
   AssignRailAliasInput, CreateDebitRequestInput, CreateInstantTransferInput, CreatePaymentQrInput, CreateQrDebtInput, CreateQrSaleOrderInput, IssueRailInstrumentInput, PayPaymentQrInput,
-  CreatePaymentLinkInput, PayPaymentLinkInput, RefundPaymentLinkInput, PaymentLink, CollectionTill, CreateCollectionTillInput, CreditCollectionTillInput,
+  CreatePaymentLinkInput, PayPaymentLinkInput, RefundPaymentLinkInput, InstantTransferReturnResult, PaymentLinkRefundResult, PaymentLink, CollectionTill, CreateCollectionTillInput, CreditCollectionTillInput,
   CreateEcheqInput, AcceptEcheqInput, EndorseEcheqInput, DepositEcheqInput, Echeq,
   InstantTransfer, PaymentQr, QrDebt, QrSaleOrder, RailDirectoryPreview, RailInstrument,
   PayoutBatch, PayoutBeneficiary,
@@ -323,7 +323,7 @@ export class Cimbra {
     create: (input: CreateInstantTransferInput, options?: RequestOptions) =>
       this.post<{ ok: true; transfer: InstantTransfer; replayed: boolean }>('/api/v1/instant-transfers', input, options, true),
     return: (id: string, options?: RequestOptions) =>
-      this.post<{ ok: true; transfer: InstantTransfer; reversal: Transaction; replayed: boolean }>(
+      this.post<InstantTransferReturnResult>(
         `/api/v1/instant-transfers/${encodeURIComponent(id)}/return`, undefined, options, true),
   };
 
@@ -388,7 +388,7 @@ export class Cimbra {
       this.post<{ ok: true; link: PaymentLink; replayed: boolean }>(
         `/api/v1/payment-links/${encodeURIComponent(id)}/pay`, input, options, true),
     refund: (id: string, input?: RefundPaymentLinkInput, options?: RequestOptions) =>
-      this.post<{ ok: true; link: PaymentLink; reversal: Transaction; replayed: boolean }>(
+      this.post<PaymentLinkRefundResult>(
         `/api/v1/payment-links/${encodeURIComponent(id)}/refund`, input ?? {}, options, true),
   };
 

@@ -286,6 +286,26 @@ test('el SDK cablea CVU, directorio, crédito inmediato, débito interno y QR', 
   ]);
 });
 
+test('el SDK representa devoluciones de cobro pendientes de aprobación humana', async () => {
+  const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', fetch: async () => Response.json({
+    ok: true, requiresApproval: true, replayed: false, deduplicated: false,
+    approval: { id: 'approval_refund_1', actionType: 'collection.refund', resourceType: 'payment_link', resourceId: 'pl_1', status: 'pending' },
+  }, { status: 202 }) });
+  const result = await client.paymentLinks.refund('pl_1');
+  assert.equal(result.data.requiresApproval, true);
+  if (result.data.requiresApproval) assert.equal(result.data.approval.actionType, 'collection.refund');
+});
+
+test('el SDK representa devoluciones de transferencias instantáneas pendientes de aprobación humana', async () => {
+  const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', fetch: async () => Response.json({
+    ok: true, requiresApproval: true, replayed: false, deduplicated: false,
+    approval: { id: 'approval_ip_ret_1', actionType: 'instant_transfer.return', resourceType: 'instant_transfer', resourceId: 'ip_1', status: 'pending' },
+  }, { status: 202 }) });
+  const result = await client.instantTransfers.return('ip_1');
+  assert.equal(result.data.requiresApproval, true);
+  if (result.data.requiresApproval) assert.equal(result.data.approval.actionType, 'instant_transfer.return');
+});
+
 test('el SDK cablea links de cobro, eco cerrado, inbound sandbox y devoluciones', async () => {
   const calls: string[] = [];
   const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0, fetch: async (input, init) => {

@@ -2095,7 +2095,7 @@
               }
             ],
             "url": "{{baseUrl}}/api/v1/instant-transfers/:id/return",
-            "description": "operationId: returnInstantTransfer\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
+            "description": "Creates compensating ledger postings and marks the transfer returned. When instant_transfer.return maker/checker is enabled, returns 202 with a pending approval.\n\noperationId: returnInstantTransfer\n\nSandbox only. Does not move real funds or call competitor BaaS adapters."
           }
         }
       ]
@@ -2582,7 +2582,7 @@
               }
             ],
             "url": "{{baseUrl}}/api/v1/payment-links/:id/refund",
-            "description": "Omitting amount returns the remaining collected balance. amount refunds that ARS value from CVU credits in chronological order, or from the single closed-amount collection. creditId limits the refund to one CVU credit. A CVU link can reopen while collected remains below the original amount. Internal, QR and inbound stay closed after a partial refund. Not a card chargeback or BIND contracargo.\n\noperationId: refundPaymentLink\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
+            "description": "Omitting amount returns the remaining collected balance. amount refunds that ARS value from CVU credits in chronological order, or from the single closed-amount collection. creditId limits the refund to one CVU credit. A CVU link can reopen while collected remains below the original amount. Internal, QR and inbound stay closed after a partial refund. When collection.refund maker/checker is enabled, returns 202 with a pending approval. Not a card chargeback or BIND contracargo.\n\noperationId: refundPaymentLink\n\nSandbox only. Does not move real funds or call competitor BaaS adapters.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \n}\n",

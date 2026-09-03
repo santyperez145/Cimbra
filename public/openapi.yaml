@@ -840,6 +840,7 @@ paths:
     post:
       operationId: returnInstantTransfer
       summary: Return a settled instant transfer with compensating postings
+      description: Creates compensating ledger postings and marks the transfer returned. When instant_transfer.return maker/checker is enabled, returns 202 with a pending approval.
       security: [{ session: [] }, { bearerApiKey: [] }]
       parameters:
         - $ref: '#/components/parameters/ResourceId'
@@ -847,6 +848,7 @@ paths:
       responses:
         '201': { description: Compensating return created }
         '200': { description: Idempotent replay }
+        '202': { description: Pending maker/checker approval }
         '403': { description: Missing transfers:write scope or finance.write permission }
         '404': { description: Transfer not found in tenant }
         '409': { description: Transfer is not settled or already returned }
@@ -1255,7 +1257,7 @@ paths:
     post:
       operationId: refundPaymentLink
       summary: Refund a settled collection in full or in part with compensating ledger entries
-      description: Omitting amount returns the remaining collected balance. amount refunds that ARS value from CVU credits in chronological order, or from the single closed-amount collection. creditId limits the refund to one CVU credit. A CVU link can reopen while collected remains below the original amount. Internal, QR and inbound stay closed after a partial refund. Not a card chargeback or BIND contracargo.
+      description: Omitting amount returns the remaining collected balance. amount refunds that ARS value from CVU credits in chronological order, or from the single closed-amount collection. creditId limits the refund to one CVU credit. A CVU link can reopen while collected remains below the original amount. Internal, QR and inbound stay closed after a partial refund. When collection.refund maker/checker is enabled, returns 202 with a pending approval. Not a card chargeback or BIND contracargo.
       security: [{ session: [] }, { bearerApiKey: [] }]
       parameters:
         - $ref: '#/components/parameters/ResourceId'
@@ -1276,6 +1278,7 @@ paths:
       responses:
         '201': { description: Collection refunded in full or in part }
         '200': { description: Idempotent replay }
+        '202': { description: Pending maker/checker approval }
         '400': { description: Invalid payload }
         '403': { description: Missing payments:write scope or finance.write permission }
         '404': { description: Payment link or credit not found }
@@ -3158,7 +3161,7 @@ paths:
               type: object
               required: [enabled, expiresInMinutes]
               properties:
-                actionType: { type: string, enum: [settlement.execute, transfer.create, transfer.reverse, payment.create, payment.reverse, bill_payment.create, bill_payment.reverse, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve], default: settlement.execute }
+                actionType: { type: string, enum: [settlement.execute, transfer.create, transfer.reverse, payment.create, payment.reverse, bill_payment.create, bill_payment.reverse, instant_transfer.return, collection.refund, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve], default: settlement.execute }
                 enabled: { type: boolean }
                 expiresInMinutes: { type: integer, minimum: 15, maximum: 10080 }
       responses:
@@ -4505,8 +4508,8 @@ components:
       required: [id, actionType, resourceType, resourceId, status, requestPayload, requestedBy, requestedByName, expiresAt, createdAt, updatedAt]
       properties:
         id: { type: string, format: uuid }
-        actionType: { type: string, enum: [settlement.execute, transfer.create, transfer.reverse, payment.create, payment.reverse, bill_payment.create, bill_payment.reverse, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve] }
-        resourceType: { type: string, enum: [settlement_cycle, transfer, book_transfer, payment, bill_payment, payout_batch, risk_case, reconciliation_exception, dispute] }
+        actionType: { type: string, enum: [settlement.execute, transfer.create, transfer.reverse, payment.create, payment.reverse, bill_payment.create, bill_payment.reverse, instant_transfer.return, collection.refund, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve] }
+        resourceType: { type: string, enum: [settlement_cycle, transfer, book_transfer, payment, bill_payment, instant_transfer, payment_link, payout_batch, risk_case, reconciliation_exception, dispute] }
         resourceId: { type: string, format: uuid }
         status: { type: string, enum: [pending, executed, rejected, cancelled, expired, failed] }
         requestPayload: { type: object, additionalProperties: true }

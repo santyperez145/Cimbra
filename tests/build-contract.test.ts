@@ -214,6 +214,24 @@ test('bill payments usan maker/checker opt-in bill_payment.create y bill_payment
   assert.match(migration, /bill_payment\.reverse/);
 });
 
+test('instant return y collection refund usan maker/checker opt-in', () => {
+  const approvals = readFileSync(join(root, 'db', 'approvals.ts'), 'utf8');
+  const returnRoute = readFileSync(join(root, 'app', 'api', 'v1', 'instant-transfers', '[id]', 'return', 'route.ts'), 'utf8');
+  const refundRoute = readFileSync(join(root, 'app', 'api', 'v1', 'payment-links', '[id]', 'refund', 'route.ts'), 'utf8');
+  const panel = readFileSync(join(root, 'app', 'console', 'approvals-panel.tsx'), 'utf8');
+  const migration = readFileSync(join(root, 'drizzle-postgres', '0053_return_refund_approval.sql'), 'utf8');
+  assert.match(approvals, /returnInstantTransferWithApprovalPolicy/);
+  assert.match(approvals, /refundPaymentLinkWithApprovalPolicy/);
+  assert.match(approvals, /instant_transfer\.return/);
+  assert.match(approvals, /collection\.refund/);
+  assert.match(returnRoute, /returnInstantTransferWithApprovalPolicy/);
+  assert.match(refundRoute, /refundPaymentLinkWithApprovalPolicy/);
+  assert.match(panel, /instant_transfer\.return/);
+  assert.match(panel, /collection\.refund/);
+  assert.match(migration, /instant_transfer\.return/);
+  assert.match(migration, /collection\.refund/);
+});
+
 test('help-center documenta Compliance, Aprobaciones y Disputas con límites honestos', () => {
   const help = readFileSync(join(root, 'app', 'lib', 'platform', 'help-center.ts'), 'utf8');
   assert.match(help, /id: 'compliance-kyc'/);
