@@ -1643,13 +1643,14 @@ paths:
     post:
       operationId: reversePayment
       summary: Reverse a settled cash-in or cash-out with compensating ledger postings
-      description: Canonical payment reversal. Generic transfer reverse returns 409 payment_reverse_required for cash movements.
+      description: Canonical payment reversal. When payment.reverse maker/checker is enabled, returns 202 with a pending approval instead of posting compensation immediately. Generic transfer reverse returns 409 payment_reverse_required for cash movements.
       security: [{ session: [] }, { bearerApiKey: [] }]
       parameters:
         - $ref: '#/components/parameters/ResourceId'
         - $ref: '#/components/parameters/IdempotencyKey'
       responses:
         '201': { description: Payment reversed }
+        '202': { description: Pending maker/checker approval }
         '200': { description: Idempotent replay }
         '403': { description: Missing payments:write scope or finance.write permission }
         '404': { description: Payment not found in tenant }
@@ -3152,7 +3153,7 @@ paths:
               type: object
               required: [enabled, expiresInMinutes]
               properties:
-                actionType: { type: string, enum: [settlement.execute, transfer.create, payment.create, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve], default: settlement.execute }
+                actionType: { type: string, enum: [settlement.execute, transfer.create, payment.create, payment.reverse, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve], default: settlement.execute }
                 enabled: { type: boolean }
                 expiresInMinutes: { type: integer, minimum: 15, maximum: 10080 }
       responses:
@@ -4499,7 +4500,7 @@ components:
       required: [id, actionType, resourceType, resourceId, status, requestPayload, requestedBy, requestedByName, expiresAt, createdAt, updatedAt]
       properties:
         id: { type: string, format: uuid }
-        actionType: { type: string, enum: [settlement.execute, transfer.create, payment.create, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve] }
+        actionType: { type: string, enum: [settlement.execute, transfer.create, payment.create, payment.reverse, payout_batch.execute, risk.case.resolve, reconciliation.exception.resolve, dispute.resolve] }
         resourceType: { type: string, enum: [settlement_cycle, transfer, book_transfer, payment, payout_batch, risk_case, reconciliation_exception, dispute] }
         resourceId: { type: string, format: uuid }
         status: { type: string, enum: [pending, executed, rejected, cancelled, expired, failed] }

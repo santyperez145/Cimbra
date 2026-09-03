@@ -21,7 +21,7 @@ import type {
   ReportRiskOutcomeInput, RiskCaseResolutionResult, RiskEvaluation, RiskListEntry, RiskMetrics, RiskOutcome, RiskRule, RiskSimulation,
   RecurringPaymentExecution, RecurringPaymentMandate, RiskStepUpAttempt, RiskStepUpChallenge, SettlementCycle, SettlementExecutionResult, VerifyRiskStepUpChallengeInput,
   Organization, OpenSupportCaseInput, ServiceTopology, SupportCase, SupportCaseResult, SupportCaseStatus, SupportCaseThread, UpdateOrganizationInput,
-  PaymentCreationResult, RecordDueDiligenceCheckInput, Transaction, TransferCreationResult, Wallet, WalletLifecycleEvent, WalletPocket, WalletPocketTransferCreationResult, WalletProgram, WebhookOperationalState,
+  PaymentCreationResult, PaymentReversalResult, RecordDueDiligenceCheckInput, Transaction, TransferCreationResult, Wallet, WalletLifecycleEvent, WalletPocket, WalletPocketTransferCreationResult, WalletProgram, WebhookOperationalState,
 } from './types.ts';
 
 type Fetch = typeof globalThis.fetch;
@@ -180,7 +180,7 @@ export class Cimbra {
       this.post<PaymentCreationResult>('/api/v1/payments', input, options, true),
     retrieve: (id: string, options?: RequestOptions) => this.request<Transaction>('GET', `/api/v1/payments/${encodeURIComponent(id)}`, undefined, options),
     reverse: (id: string, options?: RequestOptions) =>
-      this.post<{ ok: true; payment: Transaction; reversal: Transaction; replayed: boolean }>(
+      this.post<PaymentReversalResult>(
         `/api/v1/payments/${encodeURIComponent(id)}/reverse`, undefined, options, true,
       ),
   };

@@ -508,6 +508,7 @@ export type ReverseTransactionInput = {
   transactionId: string;
   idempotencyKey: string;
   auditAction?: 'transfer.reversed' | 'bill_payment.reversed' | 'book_transfer.reversed' | 'instant_transfer.returned' | 'collection.refunded' | 'payment.reversed';
+  approvalContext?: { requestId: string; requestedBy: string };
 };
 
 export async function reverseTransfer(input: ReverseTransactionInput) {
@@ -516,8 +517,15 @@ export async function reverseTransfer(input: ReverseTransactionInput) {
 
 export async function reverseAccountPayment(input: {
   organizationId: string; actor: AuthUser; paymentId: string; idempotencyKey: string;
+  approvalContext?: { requestId: string; requestedBy: string };
 }) {
-  return getDatabaseClient().transaction(async (transaction) => {
+  return getDatabaseClient().transaction((transaction) => reverseAccountPaymentInTransaction(input, transaction));
+}
+
+export async function reverseAccountPaymentInTransaction(input: {
+  organizationId: string; actor: AuthUser; paymentId: string; idempotencyKey: string;
+  approvalContext?: { requestId: string; requestedBy: string };
+}, transaction: DatabaseClient) {
     const payment = await transaction.prepare(
       `SELECT id FROM transactions WHERE id = ? AND organization_id = ? AND idempotency_key LIKE 'payment:%' LIMIT 1 FOR UPDATE`,
     ).bind(input.paymentId, input.organizationId).first<{ id: string }>();
@@ -525,6 +533,7 @@ export async function reverseAccountPayment(input: {
     const result = await reverseTransactionInTransaction({
       organizationId: input.organizationId, actor: input.actor, transactionId: payment.id,
       idempotencyKey: input.idempotencyKey, auditAction: 'payment.reversed',
+      approvalContext: input.approvalContext,
     }, transaction);
     const updated = await transaction.prepare(
       `SELECT id, counterparty, description, amount_minor::text AS amountMinor, currency, status,
@@ -536,7 +545,6 @@ export async function reverseAccountPayment(input: {
       reversal: result.transaction,
       replayed: result.replayed,
     };
-  });
 }
 
 export async function reverseTransactionInTransaction(input: ReverseTransactionInput, transaction: DatabaseClient) {
@@ -725,7 +733,11 @@ export async function reverseTransactionInTransaction(input: ReverseTransactionI
         action: input.auditAction ?? 'transfer.reversed',
         resourceType: 'transaction',
         resourceId: original.id,
-        payload: { reversalId: id },
+        payload: {
+          reversalId: id,
+          approvalRequestId: input.approvalContext?.requestId ?? null,
+          requestedBy: input.approvalContext?.requestedBy ?? null,
+        },
       });
     }
     return {

@@ -2301,6 +2301,49 @@ try {
   }), 200);
   assert.equal(disabledPaymentPolicy.policy.enabled, false);
 
+  const directCashIn = await json(await request('/api/v1/payments', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-direct-cashin-rev-${runId}` },
+    body: JSON.stringify({
+      accountId: account.id, direction: 'cash_in', counterparty: 'QA Reverse Source',
+      description: 'Funding for reverse approval', amount: '40.00', currency: 'ARS',
+      signals: { deviceReference, identityReference, deviceTrust: 'trusted', identityVerified: true },
+    }),
+  }), 201);
+  assert.equal(directCashIn.payment.status, 'settled');
+  const reversePolicy = await json(await request('/api/platform/approval-policy', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actionType: 'payment.reverse', enabled: true, expiresInMinutes: 1440 }),
+  }), 200);
+  assert.equal(reversePolicy.policy.actionType, 'payment.reverse');
+  assert.equal(reversePolicy.policy.enabled, true);
+  const protectedReverse = await json(await request(`/api/v1/payments/${directCashIn.payment.id}/reverse`, {
+    method: 'POST', headers: { 'Idempotency-Key': `qa-protected-payment-reverse-${runId}` },
+  }), 202);
+  assert.equal(protectedReverse.requiresApproval, true);
+  assert.equal(protectedReverse.approval.actionType, 'payment.reverse');
+  assert.equal(protectedReverse.approval.resourceType, 'payment');
+  assert.equal(protectedReverse.approval.resourceId, directCashIn.payment.id);
+  const protectedReverseReplay = await json(await request(`/api/v1/payments/${directCashIn.payment.id}/reverse`, {
+    method: 'POST', headers: { 'Idempotency-Key': `qa-protected-payment-reverse-${runId}` },
+  }), 202);
+  assert.equal(protectedReverseReplay.replayed, true);
+  assert.equal(protectedReverseReplay.approval.id, protectedReverse.approval.id);
+  cookie = checkerCookie;
+  const protectedReverseExecution = await json(await request(`/api/v1/approvals/${protectedReverse.approval.id}/approve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-payment-reverse-checker-${runId}` },
+    body: JSON.stringify({ reason: 'Independent payment reverse checker' }),
+  }), 200);
+  assert.equal(protectedReverseExecution.approval.status, 'executed');
+  assert.equal(protectedReverseExecution.payment.id, directCashIn.payment.id);
+  assert.equal(protectedReverseExecution.payment.status, 'reversed');
+  assert.equal(protectedReverseExecution.reversal.reversalOf, directCashIn.payment.id);
+  cookie = ownerCookieAfterRequest;
+  const disabledReversePolicy = await json(await request('/api/platform/approval-policy', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actionType: 'payment.reverse', enabled: false, expiresInMinutes: 1440 }),
+  }), 200);
+  assert.equal(disabledReversePolicy.policy.enabled, false);
+
   const unfundedTransfer = await json(await request('/api/v1/transfers', {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `qa-protected-unfunded-${runId}` },
     body: JSON.stringify({ counterparty: 'QA Protected Supplier', description: 'Approval-time balance recheck', amount: '9000000', currency: 'ARS' }),

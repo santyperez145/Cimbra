@@ -351,6 +351,13 @@
       "when": 1788390000000,
       "tag": "0049_payment_create_approval",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1788391200000,
+      "tag": "0050_payment_reverse_approval",
+      "breakpoints": true
     }
   ]
 }

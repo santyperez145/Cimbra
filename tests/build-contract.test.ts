@@ -160,16 +160,23 @@ test('abrir cuentas exige KYC/KYB aprobado y la consola no simula payments', () 
   assert.doesNotMatch(capabilities, /límites, fees/);
 });
 
-test('cash-in/out usa maker/checker opt-in payment.create', () => {
+test('cash-in/out usa maker/checker opt-in payment.create y payment.reverse', () => {
   const approvals = readFileSync(join(root, 'db', 'approvals.ts'), 'utf8');
   const payments = readFileSync(join(root, 'app', 'api', 'v1', 'payments', 'route.ts'), 'utf8');
+  const reverse = readFileSync(join(root, 'app', 'api', 'v1', 'payments', '[id]', 'reverse', 'route.ts'), 'utf8');
   const panel = readFileSync(join(root, 'app', 'console', 'approvals-panel.tsx'), 'utf8');
-  const migration = readFileSync(join(root, 'drizzle-postgres', '0049_payment_create_approval.sql'), 'utf8');
+  const createMigration = readFileSync(join(root, 'drizzle-postgres', '0049_payment_create_approval.sql'), 'utf8');
+  const reverseMigration = readFileSync(join(root, 'drizzle-postgres', '0050_payment_reverse_approval.sql'), 'utf8');
   assert.match(approvals, /createAccountPaymentWithApprovalPolicy/);
+  assert.match(approvals, /reverseAccountPaymentWithApprovalPolicy/);
   assert.match(approvals, /payment\.create/);
+  assert.match(approvals, /payment\.reverse/);
   assert.match(payments, /createAccountPaymentWithApprovalPolicy/);
+  assert.match(reverse, /reverseAccountPaymentWithApprovalPolicy/);
   assert.match(panel, /payment\.create/);
-  assert.match(migration, /payment\.create/);
+  assert.match(panel, /payment\.reverse/);
+  assert.match(createMigration, /payment\.create/);
+  assert.match(reverseMigration, /payment\.reverse/);
 });
 
 test('help-center documenta Compliance, Aprobaciones y Disputas con límites honestos', () => {

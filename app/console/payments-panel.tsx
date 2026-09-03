@@ -86,8 +86,16 @@ export default function PaymentsPanel({ accounts, role }: { accounts: Account[];
     const response = await authenticatedFetch(`/api/v1/payments/${item.transactionId}/reverse`, {
       method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() },
     });
-    const body = await response.json() as { payment?: { status: string }; error?: string | { message?: string } };
+    const body = await response.json() as {
+      payment?: { status: string }; requiresApproval?: boolean; approval?: { id: string; status: string };
+      error?: string | { message?: string };
+    };
     if (!response.ok) setFeedback(apiError(body, 'No pudimos revertir el payment.'));
+    else if (body.requiresApproval) {
+      setFeedback('Reversa enviada a Aprobaciones (maker/checker).');
+      await load();
+      router.refresh();
+    }
     else {
       setFeedback('Payment revertido con compensación en el ledger.');
       await load();
@@ -157,6 +165,6 @@ export default function PaymentsPanel({ accounts, role }: { accounts: Account[];
       </article>
     </div>
     {!canOperate && <p className="role-boundary-copy">Viewer: sólo lectura del historial cash. Las altas y reversas requieren operator, admin u owner.</p>}
-    <p className="role-boundary-copy">Sandbox: no mueve fondos reales ni usa adaptadores regionales. Distinto de book transfers (entre cuentas Cimbra) y de Pagos AR (instrumentos locales). Reversa canónica: POST /api/v1/payments/{'{id}'}/reverse.</p>
+    <p className="role-boundary-copy">Sandbox: no mueve fondos reales ni usa adaptadores regionales. Distinto de book transfers (entre cuentas Cimbra) y de Pagos AR (instrumentos locales). Reversa canónica: POST /api/v1/payments/{'{id}'}/reverse; con política payment.reverse pasa por Aprobaciones.</p>
   </div>;
 }

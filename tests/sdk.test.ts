@@ -143,10 +143,21 @@ test('el SDK cablea la reversa canónica de payments', async () => {
   const result = await client.payments.reverse('pay_1');
   assert.equal(requestUrl, 'https://api.test/api/v1/payments/pay_1/reverse');
   assert.match(idempotencyKey, /^idem_[a-f0-9]{32}$/);
-  assert.equal(result.data.payment.status, 'reversed');
-  assert.equal(result.data.reversal.id, 'pay_rev_1');
+  if (!result.data.requiresApproval) {
+    assert.equal(result.data.payment.status, 'reversed');
+    assert.equal(result.data.reversal.id, 'pay_rev_1');
+  }
 });
 
+test('el SDK representa reversas de payments pendientes de aprobación humana', async () => {
+  const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', fetch: async () => Response.json({
+    ok: true, requiresApproval: true, replayed: false, deduplicated: false,
+    approval: { id: 'approval_pay_rev_1', actionType: 'payment.reverse', resourceType: 'payment', resourceId: 'pay_1', status: 'pending' },
+  }, { status: 202 }) });
+  const result = await client.payments.reverse('pay_1');
+  assert.equal(result.data.requiresApproval, true);
+  if (result.data.requiresApproval) assert.equal(result.data.approval.actionType, 'payment.reverse');
+});
 test('el SDK cablea book transfers, reversas y statements paginados', async () => {
   const calls: Array<{ url: string; method: string; idempotencyKey: string | null }> = [];
   const client = new Cimbra({ apiKey: 'cim_sk_test_example', baseUrl: 'https://api.test', maxRetries: 0,

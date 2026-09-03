@@ -5,14 +5,14 @@ import { roleCan, type OrganizationRole } from '@/app/lib/platform/access-policy
 import { authenticatedFetch } from '@/app/lib/platform/client-http';
 
 type Role = OrganizationRole;
-type ApprovalActionType = 'settlement.execute' | 'transfer.create' | 'payment.create' | 'payout_batch.execute' | 'risk.case.resolve' | 'reconciliation.exception.resolve' | 'dispute.resolve';
+type ApprovalActionType = 'settlement.execute' | 'transfer.create' | 'payment.create' | 'payment.reverse' | 'payout_batch.execute' | 'risk.case.resolve' | 'reconciliation.exception.resolve' | 'dispute.resolve';
 type ApprovalStatus = 'pending' | 'executed' | 'rejected' | 'cancelled' | 'expired' | 'failed';
 type Approval = {
   id: string; actionType: ApprovalActionType;
   resourceType: 'settlement_cycle' | 'transfer' | 'book_transfer' | 'payment' | 'payout_batch' | 'risk_case' | 'reconciliation_exception' | 'dispute'; resourceId: string; status: ApprovalStatus;
   requestPayload: { name?: string; rail?: string; currency?: string; netMinor?: string; amountMinor?: string; differenceMinor?: string;
     executionMode?: string; counterparty?: string; description?: string; origin?: string; resolution?: string; note?: string;
-    accountId?: string; direction?: 'cash_in' | 'cash_out';
+    accountId?: string; direction?: 'cash_in' | 'cash_out'; paymentId?: string;
     externalReference?: string; sourceAccountId?: string; destinationAccountId?: string; bookTransfer?: boolean;
     itemCount?: number; runName?: string; priority?: string; score?: number; reason?: string; creditStatus?: string };
   requestedBy: string; requestedByName: string; resolvedBy: string | null; resolvedByName: string | null;
@@ -28,6 +28,7 @@ const policyLabels: Record<ApprovalActionType, { title: string; direct: string }
   'settlement.execute': { title: 'Ejecución de settlement', direct: 'Ejecución directa sandbox' },
   'transfer.create': { title: 'Transferencias y book transfers', direct: 'Ejecución directa según saldo y riesgo' },
   'payment.create': { title: 'Cash-in y cash-out', direct: 'Ejecución directa contra settlement interno' },
+  'payment.reverse': { title: 'Reversa de cash-in/out', direct: 'Compensación directa en ledger' },
   'payout_batch.execute': { title: 'Ejecución de lotes de payouts', direct: 'Envío asíncrono por ítem' },
   'risk.case.resolve': { title: 'Resolución de casos de riesgo', direct: 'Resolución directa por operador' },
   'reconciliation.exception.resolve': { title: 'Resolución de excepciones', direct: 'Resolución directa por operador' },
@@ -51,6 +52,9 @@ function approvalTitle(item: Approval) {
   if (item.actionType === 'payment.create') {
     return `${item.requestPayload.direction === 'cash_out' ? 'Cash-out' : 'Cash-in'} · ${item.requestPayload.counterparty ?? 'payment'}`;
   }
+  if (item.actionType === 'payment.reverse') {
+    return `Reversa · ${item.requestPayload.direction === 'cash_out' ? 'cash-out' : 'cash-in'} · ${item.requestPayload.counterparty ?? 'payment'}`;
+  }
   if (item.actionType === 'transfer.create') return item.requestPayload.counterparty ?? 'Nueva transferencia';
   if (item.actionType === 'payout_batch.execute') return item.requestPayload.externalReference ?? 'Lote de payouts';
   if (item.actionType === 'risk.case.resolve') return item.requestPayload.counterparty ?? 'Caso de riesgo';
@@ -64,6 +68,9 @@ function approvalChannel(item: Approval) {
   if (item.actionType === 'payment.create') {
     return `${item.requestPayload.description ?? 'Sin concepto'} · ${item.requestPayload.direction ?? 'cash'} · ${item.requestPayload.origin === 'api_key' ? 'API key' : 'consola'}`;
   }
+  if (item.actionType === 'payment.reverse') {
+    return `${item.requestPayload.description ?? 'Sin concepto'} · compensación · ${item.requestPayload.origin === 'api_key' ? 'API key' : 'consola'}`;
+  }
   if (item.actionType === 'transfer.create') return `${item.requestPayload.description ?? 'Sin concepto'} · ${item.requestPayload.origin === 'api_key' ? 'API key' : 'consola'}`;
   if (item.actionType === 'payout_batch.execute') return `${item.requestPayload.itemCount ?? 0} ítems · ejecución asíncrona`;
   if (item.actionType === 'risk.case.resolve') return `${item.requestPayload.resolution === 'approved' ? 'aprobar' : 'rechazar'} · score ${item.requestPayload.score ?? '—'} · ${item.requestPayload.priority ?? 'sin prioridad'}`;
@@ -75,6 +82,7 @@ function approvalChannel(item: Approval) {
 function approvalIcon(item: Approval) {
   if (item.resourceType === 'book_transfer') return '⇄';
   if (item.actionType === 'payment.create') return item.requestPayload.direction === 'cash_out' ? '↗' : '↙';
+  if (item.actionType === 'payment.reverse') return '↺';
   if (item.actionType === 'transfer.create') return '↗';
   if (item.actionType === 'payout_batch.execute') return '≡';
   if (item.actionType === 'risk.case.resolve') return '!';
