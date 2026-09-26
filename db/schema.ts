@@ -866,7 +866,7 @@ export const approvalPolicies = pgTable('approval_policies', {
   createdAt: text('created_at').notNull(), updatedAt: text('updated_at').notNull(),
 }, (table) => [
   uniqueIndex('idx_approval_policies_org_action').on(table.organizationId, table.actionType),
-  check('approval_policies_action', sql`${table.actionType} IN ('settlement.execute', 'transfer.create', 'transfer.reverse', 'payment.create', 'payment.reverse', 'bill_payment.create', 'bill_payment.reverse', 'instant_transfer.create', 'instant_transfer.return', 'collection.pay', 'collection.till_credit', 'collection.refund', 'recurring_mandate.create', 'recurring_mandate.resume', 'debit_request.accept', 'payment_qr.pay', 'echeq.deposit', 'hold.capture', 'hold.release', 'payout_batch.execute', 'risk.case.resolve', 'reconciliation.exception.resolve', 'dispute.resolve', 'api_key.create')`),
+  check('approval_policies_action', sql`${table.actionType} IN ('settlement.execute', 'transfer.create', 'transfer.reverse', 'payment.create', 'payment.reverse', 'bill_payment.create', 'bill_payment.reverse', 'instant_transfer.create', 'instant_transfer.return', 'collection.pay', 'collection.till_credit', 'collection.refund', 'recurring_mandate.create', 'recurring_mandate.resume', 'debit_request.accept', 'payment_qr.pay', 'echeq.deposit', 'hold.capture', 'hold.release', 'payout_batch.execute', 'risk.case.resolve', 'reconciliation.exception.resolve', 'dispute.resolve', 'api_key.create', 'card.issued', 'card.terminated', 'card.controls.update')`),
   check('approval_policies_enabled', sql`${table.enabled} IN (0, 1)`),
   check('approval_policies_expiry', sql`${table.expiresInMinutes} BETWEEN 15 AND 10080`),
 ]);
@@ -909,7 +909,10 @@ export const approvalRequests = pgTable('approval_requests', {
     (${table.actionType} = 'risk.case.resolve' AND ${table.resourceType} = 'risk_case') OR
     (${table.actionType} = 'reconciliation.exception.resolve' AND ${table.resourceType} = 'reconciliation_exception') OR
     (${table.actionType} = 'dispute.resolve' AND ${table.resourceType} = 'dispute') OR
-    (${table.actionType} = 'api_key.create' AND ${table.resourceType} = 'api_key')
+    (${table.actionType} = 'api_key.create' AND ${table.resourceType} = 'api_key') OR
+    (${table.actionType} = 'card.issued' AND ${table.resourceType} = 'card') OR
+    (${table.actionType} = 'card.terminated' AND ${table.resourceType} = 'card') OR
+    (${table.actionType} = 'card.controls.update' AND ${table.resourceType} = 'card')
   )`),
   check('approval_requests_status', sql`${table.status} IN ('pending', 'executed', 'rejected', 'cancelled', 'expired', 'failed')`),
 ]);
