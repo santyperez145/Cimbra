@@ -30,6 +30,8 @@ export const APPROVAL_ACTION_TYPES = [
   'card.issued',
   'card.terminated',
   'card.controls.update',
+  'echeq.issue',
+  'echeq.accept',
 ] as const;
 export type ApprovalActionType = typeof APPROVAL_ACTION_TYPES[number];
 export type ApprovalStatus = 'pending' | 'executed' | 'rejected' | 'cancelled' | 'expired' | 'failed';
