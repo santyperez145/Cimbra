@@ -24,6 +24,9 @@ export const APPROVAL_ACTION_TYPES = [
   'risk.case.resolve',
   'reconciliation.exception.resolve',
   'dispute.resolve',
+  'api_key.create',
+  'api_key.revoke',
+  'api_key.rotate',
 ] as const;
 export type ApprovalActionType = typeof APPROVAL_ACTION_TYPES[number];
 export type ApprovalStatus = 'pending' | 'executed' | 'rejected' | 'cancelled' | 'expired' | 'failed';

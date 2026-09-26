@@ -33,7 +33,7 @@ export class ApprovalError extends Error {
 
 type ApprovalRow = {
   id: string; actionType: ApprovalActionType;
-  resourceType: 'settlement_cycle' | 'transfer' | 'book_transfer' | 'payment' | 'bill_payment' | 'instant_transfer' | 'payment_link' | 'payment_qr' | 'echeq' | 'collection_till' | 'hold' | 'recurring_payment_mandate' | 'payout_batch' | 'risk_case' | 'reconciliation_exception' | 'dispute'; resourceId: string;
+  resourceType: 'settlement_cycle' | 'transfer' | 'book_transfer' | 'payment' | 'bill_payment' | 'instant_transfer' | 'payment_link' | 'payment_qr' | 'echeq' | 'collection_till' | 'hold' | 'recurring_payment_mandate' | 'payout_batch' | 'risk_case' | 'reconciliation_exception' | 'dispute' | 'api_key'; resourceId: string;
   status: ApprovalStatus; requestFingerprint: string; requestPayload: string; requestedBy: string; requestedByName: string;
   resolvedBy: string | null; resolvedByName: string | null; resolutionReason: string | null;
   expiresAt: string; resolvedAt: string | null; executedAt: string | null; createdAt: string; updatedAt: string;
